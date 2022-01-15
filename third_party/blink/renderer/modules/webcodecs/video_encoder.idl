@@ -17,6 +17,8 @@
     // that have been sent to the underlying codec.
     readonly attribute long encodeQueueSize;
 
+    long wtf();
+
     // Enqueues a control message to configure the video encoder for encoding
     // frames as described by config.
     [RaisesException]

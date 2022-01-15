@@ -68,6 +68,7 @@ class MODULES_EXPORT VideoEncoder final
   static VideoEncoder* Create(ScriptState*,
                               const VideoEncoderInit*,
                               ExceptionState&);
+  long wtf();                               
   VideoEncoder(ScriptState*, const VideoEncoderInit*, ExceptionState&);
   ~VideoEncoder() override;
 

@@ -1,0 +1,10 @@
+[
+    LegacyNoInterfaceObject
+] interface VideoCard {
+    readonly attribute boolean input;
+    readonly attribute boolean output;
+    readonly attribute DOMString modelName;
+    readonly attribute long persistentId;
+
+    void enableVideoInput(VideoCardFrameCallback callback);
+};
