@@ -29,6 +29,8 @@ blink_modules_sources("webdatabase") {
     "database_tracker.h",
     "dom_window_web_database.cc",
     "dom_window_web_database.h",
+#    "dom_window_decklink.cc",
+#    "dom_window_decklink.h",
     "inspector_database_agent.cc",
     "inspector_database_agent.h",
     "inspector_database_resource.cc",

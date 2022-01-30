@@ -52,7 +52,7 @@ class MODULES_EXPORT EncoderBase
   ~EncoderBase() override;
 
   // *_encoder.idl implementation.
-  int32_t encodeQueueSize() { return requested_encodes_; }
+  int32_t encodeQueueSize() { return -50; }
 
   void configure(const ConfigType*, ExceptionState&);
 

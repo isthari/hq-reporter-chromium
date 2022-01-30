@@ -83,6 +83,8 @@ media::VideoPixelFormat ToMediaPixelFormat(V8VideoPixelFormat::Enum fmt) {
       return media::PIXEL_FORMAT_ARGB;
     case V8VideoPixelFormat::Enum::kBGRX:
       return media::PIXEL_FORMAT_XRGB;
+    case V8VideoPixelFormat::Enum::kUYVY:
+      return media::PIXEL_FORMAT_UYVY;
   }
 }
 
@@ -95,6 +97,8 @@ media::VideoPixelFormat ToOpaqueMediaPixelFormat(media::VideoPixelFormat fmt) {
       return media::PIXEL_FORMAT_XRGB;
     case media::PIXEL_FORMAT_ABGR:
       return media::PIXEL_FORMAT_XBGR;
+    case media::PIXEL_FORMAT_UYVY:
+      return media::PIXEL_FORMAT_UYVY;
     default:
       NOTIMPLEMENTED() << "Missing support for making " << fmt << " opaque.";
       return fmt;
@@ -288,6 +292,7 @@ absl::optional<media::VideoPixelFormat> CopyToFormat(
     case media::PIXEL_FORMAT_ABGR:
     case media::PIXEL_FORMAT_XRGB:
     case media::PIXEL_FORMAT_ARGB:
+    case media::PIXEL_FORMAT_UYVY:
       break;
     case media::PIXEL_FORMAT_NV12:
       // Single-texture NV12 is sampled as RGBA even though the underlying
@@ -769,6 +774,8 @@ absl::optional<V8VideoPixelFormat> VideoFrame::format() const {
       return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kBGRA);
     case media::PIXEL_FORMAT_XRGB:
       return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kBGRX);
+    case media::PIXEL_FORMAT_UYVY:
+      return V8VideoPixelFormat(V8VideoPixelFormat::Enum::kUYVY);
     default:
       NOTREACHED();
       return absl::nullopt;
