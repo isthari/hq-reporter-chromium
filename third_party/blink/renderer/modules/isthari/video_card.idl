@@ -6,5 +6,11 @@
     readonly attribute DOMString modelName;
     readonly attribute long persistentId;
 
-    void enableVideoInput(VideoCardFrameCallback callback);
+    [CallWith=ExecutionContext] void enableVideoInput(long mode,
+    	VideoCardFrameCallback callbackVideo, 
+    	VideoCardAudioCallback callbackAudio);
+    void disableVideoInput();
+    long getModeCount();
+    VideoCardMode getMode(long index);
+    [CallWith=ExecutionContext] VideoFrame getVideoFrame();
 };

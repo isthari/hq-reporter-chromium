@@ -14,6 +14,8 @@ blink_modules_sources("isthari") {
     "dom_window_decklink.h",
     "video_card.cc",
     "video_card.h",
+    "video_card_mode.cc",
+    "video_card_mode.h",
   ]
   deps = [
     "//media",
