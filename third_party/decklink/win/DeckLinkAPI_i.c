@@ -6,10 +6,10 @@
 
 
  /* File created by MIDL compiler version 8.01.0622 */
-/* at Mon Jan 18 19:14:07 2038
+/* at Tue Jan 19 04:14:07 2038
  */
-/* Compiler settings for c:\Users\jhernan\Documents\Blackmagic Video Capture and Playback\Blackmagic DeckLink SDK 10.11.4\Win\include\DeckLinkAPI.idl:
-    Oicf, W1, Zp8, env=Win64 (32b run), target_arch=AMD64 8.01.0622 
+/* Compiler settings for ..\..\..\Win\include\DeckLinkAPI.idl:
+    Oicf, W1, Zp8, env=Win32 (32b run), target_arch=X86 8.01.0622 
     protocol : dce , ms_ext, c_ext, robust
     error checks: allocation ref bounds_check enum stub_data 
     VC __declspec() decoration level: 
@@ -18,7 +18,6 @@
 */
 /* @@MIDL_FILE_HEADING(  ) */
 
-#pragma warning( disable: 4049 )  /* more than 64k source lines */
 
 
 #ifdef __cplusplus

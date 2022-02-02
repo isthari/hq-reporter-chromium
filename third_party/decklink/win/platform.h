@@ -38,8 +38,11 @@ HRESULT GetDeckLinkIterator(IDeckLinkIterator **deckLinkIterator);
 #define dlbool_t	BOOL
 #define dlstring_t	BSTR
 
-const std::function<void(dlstring_t)> DeleteString = SysFreeString;
+void DeleteString(dlstring_t);
+//const std::function<void(dlstring_t)> DeleteString = SysFreeString;
 
+std::string DlToStdString(dlstring_t dl_str);
+/*
 const std::function<std::string(dlstring_t)> DlToStdString = [](dlstring_t dl_str) -> std::string 
 {
 	int wlen = ::SysStringLen(dl_str);
@@ -50,7 +53,9 @@ const std::function<std::string(dlstring_t)> DlToStdString = [](dlstring_t dl_st
 
 	return ret_str;
 };
+*/
 
+/*
 const std::function<dlstring_t(std::string)> StdToDlString = [](std::string std_str) -> dlstring_t 
 {
 	int wlen = ::MultiByteToWideChar(CP_ACP, 0, std_str.data(), (int)std_str.length(), NULL, 0);
@@ -60,4 +65,4 @@ const std::function<dlstring_t(std::string)> StdToDlString = [](std::string std_
 
 	return ret_str;
 };
-
+*/

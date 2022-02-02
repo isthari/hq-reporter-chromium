@@ -28,6 +28,21 @@
 #include "platform.h"
 #include "DeckLinkAPI_i.c"
 
+void DeleteString(dlstring_t str) {
+    SysFreeString(str);
+}
+
+std::string DlToStdString(dlstring_t dl_str)
+{
+	int wlen = ::SysStringLen(dl_str);
+	int mblen = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)dl_str, wlen, NULL, 0, NULL, NULL);
+	
+	std::string ret_str(mblen, '\0');
+	mblen = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)dl_str, wlen, &ret_str[0], mblen, NULL, NULL);
+
+	return ret_str;
+}
+
 HRESULT GetDeckLinkIterator(IDeckLinkIterator **deckLinkIterator)
 {
 	HRESULT result = S_OK;
