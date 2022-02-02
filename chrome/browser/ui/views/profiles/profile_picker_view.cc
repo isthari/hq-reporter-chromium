@@ -17,6 +17,8 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
+#include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -64,13 +66,13 @@
 #include "chrome/browser/ui/views/profiles/profile_picker_dice_sign_in_toolbar.h"
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "chrome/browser/shell_integration_win.h"
 #include "ui/base/win/shell.h"
 #include "ui/views/win/hwnd_util.h"
 #endif
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
 #endif
 
@@ -259,7 +261,7 @@ bool ProfilePicker::IsActive() {
   if (!IsOpen())
     return false;
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   return g_profile_picker_view->GetWidget()->IsVisible();
 #else
   return g_profile_picker_view->GetWidget()->IsActive();
@@ -588,10 +590,23 @@ void ProfilePickerView::Init(Profile* picker_profile) {
       content::WebContents::CreateParams(picker_profile));
   contents_->SetDelegate(this);
 
+  // Destroy the System Profile when the ProfilePickerView is closed (assuming
+  // its refcount hits 0). We need to use GetOriginalProfile() here because
+  // |profile_picker| is an OTR Profile, and ScopedProfileKeepAlive only
+  // supports non-OTR Profiles. Trying to acquire a keepalive on the OTR Profile
+  // would trigger a DCHECK.
+  //
+  // TODO(crbug.com/1153922): Once OTR Profiles use refcounting, remove the call
+  // to GetOriginalProfile(). The OTR Profile will hold a keepalive on the
+  // regular Profile, so the ownership model will be more straightforward.
+  profile_keep_alive_ = std::make_unique<ScopedProfileKeepAlive>(
+      picker_profile->GetOriginalProfile(),
+      ProfileKeepAliveOrigin::kProfilePickerView);
+
   // The widget is owned by the native widget.
   new ProfilePickerWidget(this);
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Set the app id for the user manager to the app id of its parent.
   ui::win::SetAppIdForWindow(
       shell_integration::win::GetAppUserModelIdForBrowser(
@@ -903,7 +918,7 @@ void ProfilePickerView::ConfigureAccelerators() {
     AddAccelerator(accelerator);
   }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // Check Mac-specific accelerators. Note: Chrome does not support dynamic or
   // user-configured accelerators on Mac. Default static accelerators are used
   // instead.
@@ -916,7 +931,7 @@ void ProfilePickerView::ConfigureAccelerators() {
       AddAccelerator(accelerator);
     }
   }
-#endif  // OS_MAC
+#endif  // BUILDFLAG(IS_MAC)
 }
 
 void ProfilePickerView::ShowDialog(content::BrowserContext* browser_context,

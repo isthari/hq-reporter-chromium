@@ -59,12 +59,18 @@ class ASH_EXPORT SearchResultView : public SearchResultBaseView,
   ~SearchResultView() override;
 
   // Sets/gets SearchResult displayed by this view.
+  void OnResultChanging(SearchResult* new_result) override;
   void OnResultChanged() override;
 
   void SetSearchResultViewType(SearchResultViewType type);
   SearchResultViewType view_type() { return view_type_; }
 
   views::LayoutOrientation GetLayoutOrientationForTest();
+
+  // Returns whether the result has changed since this method was last called.
+  // Used to determine whether the result should be animated when the result
+  // list changes.
+  bool GetAndResetResultChanged();
 
  private:
   friend class test::SearchResultListViewTest;
@@ -122,15 +128,27 @@ class ASH_EXPORT SearchResultView : public SearchResultBaseView,
 
   SearchResultPageDialogController* const dialog_controller_;
 
-  MaskedImageView* icon_ = nullptr;              // Owned by views hierarchy.
-  views::ImageView* badge_icon_ = nullptr;       // Owned by views hierarchy.
+  MaskedImageView* icon_ = nullptr;         // Owned by views hierarchy.
+  views::ImageView* badge_icon_ = nullptr;  // Owned by views hierarchy.
   views::FlexLayoutView* text_container_ =
       nullptr;                               // Owned by views hierarchy.
+  // TODO(crbug/1216097): Update `title_container_` and `details_container_` to
+  // build `views::Label` and `views::ImageView` based on TextVector metadata.
+  views::FlexLayoutView* title_container_ =
+      nullptr;  // Owned by views hierarchy.
+  views::FlexLayoutView* details_container_ =
+      nullptr;  // Owned by views hierarchy.
+  // TODO(crbug/1216097): Deprecate title and details labels.
   views::Label* title_label_ = nullptr;      // Owned by views hierarchy.
   views::Label* details_label_ = nullptr;    // Owned by views hierarchy.
   views::Label* separator_label_ = nullptr;  // Owned by views hierarchy.
   views::Label* rating_ = nullptr;           // Owned by views hierarchy.
   views::ImageView* rating_star_ = nullptr;  // Owned by views hierarchy.
+
+  // Whether a result change was detected. This will be set only if the ID of
+  // the result shown by the view changes. Result will be considered unchanged
+  // if its metadata (e.g. icon, or text style tags) changes.
+  bool result_changed_ = false;
 
   // Whether the removal confirmation dialog is invoked by long press touch.
   bool confirm_remove_by_long_press_ = false;

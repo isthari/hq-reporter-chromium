@@ -552,8 +552,7 @@ class DevToolsUIBindings::FrontendWebContentsObserver
   void ReadyToCommitNavigation(
       content::NavigationHandle* navigation_handle) override;
   void DocumentOnLoadCompletedInPrimaryMainFrame() override;
-  void DidFinishNavigation(
-      content::NavigationHandle* navigation_handle) override;
+  void PrimaryPageChanged(content::Page& page) override;
 
   DevToolsUIBindings* devtools_bindings_;
 };
@@ -597,13 +596,13 @@ void DevToolsUIBindings::FrontendWebContentsObserver::
   switch (status) {
     case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
 #endif
     case base::TERMINATION_STATUS_PROCESS_CRASHED:
     case base::TERMINATION_STATUS_LAUNCH_FAILED:
     case base::TERMINATION_STATUS_OOM:
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case base::TERMINATION_STATUS_INTEGRITY_FAILURE:
 #endif
       if (devtools_bindings_->agent_host_.get())
@@ -611,7 +610,7 @@ void DevToolsUIBindings::FrontendWebContentsObserver::
       break;
     case base::TERMINATION_STATUS_NORMAL_TERMINATION:
     case base::TERMINATION_STATUS_STILL_RUNNING:
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     case base::TERMINATION_STATUS_OOM_PROTECTED:
 #endif
     case base::TERMINATION_STATUS_MAX_ENUM:
@@ -631,11 +630,9 @@ void DevToolsUIBindings::FrontendWebContentsObserver::
   devtools_bindings_->DocumentOnLoadCompletedInPrimaryMainFrame();
 }
 
-void DevToolsUIBindings::FrontendWebContentsObserver::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  if (navigation_handle->IsInPrimaryMainFrame() &&
-      navigation_handle->HasCommitted())
-    devtools_bindings_->DidNavigateMainFrame();
+void DevToolsUIBindings::FrontendWebContentsObserver::PrimaryPageChanged(
+    content::Page&) {
+  devtools_bindings_->PrimaryPageChanged();
 }
 
 // DevToolsUIBindings ---------------------------------------------------------
@@ -1717,7 +1714,7 @@ void DevToolsUIBindings::DocumentOnLoadCompletedInPrimaryMainFrame() {
   FrontendLoaded();
 }
 
-void DevToolsUIBindings::DidNavigateMainFrame() {
+void DevToolsUIBindings::PrimaryPageChanged() {
   frontend_loaded_ = false;
 }
 

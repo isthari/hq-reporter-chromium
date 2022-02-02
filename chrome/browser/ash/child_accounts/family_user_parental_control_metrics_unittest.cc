@@ -67,12 +67,12 @@ arc::mojom::ArcPackageInfoPtr CreateArcAppPackage(
   return package;
 }
 
-arc::mojom::AppInfo CreateArcAppInfo(const std::string& package_name) {
-  arc::mojom::AppInfo app;
-  app.package_name = package_name;
-  app.name = package_name;
-  app.activity = base::StrCat({package_name, ".", "activity"});
-  app.sticky = true;
+arc::mojom::AppInfoPtr CreateArcAppInfo(const std::string& package_name) {
+  auto app = arc::mojom::AppInfo::New();
+  app->package_name = package_name;
+  app->name = package_name;
+  app->activity = base::StrCat({package_name, ".", "activity"});
+  app->sticky = true;
   return app;
 }
 }  // namespace
@@ -265,8 +265,9 @@ TEST_F(FamilyUserParentalControlMetricsTest, AppAndWebTimeLimitMetrics) {
   EXPECT_EQ(apps::mojom::AppType::kArc, kArcApp.app_type());
   std::string package_name = kArcApp.app_id();
   arc_test_.AddPackage(CreateArcAppPackage(package_name)->Clone());
-  const arc::mojom::AppInfo app = CreateArcAppInfo(package_name);
-  arc_test_.app_instance()->SendPackageAppListRefreshed(package_name, {app});
+  std::vector<arc::mojom::AppInfoPtr> apps;
+  apps.emplace_back(CreateArcAppInfo(package_name));
+  arc_test_.app_instance()->SendPackageAppListRefreshed(package_name, apps);
 
   // Add limit policy to the Chrome and the Arc app.
   {
@@ -384,8 +385,8 @@ TEST_F(FamilyUserParentalControlMetricsTest, ManagedSiteListTypeMetric) {
   {
     DictionaryPrefUpdate hosts_update(GetPrefs(),
                                       prefs::kSupervisedUserManualHosts);
-    base::DictionaryValue* hosts = hosts_update.Get();
-    hosts->SetKey(kExampleHost0, base::Value(false));
+    base::Value* hosts = hosts_update.Get();
+    hosts->SetBoolKey(kExampleHost0, false);
   }
 
   histogram_tester_.ExpectBucketCount(
@@ -404,8 +405,8 @@ TEST_F(FamilyUserParentalControlMetricsTest, ManagedSiteListTypeMetric) {
   {
     DictionaryPrefUpdate hosts_update(GetPrefs(),
                                       prefs::kSupervisedUserManualHosts);
-    base::DictionaryValue* hosts = hosts_update.Get();
-    hosts->SetKey(kExampleHost0, base::Value(true));
+    base::Value* hosts = hosts_update.Get();
+    hosts->SetBoolKey(kExampleHost0, true);
   }
 
   histogram_tester_.ExpectBucketCount(
@@ -424,8 +425,8 @@ TEST_F(FamilyUserParentalControlMetricsTest, ManagedSiteListTypeMetric) {
   {
     DictionaryPrefUpdate urls_update(GetPrefs(),
                                      prefs::kSupervisedUserManualURLs);
-    base::DictionaryValue* urls = urls_update.Get();
-    urls->SetKey(kExampleURL1, base::Value(false));
+    base::Value* urls = urls_update.Get();
+    urls->SetBoolKey(kExampleURL1, false);
   }
 
   histogram_tester_.ExpectBucketCount(

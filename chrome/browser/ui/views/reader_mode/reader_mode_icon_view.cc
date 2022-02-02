@@ -62,6 +62,9 @@ ReaderModeIconView::~ReaderModeIconView() {
 
 void ReaderModeIconView::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
+  if (!navigation_handle->IsInPrimaryMainFrame())
+    return;
+
   if (GetVisible())
     views::InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
                                               nullptr);
@@ -79,8 +82,7 @@ void ReaderModeIconView::ReadyToCommitNavigation(
                                       GetPageType(web_contents));
 }
 
-void ReaderModeIconView::DocumentAvailableInMainFrame(
-    content::RenderFrameHost* render_frame_host) {
+void ReaderModeIconView::PrimaryMainDocumentElementAvailable() {
   content::WebContents* web_contents = GetWebContents();
   if (!web_contents)
     return;

@@ -21,7 +21,7 @@ export async function promisify(fn, ...args) {
   return new Promise((resolve, reject) => {
     const callback = (result) => {
       if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
+        reject(chrome.runtime.lastError.message);
       } else {
         resolve(result);
       }
@@ -66,6 +66,16 @@ export async function getPreferences() {
 export async function validatePathNameLength(parentEntry, name) {
   return promisify(
       chrome.fileManagerPrivate.validatePathNameLength, parentEntry, name);
+}
+
+/**
+ * Wrap the chrome.fileManagerPrivate.getSizeStats function in an async/await
+ * compatible style.
+ * @param {string} volumeId The volumeId to retrieve the size stats for.
+ * @returns {!Promise<(!chrome.fileManagerPrivate.MountPointSizeStats|undefined)>}
+ */
+export async function getSizeStats(volumeId) {
+  return promisify(chrome.fileManagerPrivate.getSizeStats, volumeId);
 }
 
 
@@ -129,4 +139,17 @@ export async function getDirectory(directory, filename, options) {
 export async function getEntry(directory, filename, isFile, options) {
   const getEntry = isFile ? getFile : getDirectory;
   return getEntry(directory, filename, options);
+}
+
+/**
+ * Returns the color to be used by frames of each foreground window.
+ * @returns {Promise<!string>}
+ */
+export async function getFrameColor() {
+  try {
+    return await promisify(chrome.fileManagerPrivate.getFrameColor);
+  } catch (e) {
+    console.error('Failed to get frame color.', e);
+    return '#ffffff';
+  }
 }

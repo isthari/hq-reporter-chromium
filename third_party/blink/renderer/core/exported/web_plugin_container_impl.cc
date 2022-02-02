@@ -111,7 +111,7 @@ namespace blink {
 
 namespace {
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 const WebInputEvent::Modifiers kEditingModifier = WebInputEvent::kMetaKey;
 #else
 const WebInputEvent::Modifiers kEditingModifier = WebInputEvent::kControlKey;
@@ -164,7 +164,7 @@ void WebPluginContainerImpl::UpdateAllLifecyclePhases() {
 }
 
 void WebPluginContainerImpl::Paint(GraphicsContext& context,
-                                   const GlobalPaintFlags,
+                                   PaintFlags,
                                    const CullRect& cull_rect,
                                    const gfx::Vector2d& paint_offset) const {
   // Don't paint anything if the plugin doesn't intersect.

@@ -285,14 +285,6 @@ TabWebContentsDelegateAndroid::GetJavaScriptDialogManager(
   return javascript_dialogs::AppModalDialogManager::GetInstance();
 }
 
-void TabWebContentsDelegateAndroid::AdjustPreviewsStateForNavigation(
-    content::WebContents* web_contents,
-    blink::PreviewsState* previews_state) {
-  if (GetDisplayMode(web_contents) != blink::mojom::DisplayMode::kBrowser) {
-    *previews_state = blink::PreviewsTypes::PREVIEWS_OFF;
-  }
-}
-
 void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
@@ -441,21 +433,11 @@ void TabWebContentsDelegateAndroid::OnDidBlockNavigation(
   ShowFramebustBlockInfobarInternal(web_contents, blocked_url);
 }
 
-void TabWebContentsDelegateAndroid::UpdateUserGestureCarryoverInfo(
-    content::WebContents* web_contents) {
-  auto* intercept_navigation_delegate =
-      navigation_interception::InterceptNavigationDelegate::Get(web_contents);
-  if (intercept_navigation_delegate)
-    intercept_navigation_delegate->UpdateLastUserGestureCarryoverTimestamp();
-}
-
 content::PictureInPictureResult
 TabWebContentsDelegateAndroid::EnterPictureInPicture(
-    content::WebContents* web_contents,
-    const viz::SurfaceId& surface_id,
-    const gfx::Size& natural_size) {
+    content::WebContents* web_contents) {
   return PictureInPictureWindowManager::GetInstance()->EnterPictureInPicture(
-      web_contents, surface_id, natural_size);
+      web_contents);
 }
 
 void TabWebContentsDelegateAndroid::ExitPictureInPicture() {

@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-load("//lib/builders.star", "cpu", "defaults", "goma", "os", "xcode", base_builder = "builder")
+load("//lib/builders.star", "builder", "cpu", "defaults", "goma", "os", "xcode")
 
 luci.bucket(
     name = "webrtc.fyi",
@@ -32,10 +32,6 @@ luci.gitiles_poller(
     repo = "https://webrtc.googlesource.com/src/",
     refs = ["refs/heads/main"],
 )
-
-def builder(**kwargs):
-    kwargs.setdefault("bootstrap", False)
-    return base_builder(**kwargs)
 
 defaults.bucket.set("webrtc.fyi")
 defaults.builder_group.set("chromium.webrtc.fyi")
@@ -135,12 +131,6 @@ builder(
 # dimensions.
 builder(
     name = "WebRTC Chromium FYI Win7 Tester",
-    os = os.WINDOWS_DEFAULT,
-    triggered_by = ["WebRTC Chromium FYI Win Builder"],
-)
-
-builder(
-    name = "WebRTC Chromium FYI Win8 Tester",
     os = os.WINDOWS_DEFAULT,
     triggered_by = ["WebRTC Chromium FYI Win Builder"],
 )

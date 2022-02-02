@@ -25,6 +25,7 @@
 #include "components/bookmarks/browser/url_and_title.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/content_settings/core/common/content_settings_utils.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -38,7 +39,7 @@
 #include "url/origin.h"
 #include "url/url_util.h"
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
@@ -101,10 +102,11 @@ enum CrossedReason {
   CROSSED_REASON_BOUNDARY
 };
 
-void RecordIgnore(base::DictionaryValue* dict) {
-  int times_ignored = dict->FindIntKey(kNumTimesIgnoredName).value_or(0);
-  dict->SetIntKey(kNumTimesIgnoredName, ++times_ignored);
-  dict->SetDoubleKey(kTimeLastIgnored, base::Time::Now().ToDoubleT());
+void RecordIgnore(base::Value& dict) {
+  DCHECK(dict.is_dict());
+  int times_ignored = dict.FindIntKey(kNumTimesIgnoredName).value_or(0);
+  dict.SetIntKey(kNumTimesIgnoredName, ++times_ignored);
+  dict.SetDoubleKey(kTimeLastIgnored, base::Time::Now().ToDoubleT());
 }
 
 // If we should suppress the item with the given dictionary ignored record.
@@ -347,7 +349,7 @@ void PopulateInfoMapWithBookmarks(
 // about clearing data for installed apps, so this and any functions explicitly
 // used to warn about clearing data for installed apps can be excluded from the
 // Android build.
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 void PopulateInfoMapWithInstalledEngagedInTimePeriod(
     browsing_data::TimePeriod time_period,
     Profile* profile,
@@ -478,7 +480,7 @@ ImportantSitesUtil::GetImportantRegisterableDomains(Profile* profile,
   return final_list;
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 std::vector<ImportantDomainInfo>
 ImportantSitesUtil::GetInstalledRegisterableDomains(
     browsing_data::TimePeriod time_period,
@@ -534,15 +536,13 @@ void ImportantSitesUtil::RecordExcludedAndIgnoredImportantSites(
   if (!excluded_sites.empty()) {
     for (const std::string& ignored_site : ignored_sites) {
       GURL origin("http://" + ignored_site);
-      std::unique_ptr<base::DictionaryValue> dict =
-          base::DictionaryValue::From(map->GetWebsiteSetting(
-              origin, origin, ContentSettingsType::IMPORTANT_SITE_INFO,
-              nullptr));
+      base::Value dict = map->GetWebsiteSetting(
+          origin, origin, ContentSettingsType::IMPORTANT_SITE_INFO, nullptr);
 
-      if (!dict)
-        dict = std::make_unique<base::DictionaryValue>();
+      if (!dict.is_dict())
+        dict = base::Value(base::Value::Type::DICTIONARY);
 
-      RecordIgnore(dict.get());
+      RecordIgnore(dict);
 
       map->SetWebsiteSettingDefaultScope(
           origin, origin, ContentSettingsType::IMPORTANT_SITE_INFO,
@@ -552,15 +552,15 @@ void ImportantSitesUtil::RecordExcludedAndIgnoredImportantSites(
     // Record that the user did not interact with the dialog.
     PrefService* service = profile->GetPrefs();
     DictionaryPrefUpdate update(service, prefs::kImportantSitesDialogHistory);
-    RecordIgnore(update.Get());
+    RecordIgnore(*update.Get());
   }
 
   // We clear our ignore counter for sites that the user chose.
   for (const std::string& excluded_site : excluded_sites) {
     GURL origin("http://" + excluded_site);
-    std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-    dict->SetInteger(kNumTimesIgnoredName, 0);
-    dict->RemoveKey(kTimeLastIgnored);
+    base::Value dict(base::Value::Type::DICTIONARY);
+    dict.SetIntKey(kNumTimesIgnoredName, 0);
+    dict.RemoveKey(kTimeLastIgnored);
     map->SetWebsiteSettingDefaultScope(origin, origin,
                                        ContentSettingsType::IMPORTANT_SITE_INFO,
                                        std::move(dict));

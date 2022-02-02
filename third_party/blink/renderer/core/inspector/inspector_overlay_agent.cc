@@ -76,7 +76,6 @@
 #include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
 #include "third_party/blink/renderer/platform/data_resource_helper.h"
-#include "third_party/blink/renderer/platform/geometry/double_size.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -278,13 +277,20 @@ class InspectorOverlayAgent::InspectorPageOverlayDelegate final
 
     overlay_->PaintOverlayPage();
 
-    layer_->SetBounds(size);
+    // The emulation scale factor is baked in the contents of the overlay layer,
+    // so the size of the layer also needs to be scaled.
+    layer_->SetBounds(
+        gfx::ScaleToCeiledSize(size, overlay_->EmulationScaleFactor()));
     DEFINE_STATIC_LOCAL(
         Persistent<LiteralDebugNameClient>, debug_name_client,
         (MakeGarbageCollected<LiteralDebugNameClient>("InspectorOverlay")));
+    // The overlay layer needs to be in the root property tree state (instead of
+    // the default FrameOverlay state which is under the emulation scale
+    // transform node) because the emulation scale is baked in the layer.
+    const auto* property_tree_state = &PropertyTreeState::Root();
     RecordForeignLayer(graphics_context, *debug_name_client,
                        DisplayItem::kForeignLayerDevToolsOverlay, layer_,
-                       gfx::Point(), &PropertyTreeState::Root());
+                       gfx::Point(), property_tree_state);
   }
 
   void Invalidate() override {
@@ -561,16 +567,7 @@ Response InspectorOverlayAgent::setShowScrollBottleneckRects(bool show) {
 }
 
 Response InspectorOverlayAgent::setShowHitTestBorders(bool show) {
-  show_hit_test_borders_.Set(show);
-  if (show) {
-    Response response = CompositingEnabled();
-    if (!response.IsSuccess())
-      return response;
-  }
-  FrameWidget* widget = GetFrame()->GetWidgetForLocalRoot();
-  cc::LayerTreeDebugState debug_state = widget->GetLayerTreeDebugState();
-  debug_state.show_hit_test_borders = show;
-  widget->SetLayerTreeDebugState(debug_state);
+  // This CDP command has been deprecated. Don't do anything and return success.
   return Response::Success();
 }
 
@@ -1125,9 +1122,13 @@ void InspectorOverlayAgent::PaintOverlayPage() {
   LocalFrame* overlay_frame = OverlayMainFrame();
   blink::VisualViewport& visual_viewport =
       frame->GetPage()->GetVisualViewport();
-  gfx::Size viewport_size = visual_viewport.Size();
+  // The emulation scale factor is backed in the overlay frame.
+  gfx::Size viewport_size =
+      gfx::ScaleToCeiledSize(visual_viewport.Size(), EmulationScaleFactor());
   overlay_frame->SetPageZoomFactor(WindowToViewportScale());
   overlay_frame->View()->Resize(viewport_size);
+  OverlayMainFrame()->View()->UpdateAllLifecyclePhases(
+      DocumentUpdateReason::kInspector);
 
   Reset(viewport_size, frame->View()->ViewportSizeForMediaQueries());
 
@@ -1152,6 +1153,13 @@ void InspectorOverlayAgent::PaintOverlayPage() {
       DocumentUpdateReason::kInspector);
 }
 
+float InspectorOverlayAgent::EmulationScaleFactor() const {
+  return GetFrame()
+      ->GetPage()
+      ->GetChromeClient()
+      .InputEventsScaleForEmulation();
+}
+
 static std::unique_ptr<protocol::DictionaryValue> BuildObjectForSize(
     const gfx::Size& size) {
   std::unique_ptr<protocol::DictionaryValue> result =
@@ -1162,11 +1170,11 @@ static std::unique_ptr<protocol::DictionaryValue> BuildObjectForSize(
 }
 
 static std::unique_ptr<protocol::DictionaryValue> BuildObjectForSize(
-    const DoubleSize& size) {
+    const gfx::SizeF& size) {
   std::unique_ptr<protocol::DictionaryValue> result =
       protocol::DictionaryValue::create();
-  result->setDouble("width", size.Width());
-  result->setDouble("height", size.Height());
+  result->setDouble("width", size.width());
+  result->setDouble("height", size.height());
   return result;
 }
 
@@ -1248,11 +1256,11 @@ void InspectorOverlayAgent::LoadOverlayPageResource() {
             V8AtomicString(isolate, "InspectorOverlayHost"), overlay_host_obj)
       .ToChecked();
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   EvaluateInOverlay("setPlatform", "windows");
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   EvaluateInOverlay("setPlatform", "mac");
-#elif defined(OS_POSIX)
+#elif BUILDFLAG(IS_POSIX)
   EvaluateInOverlay("setPlatform", "linux");
 #else
   EvaluateInOverlay("setPlatform", "other");
@@ -1266,13 +1274,11 @@ LocalFrame* InspectorOverlayAgent::OverlayMainFrame() {
 
 void InspectorOverlayAgent::Reset(
     const gfx::Size& viewport_size,
-    const DoubleSize& viewport_size_for_media_queries) {
+    const gfx::SizeF& viewport_size_for_media_queries) {
   std::unique_ptr<protocol::DictionaryValue> reset_data =
       protocol::DictionaryValue::create();
   reset_data->setDouble("deviceScaleFactor", WindowToViewportScale());
-  reset_data->setDouble(
-      "emulationScaleFactor",
-      GetFrame()->GetPage()->GetChromeClient().InputEventsScaleForEmulation());
+  reset_data->setDouble("emulationScaleFactor", EmulationScaleFactor());
   reset_data->setDouble("pageScaleFactor",
                         GetFrame()->GetPage()->GetVisualViewport().Scale());
 

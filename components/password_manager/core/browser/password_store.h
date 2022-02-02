@@ -50,6 +50,15 @@ using metrics_util::GaiaPasswordHashChange;
 
 class PasswordStoreConsumer;
 
+// Used to notify that unsynced credentials are about to be deleted.
+class UnsyncedCredentialsDeletionNotifier {
+ public:
+  // Should be called from the UI thread.
+  virtual void Notify(std::vector<PasswordForm>) = 0;
+  virtual ~UnsyncedCredentialsDeletionNotifier() = default;
+  virtual base::WeakPtr<UnsyncedCredentialsDeletionNotifier> GetWeakPtr() = 0;
+};
+
 // Partial, cross-platform implementation for storing form passwords.
 // The login request/manipulation API is not threadsafe and must be used
 // from the UI thread.
@@ -57,15 +66,6 @@ class PasswordStoreConsumer;
 // needs to access these methods.
 class PasswordStore : public PasswordStoreInterface {
  public:
-  // Used to notify that unsynced credentials are about to be deleted.
-  class UnsyncedCredentialsDeletionNotifier {
-   public:
-    // Should be called from the UI thread.
-    virtual void Notify(std::vector<PasswordForm>) = 0;
-    virtual ~UnsyncedCredentialsDeletionNotifier() = default;
-    virtual base::WeakPtr<UnsyncedCredentialsDeletionNotifier> GetWeakPtr() = 0;
-  };
-
   explicit PasswordStore(std::unique_ptr<PasswordStoreBackend> backend);
 
   PasswordStore(const PasswordStore&) = delete;
@@ -153,9 +153,14 @@ class PasswordStore : public PasswordStoreInterface {
   // |init_status_|.
   void OnInitCompleted(bool success);
 
-  // Notifies observers that password store data may have been changed.
+  // Notifies observers that password store data may have been changed. If
+  // available, it forwards the changes to observers. Otherwise, all logins are
+  // requested and forwarded to `NotifyLoginsRetainedOnMainSequence`.
   void NotifyLoginsChangedOnMainSequence(
       absl::optional<PasswordStoreChangeList> changes);
+
+  // Notifies observers with all logins remaining after a modifying operation.
+  void NotifyLoginsRetainedOnMainSequence(LoginsResultOrError result);
 
   // Called when the backend reports that sync has been enabled or disabled.
   void NotifySyncEnabledOrDisabledOnMainSequence();

@@ -28,11 +28,11 @@
 #include "chrome/updater/util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "chrome/updater/win/setup/uninstall.h"
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
 #include "chrome/updater/mac/setup/setup.h"
-#elif defined(OS_LINUX)
+#elif BUILDFLAG(IS_LINUX)
 #include "chrome/updater/linux/setup/setup.h"
 #endif
 
@@ -133,10 +133,11 @@ void AppUninstall::FirstTaskRun() {
 
   if (command_line->HasSwitch(kUninstallIfUnusedSwitch)) {
     CHECK(global_prefs_);
+    auto persisted_data =
+        base::MakeRefCounted<PersistedData>(global_prefs_->GetPrefService());
     const bool should_uninstall = ShouldUninstall(
-        base::MakeRefCounted<PersistedData>(global_prefs_->GetPrefService())
-            ->GetAppIds(),
-        global_prefs_->CountServerStarts());
+        persisted_data->GetAppIds(), global_prefs_->CountServerStarts(),
+        persisted_data->GetHadApps());
     VLOG(1) << "ShouldUninstall returned: " << should_uninstall;
     if (should_uninstall) {
       base::ThreadPool::PostTaskAndReplyWithResult(

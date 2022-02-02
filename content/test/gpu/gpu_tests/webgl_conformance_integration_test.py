@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from __future__ import print_function
-
 import logging
 import os
 import re
@@ -12,8 +10,9 @@ import sys
 from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_helper
 from gpu_tests import gpu_integration_test
-from gpu_tests import path_util
 from gpu_tests import webgl_test_util
+
+import gpu_path_util
 
 conformance_harness_script = r"""
   var testHarness = {};
@@ -62,7 +61,7 @@ extension_harness_additional_script = r"""
 
 if sys.version_info[0] == 3:
   # cmp no longer exists in Python 3
-  def cmp(a, b):  # pylint: disable=redefined-builtin
+  def cmp(a, b):
     return int(a > b) - int(a < b)
 
 
@@ -73,7 +72,7 @@ def _CompareVersion(version1, version2):
   return cmp(ver_num1[0:size], ver_num2[0:size])
 
 
-class WebGLTestArgs(object):
+class WebGLTestArgs():
   """Struct-like class for passing args to a WebGLConformance test."""
 
   def __init__(self, webgl_version=None, extension=None, extension_list=None):
@@ -87,9 +86,9 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
   _webgl_version = None
   _is_asan = False
   _crash_count = 0
-  _gl_backend = ""
-  _angle_backend = ""
-  _command_decoder = ""
+  _gl_backend = ''
+  _angle_backend = ''
+  _command_decoder = ''
   _verified_flags = False
 
   @classmethod
@@ -194,35 +193,34 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
           'WEBGL_video_texture',
           'WEBGL_webcodecs_video_frame',
       ]
-    else:
-      return [
-          'EXT_color_buffer_float',
-          'EXT_color_buffer_half_float',
-          'EXT_disjoint_timer_query_webgl2',
-          'EXT_float_blend',
-          'EXT_texture_compression_bptc',
-          'EXT_texture_compression_rgtc',
-          'EXT_texture_filter_anisotropic',
-          'EXT_texture_norm16',
-          'KHR_parallel_shader_compile',
-          'OES_draw_buffers_indexed',
-          'OES_texture_float_linear',
-          'OVR_multiview2',
-          'WEBGL_compressed_texture_astc',
-          'WEBGL_compressed_texture_etc',
-          'WEBGL_compressed_texture_etc1',
-          'WEBGL_compressed_texture_pvrtc',
-          'WEBGL_compressed_texture_s3tc',
-          'WEBGL_compressed_texture_s3tc_srgb',
-          'WEBGL_debug_renderer_info',
-          'WEBGL_debug_shaders',
-          'WEBGL_draw_instanced_base_vertex_base_instance',
-          'WEBGL_lose_context',
-          'WEBGL_multi_draw',
-          'WEBGL_multi_draw_instanced_base_vertex_base_instance',
-          'WEBGL_video_texture',
-          'WEBGL_webcodecs_video_frame',
-      ]
+    return [
+        'EXT_color_buffer_float',
+        'EXT_color_buffer_half_float',
+        'EXT_disjoint_timer_query_webgl2',
+        'EXT_float_blend',
+        'EXT_texture_compression_bptc',
+        'EXT_texture_compression_rgtc',
+        'EXT_texture_filter_anisotropic',
+        'EXT_texture_norm16',
+        'KHR_parallel_shader_compile',
+        'OES_draw_buffers_indexed',
+        'OES_texture_float_linear',
+        'OVR_multiview2',
+        'WEBGL_compressed_texture_astc',
+        'WEBGL_compressed_texture_etc',
+        'WEBGL_compressed_texture_etc1',
+        'WEBGL_compressed_texture_pvrtc',
+        'WEBGL_compressed_texture_s3tc',
+        'WEBGL_compressed_texture_s3tc_srgb',
+        'WEBGL_debug_renderer_info',
+        'WEBGL_debug_shaders',
+        'WEBGL_draw_instanced_base_vertex_base_instance',
+        'WEBGL_lose_context',
+        'WEBGL_multi_draw',
+        'WEBGL_multi_draw_instanced_base_vertex_base_instance',
+        'WEBGL_video_texture',
+        'WEBGL_webcodecs_video_frame',
+    ]
 
   def _ShouldForceRetryOnFailureFirstTest(self):
     # Force RetryOnFailure of the first test on a shard on ChromeOS VMs.
@@ -321,11 +319,11 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     self._NavigateTo(test_path, _GetExtensionHarnessScript())
     self.tab.action_runner.WaitForJavaScriptCondition(
         'window._loaded', timeout=self._GetTestTimeout())
-    context_type = "webgl2" if test_args.webgl_version == 2 else "webgl"
-    extension_list_string = "["
+    context_type = 'webgl2' if test_args.webgl_version == 2 else 'webgl'
+    extension_list_string = '['
     for extension in test_args.extension_list:
-      extension_list_string = extension_list_string + extension + ", "
-    extension_list_string = extension_list_string + "]"
+      extension_list_string = extension_list_string + extension + ', '
+    extension_list_string = extension_list_string + ']'
     self.tab.action_runner.EvaluateJavaScript(
         'checkSupportedExtensions({{ extensions_string }}, {{context_type}})',
         extensions_string=extension_list_string,
@@ -336,7 +334,7 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     self._NavigateTo(test_path, _GetExtensionHarnessScript())
     self.tab.action_runner.WaitForJavaScriptCondition(
         'window._loaded', timeout=self._GetTestTimeout())
-    context_type = "webgl2" if test_args.webgl_version == 2 else "webgl"
+    context_type = 'webgl2' if test_args.webgl_version == 2 else 'webgl'
     self.tab.action_runner.EvaluateJavaScript(
         'checkExtension({{ extension }}, {{ context_type }})',
         extension=test_args.extension,
@@ -399,8 +397,8 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
           cls._command_decoder = o[len('--use-cmd-decoder='):]
     if found_js_flags:
       logging.warning('Overriding built-in JavaScript flags:')
-      logging.warning(' Original flags: ' + builtin_js_flags)
-      logging.warning(' New flags: ' + user_js_flags)
+      logging.warning(' Original flags: %s', builtin_js_flags)
+      logging.warning(' New flags: %s', user_js_flags)
     else:
       default_args.append(builtin_js_flags)
 
@@ -415,9 +413,9 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     # implicitly becomes the common base directory, i.e., the Chromium
     # src dir, and all URLs have to be specified relative to that.
     cls.SetStaticServerDirs([
-        os.path.join(path_util.GetChromiumSrcDir(),
+        os.path.join(gpu_path_util.CHROMIUM_SRC_DIR,
                      webgl_test_util.conformance_relpath),
-        os.path.join(path_util.GetChromiumSrcDir(),
+        os.path.join(gpu_path_util.CHROMIUM_SRC_DIR,
                      webgl_test_util.extensions_relpath)
     ])
 

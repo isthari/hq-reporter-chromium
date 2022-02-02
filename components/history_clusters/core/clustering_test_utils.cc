@@ -4,32 +4,64 @@
 
 #include "components/history_clusters/core/clustering_test_utils.h"
 
+#include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 
 namespace history_clusters {
 namespace testing {
 
-VisitResult::VisitResult(
-    int visit_id,
-    float score,
-    const std::vector<history::VisitID>& duplicate_visit_ids,
-    bool is_search_visit)
+VisitResult::VisitResult(int visit_id,
+                         float score,
+                         const std::vector<VisitResult>& duplicate_visits,
+                         bool is_search_visit)
     : visit_id_(visit_id),
       score_(score),
-      duplicate_visit_ids_(duplicate_visit_ids),
+      duplicate_visits_(duplicate_visits),
       is_search_visit_(is_search_visit) {}
 VisitResult::VisitResult(const history::ClusterVisit& visit)
     : visit_id_(visit.annotated_visit.visit_row.visit_id),
       score_(visit.score),
-      duplicate_visit_ids_(visit.duplicate_visit_ids),
-      is_search_visit_(visit.is_search_visit) {}
+      is_search_visit_(visit.is_search_visit) {
+  for (const auto& duplicate : visit.duplicate_visits) {
+    duplicate_visits_.emplace_back(duplicate);
+  }
+}
 
 VisitResult::VisitResult(const VisitResult& other) = default;
 VisitResult::~VisitResult() = default;
 
+std::string VisitResult::ToString() const {
+  std::string duplicate_visits_string = "{}";
+  if (!duplicate_visits_.empty()) {
+    std::vector<std::string> duplicate_visits_strings;
+    for (const auto& dup_visit : duplicate_visits_) {
+      // In case of multiple layers of nesting, indent inner layers a bit more.
+      std::string dup_visit_string = dup_visit.ToString();
+      base::ReplaceChars(dup_visit_string, "\n", "\n  ", &dup_visit_string);
+      duplicate_visits_strings.push_back(dup_visit_string);
+    }
+    duplicate_visits_string = base::StringPrintf(
+        "{\n  %s\n}",
+        base::JoinString(duplicate_visits_strings, "\n  ").c_str());
+  }
+  return base::StringPrintf(
+      "VisitResult(visit_id=%d, score=%f, duplicate_visits=%s, "
+      "is_search_visit=%s)",
+      visit_id_, score_, duplicate_visits_string.c_str(),
+      (is_search_visit_ ? "true" : "false"));
+}
+
+std::ostream& operator<<(std::ostream& os, const VisitResult& vr) {
+  os << vr.ToString();
+  return os;
+}
+
 bool VisitResult::operator==(const VisitResult& rhs) const {
-  return visit_id_ == rhs.visit_id_ && score_ == rhs.score_ &&
-         duplicate_visit_ids_ == rhs.duplicate_visit_ids_ &&
+  constexpr const double kScoreTolerance = 1e-6;
+  return visit_id_ == rhs.visit_id_ &&
+         abs(score_ - rhs.score_) <= kScoreTolerance &&
+         duplicate_visits_ == rhs.duplicate_visits_ &&
          is_search_visit_ == rhs.is_search_visit_;
 }
 

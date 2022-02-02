@@ -8,10 +8,9 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/compiler_specific.h"
 #include "base/observer_list_types.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
 
 namespace base {
 class Time;
@@ -26,6 +25,7 @@ namespace content {
 class AttributionPolicy;
 class StorableTrigger;
 class StorableSource;
+class StoredSource;
 class WebContents;
 
 struct SendResult;
@@ -59,7 +59,7 @@ class AttributionManager {
     virtual void OnSourceDeactivated(
         const AttributionStorage::DeactivatedSource& source) {}
 
-    virtual void OnReportSent(const EventAttributionReport& report,
+    virtual void OnReportSent(const AttributionReport& report,
                               const SendResult& info) {}
 
     virtual void OnReportDropped(
@@ -83,24 +83,22 @@ class AttributionManager {
   // Get all sources that are currently stored in this partition. Used for
   // populating WebUI.
   virtual void GetActiveSourcesForWebUI(
-      base::OnceCallback<void(std::vector<StorableSource>)> callback) = 0;
+      base::OnceCallback<void(std::vector<StoredSource>)> callback) = 0;
 
   // Get all pending reports that are currently stored in this partition. Used
   // for populating WebUI.
   virtual void GetPendingReportsForWebUI(
-      base::OnceCallback<void(std::vector<EventAttributionReport>)>
-          callback) = 0;
+      base::OnceCallback<void(std::vector<AttributionReport>)> callback) = 0;
 
   // Sends the given reports immediately, and runs |done| once they have all
   // been sent.
   virtual void SendReportsForWebUI(
-      const std::vector<EventAttributionReport::Id>& ids,
+      const std::vector<AttributionReport::EventLevelData::Id>& ids,
       base::OnceClosure done) = 0;
 
   // Returns the AttributionPolicy that is used to control API policies such
   // as noise.
-  virtual const AttributionPolicy& GetAttributionPolicy() const
-      WARN_UNUSED_RESULT = 0;
+  virtual const AttributionPolicy& GetAttributionPolicy() const = 0;
 
   // Deletes all data in storage for URLs matching |filter|, between
   // |delete_begin| and |delete_end| time.

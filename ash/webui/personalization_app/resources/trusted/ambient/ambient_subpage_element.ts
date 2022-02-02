@@ -3,14 +3,13 @@
 // found in the LICENSE file.
 
 /**
- * @fileoverview The ambient-main component displays the main content of
+ * @fileoverview The ambient-subpage component displays the main content of
  * the ambient mode settings.
  */
 
-import {html} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {WithPersonalizationStore} from '../personalization_store.js';
+import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-export class AmbientSubpage extends WithPersonalizationStore {
+export class AmbientSubpage extends PolymerElement {
   static get is() {
     return 'ambient-subpage';
   }
@@ -20,7 +19,23 @@ export class AmbientSubpage extends WithPersonalizationStore {
   }
 
   static get properties() {
-    return {};
+    return {
+      // TODO: Toggle row related, initial values will be read by a provider.
+      ambientModeEnabled_: {type: Boolean, value: false},
+      description_: {
+        type: String,
+        value:
+            'When your screen is idle, show photos, time, weather, and media info'
+      },
+    };
+  }
+
+  private ambientModeEnabled_: boolean;
+  private description_: string;
+
+  private onClickAmbientModeButton_(event: Event) {
+    event.stopPropagation();
+    this.ambientModeEnabled_ = !this.ambientModeEnabled_;
   }
 }
 

@@ -552,6 +552,24 @@ IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
+                       Script_Chain_Array_Has) {
+  TestScript(R"~~(data:text/html,
+                    <button id='b'></button>)~~",
+             {"b.accessibilityAttributeNames.has(AXRole)"},
+             R"~~(b.accessibilityAttributeNames.has(AXRole)='yes'
+)~~");
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
+                       Script_Chain_Array_Has_No) {
+  TestScript(R"~~(data:text/html,
+                    <button id='b'></button>)~~",
+             {"b.accessibilityAttributeNames.has(AXARIARowCount)"},
+             R"~~(b.accessibilityAttributeNames.has(AXARIARowCount)='no'
+)~~");
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
                        Script_Chain_TextRange_Anchor) {
   TestScript(R"~~(data:text/html,
                     <p id='p'>Paragraph</p>)~~",
@@ -623,6 +641,24 @@ IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
       {"textarea.AXSelectedTextMarkerRange = "
        "textarea.AXTextMarkerRangeForUIElement(textarea)"},
       R"~~(textarea.AXSelectedTextMarkerRange={anchor: {:3, 0, down}, focus: {:3, 4, down}}
+)~~");
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
+                       Script_Accessibility_API) {
+  TestScript(R"~~(data:text/html,
+                    <button id='b'></button>)~~",
+             {"b.accessibilityRole"},
+             R"~~(b.accessibilityRole='AXButton'
+)~~");
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityTreeFormatterMacBrowserTest,
+                       Script_Accessibility_API_With_Argument) {
+  TestScript(R"~~(data:text/html,
+                    <button id='b'></button>)~~",
+             {"b.accessibilityAttributeValue(AXRole)"},
+             R"~~(b.accessibilityAttributeValue(AXRole)='AXButton'
 )~~");
 }
 

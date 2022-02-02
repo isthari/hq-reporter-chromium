@@ -24,6 +24,7 @@
 namespace ash {
 
 class ApplicationDragAndDropHost;
+class AppListReorderUndoContainerView;
 class AppListFolderItem;
 class AppListFolderView;
 class ContentsView;
@@ -142,7 +143,8 @@ class ASH_EXPORT AppsContainerView
                                     SearchModel* search_model) override;
 
   // AppListFolderController:
-  void ShowFolderForItemView(AppListItemView* folder_item_view) override;
+  void ShowFolderForItemView(AppListItemView* folder_item_view,
+                             bool focus_name_input) override;
   void ShowApps(AppListItemView* folder_item_view, bool select_folder) override;
   void ReparentFolderItemTransit(AppListFolderItem* folder_item) override;
   void ReparentDragEnded() override;
@@ -166,6 +168,13 @@ class ASH_EXPORT AppsContainerView
   void MoveFocusUpFromRecents() override;
   void MoveFocusDownFromRecents(int column) override;
 
+  // Handles `AppListController::UpdateAppListWithNewSortingOrder()` for the
+  // app list container.
+  void UpdateForNewSortingOrder(
+      const absl::optional<AppListSortOrder>& new_order,
+      bool animate,
+      base::OnceClosure update_position_closure);
+
   ContinueSectionView* GetContinueSection();
   RecentAppsView* GetRecentApps();
   views::View* GetSeparatorView();
@@ -178,11 +187,12 @@ class ASH_EXPORT AppsContainerView
 
   views::View* scrollable_container_for_test() { return scrollable_container_; }
 
-  views::View* sort_button_container_for_test() {
-    return sort_button_container_;
-  }
   SuggestionChipContainerView* suggestion_chip_container_view_for_test() {
     return suggestion_chip_container_view_;
+  }
+
+  AppListReorderUndoContainerView* reorder_undo_container_for_test() {
+    return reorder_undo_container_;
   }
 
   // Updates recent apps from app list model.
@@ -271,6 +281,12 @@ class ASH_EXPORT AppsContainerView
   // Removes the gradient mask from being set as the mask layer.
   void MaybeRemoveGradientMask();
 
+  // Called when the animation to fade out app list items is completed.
+  // `aborted` indicates whether the fade out animation is aborted.
+  void OnAppsGridViewFadeOutAnimationEneded(
+      const absl::optional<AppListSortOrder>& new_order,
+      bool aborted);
+
   // While true, the gradient mask will not be removed as a mask layer until
   // cardified state ends.
   bool keep_gradient_mask_for_cardified_state_ = false;
@@ -291,11 +307,11 @@ class ASH_EXPORT AppsContainerView
   // The views below are owned by views hierarchy.
   SuggestionChipContainerView* suggestion_chip_container_view_ = nullptr;
   ContinueContainer* continue_container_ = nullptr;
+  AppListReorderUndoContainerView* reorder_undo_container_ = nullptr;
   PagedAppsGridView* apps_grid_view_ = nullptr;
   AppListFolderView* app_list_folder_view_ = nullptr;
   PageSwitcher* page_switcher_ = nullptr;
   FolderBackgroundView* folder_background_view_ = nullptr;
-  views::View* sort_button_container_ = nullptr;
 
   ShowState show_state_ = SHOW_NONE;
 
@@ -316,6 +332,10 @@ class ASH_EXPORT AppsContainerView
   CachedContainerMargins cached_container_margins_;
 
   std::unique_ptr<GradientLayerDelegate> gradient_layer_delegate_;
+
+  // A closure to update item positions. It should run at the end of the fade
+  // out animation when items are reordered.
+  base::OnceClosure update_position_closure_;
 
   base::WeakPtrFactory<AppsContainerView> weak_ptr_factory_{this};
 };

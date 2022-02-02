@@ -41,6 +41,7 @@
 #include "chromeos/crosapi/mojom/image_writer.mojom.h"
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
 #include "chromeos/crosapi/mojom/kiosk_session_service.mojom.h"
+#include "chromeos/crosapi/mojom/launcher_search.mojom.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
 #include "chromeos/crosapi/mojom/login_state.mojom.h"
 #include "chromeos/crosapi/mojom/message_center.mojom.h"
@@ -57,6 +58,7 @@
 #include "chromeos/crosapi/mojom/system_display.mojom.h"
 #include "chromeos/crosapi/mojom/task_manager.mojom.h"
 #include "chromeos/crosapi/mojom/test_controller.mojom.h"
+#include "chromeos/crosapi/mojom/timezone.mojom.h"
 #include "chromeos/crosapi/mojom/tts.mojom.h"
 #include "chromeos/crosapi/mojom/url_handler.mojom.h"
 #include "chromeos/crosapi/mojom/web_page_info.mojom.h"
@@ -329,6 +331,10 @@ LacrosService::LacrosService()
                   &crosapi::mojom::Crosapi::BindSelectFile,
                   Crosapi::MethodMinVersions::kBindSelectFileMinVersion>();
   ConstructRemote<
+      crosapi::mojom::SearchControllerRegistry,
+      &crosapi::mojom::Crosapi::BindSearchControllerRegistry,
+      Crosapi::MethodMinVersions::kBindSearchControllerRegistryMinVersion>();
+  ConstructRemote<
       crosapi::mojom::StructuredMetricsService,
       &crosapi::mojom::Crosapi::BindStructuredMetricsService,
       Crosapi::MethodMinVersions::kBindStructuredMetricsServiceMinVersion>();
@@ -337,6 +343,9 @@ LacrosService::LacrosService()
   ConstructRemote<crosapi::mojom::TaskManager,
                   &crosapi::mojom::Crosapi::BindTaskManager,
                   Crosapi::MethodMinVersions::kBindTaskManagerMinVersion>();
+  ConstructRemote<crosapi::mojom::TimeZoneService,
+                  &crosapi::mojom::Crosapi::BindTimeZoneService,
+                  Crosapi::MethodMinVersions::kBindTimeZoneServiceMinVersion>();
   ConstructRemote<crosapi::mojom::Tts, &crosapi::mojom::Crosapi::BindTts,
                   Crosapi::MethodMinVersions::kBindTtsMinVersion>();
   ConstructRemote<crosapi::mojom::UrlHandler,

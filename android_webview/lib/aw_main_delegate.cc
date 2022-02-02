@@ -162,16 +162,18 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     if (AwDrawFnImpl::IsUsingVulkan())
       cl->AppendSwitch(switches::kWebViewDrawFunctorUsesVulkan);
 
-#if !defined(USE_V8_CONTEXT_SNAPSHOT) || defined(INCLUDE_BOTH_V8_SNAPSHOTS)
-    // The snapshot for USE_V8_CONTEXT_SNAPSHOT is handled in the renderer.
+#if defined(USE_V8_CONTEXT_SNAPSHOT)
+    const gin::V8SnapshotFileType file_type =
+        gin::V8SnapshotFileType::kWithAdditionalContext;
+#else
     const gin::V8SnapshotFileType file_type = gin::V8SnapshotFileType::kDefault;
+#endif
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot32DataDescriptor,
         gin::V8Initializer::GetSnapshotFilePath(true, file_type));
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot64DataDescriptor,
         gin::V8Initializer::GetSnapshotFilePath(false, file_type));
-#endif
   }
 
   if (cl->HasSwitch(switches::kWebViewSandboxedRenderer)) {
@@ -368,16 +370,14 @@ void AwMainDelegate::PostEarlyInitialization(bool is_running_tests) {
 
 void AwMainDelegate::PostFieldTrialInitialization() {
   version_info::Channel channel = version_info::android::GetChannel();
-  bool is_canary_dev = (channel == version_info::Channel::CANARY ||
-                        channel == version_info::Channel::DEV);
+  [[maybe_unused]] bool is_canary_dev =
+      (channel == version_info::Channel::CANARY ||
+       channel == version_info::Channel::DEV);
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
   bool is_browser_process = process_type.empty();
-
-  ALLOW_UNUSED_LOCAL(is_canary_dev);
-  ALLOW_UNUSED_LOCAL(is_browser_process);
 
   // Enable LITTLE-cores only mode/idle power mode throttling if the features
   // are enabled, but only for child processes, as the browser process is shared

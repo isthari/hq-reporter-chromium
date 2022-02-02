@@ -13,17 +13,21 @@ mojom("nearby_share_target_types") {
 
 mojom("mojom") {
   sources = [
+    "firewall_hole.mojom",
     "nearby_connections.mojom",
     "nearby_connections_types.mojom",
     "nearby_decoder.mojom",
     "nearby_decoder_types.mojom",
     "sharing.mojom",
+    "tcp_server_socket_port.mojom",
+    "tcp_socket_factory.mojom",
     "webrtc.mojom",
     "webrtc_signaling_messenger.mojom",
   ]
 
   public_deps = [
     ":nearby_share_target_types",
+    "//chromeos/services/network_config/public/mojom",
     "//device/bluetooth/public/mojom:deprecated_experimental_interfaces",
     "//mojo/public/mojom/base",
     "//sandbox/policy/mojom",
@@ -42,6 +46,18 @@ mojom("mojom") {
       traits_headers = [ "nearby_connections_mojom_traits.h" ]
       traits_sources = [ "nearby_connections_mojom_traits.cc" ]
       traits_deps = [ "//third_party/nearby:platform_api_types" ]
+    },
+    {
+      types = [
+        {
+          mojom = "sharing.mojom.TcpServerSocketPort"
+          cpp = "::ash::nearby::TcpServerSocketPort"
+        },
+      ]
+      traits_headers = [ "tcp_server_socket_port_mojom_traits.h" ]
+      traits_sources = [ "tcp_server_socket_port_mojom_traits.cc" ]
+      traits_deps =
+          [ "//ash/services/nearby/public/cpp:tcp_server_socket_port" ]
     },
   ]
 }

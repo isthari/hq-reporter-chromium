@@ -81,20 +81,8 @@ struct NaClStartParams {
   base::FilePath nexe_file_path_metadata;
 
   IPC::PlatformFileForTransit irt_handle;
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   IPC::PlatformFileForTransit debug_stub_server_bound_socket;
-#endif
-
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
-  // These are for Non-SFI mode IPC channels.
-  // For security hardening, unlike in SFI mode, we cannot create socket pairs
-  // in a NaCl loader process. Thus, the browser process creates the
-  // ChannelHandle instances, and passes them to the NaCl loader process.
-  // SFI mode uses NaClProcessHostMsg_PpapiChannelsCreated instead.
-  IPC::ChannelHandle ppapi_browser_channel_handle;
-  IPC::ChannelHandle ppapi_renderer_channel_handle;
-  IPC::ChannelHandle trusted_service_channel_handle;
-  IPC::ChannelHandle manifest_service_channel_handle;
 #endif
 
   bool validation_cache_enabled;

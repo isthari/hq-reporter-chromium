@@ -39,8 +39,7 @@
 #include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace autofill {
-namespace payments {
+namespace autofill::payments {
 namespace {
 
 int kAllDetectableValues =
@@ -207,7 +206,7 @@ class PaymentsClientTest : public testing::Test {
     upload_card_response_details_ = upload_card_respone_details;
   }
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   void OnDidMigrateLocalCards(
       AutofillClient::PaymentsRpcResult result,
       std::unique_ptr<std::unordered_map<std::string, std::string>>
@@ -217,12 +216,21 @@ class PaymentsClientTest : public testing::Test {
     migration_save_results_ = std::move(migration_save_results);
     display_text_ = display_text;
   }
-#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
   void OnDidSelectChallengeOption(AutofillClient::PaymentsRpcResult result,
                                   const std::string& updated_context_token) {
     result_ = result;
     context_token_ = updated_context_token;
+  }
+
+  void OnDidGetVirtualCardEnrollmentDetails(
+      AutofillClient::PaymentsRpcResult result,
+      const payments::PaymentsClient::GetDetailsForEnrollmentResponseDetails&
+          get_details_for_enrollment_response_fields) {
+    result_ = result;
+    get_details_for_enrollment_response_fields_ =
+        get_details_for_enrollment_response_fields;
   }
 
   void OnDidGetUpdateVirtualCardEnrollmentResponse(
@@ -315,7 +323,7 @@ class PaymentsClientTest : public testing::Test {
                                        weak_ptr_factory_.GetWeakPtr()));
   }
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   void StartMigrating(bool has_cardholder_name,
                       bool set_nickname_for_first_card = false) {
     PaymentsClient::MigrationRequestDetails request_details;
@@ -332,14 +340,14 @@ class PaymentsClientTest : public testing::Test {
       card1.SetRawInfo(CREDIT_CARD_NAME_FULL, u"");
       card2.SetRawInfo(CREDIT_CARD_NAME_FULL, u"");
     }
-    migratable_credit_cards_.push_back(MigratableCreditCard(card1));
-    migratable_credit_cards_.push_back(MigratableCreditCard(card2));
+    migratable_credit_cards_.emplace_back(card1);
+    migratable_credit_cards_.emplace_back(card2);
     client_->MigrateCards(
         request_details, migratable_credit_cards_,
         base::BindOnce(&PaymentsClientTest::OnDidMigrateLocalCards,
                        weak_ptr_factory_.GetWeakPtr()));
   }
-#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
   void StartSelectingChallengeOption(
       CardUnmaskChallengeOptionType challenge_type =
@@ -444,6 +452,9 @@ class PaymentsClientTest : public testing::Test {
   PaymentsClient::UploadCardResponseDetails upload_card_response_details_;
   // The OptChangeResponseDetails retrieved from an OptChangeRequest.
   PaymentsClient::OptChangeResponseDetails opt_change_response_;
+  // The response details retrieved from an GetDetailsForEnrollmentRequest.
+  PaymentsClient::GetDetailsForEnrollmentResponseDetails
+      get_details_for_enrollment_response_fields_;
   // The UnmaskResponseDetails retrieved from an UnmaskRequest.  Includes PAN.
   raw_ptr<PaymentsClient::UnmaskResponseDetails> unmask_response_details_ =
       nullptr;
@@ -457,7 +468,7 @@ class PaymentsClientTest : public testing::Test {
   // The opaque token used to chain consecutive payments requests together.
   std::string context_token_;
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   // Credit cards to be upload saved during a local credit card migration call.
   std::vector<MigratableCreditCard> migratable_credit_cards_;
   // A mapping of results from a local credit card migration call.
@@ -465,7 +476,7 @@ class PaymentsClientTest : public testing::Test {
       migration_save_results_;
   // A tip message to be displayed during local card migration.
   std::string display_text_;
-#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
   base::test::TaskEnvironment task_environment_;
   variations::ScopedVariationsIdsProvider scoped_variations_ids_provider_{
@@ -1142,20 +1153,83 @@ TEST_F(PaymentsClientTest, UnmaskCardVariationsTest) {
   EXPECT_TRUE(HasVariationsHeader());
 }
 
-TEST_F(PaymentsClientTest, UploadSuccessWithoutServerId) {
+TEST_F(PaymentsClientTest, UploadSuccessEmptyResponse) {
   StartUploading(/*include_cvc=*/true);
   IssueOAuthToken();
   ReturnResponse(net::HTTP_OK, "{}");
   EXPECT_EQ(AutofillClient::PaymentsRpcResult::kSuccess, result_);
   EXPECT_TRUE(upload_card_response_details_.server_id.empty());
+  EXPECT_TRUE(upload_card_response_details_.instrument_id == 0);
+  EXPECT_TRUE(upload_card_response_details_.virtual_card_enrollment_state ==
+              CreditCard::VirtualCardEnrollmentState::UNSPECIFIED);
+  EXPECT_TRUE(upload_card_response_details_.card_art_url.is_empty());
 }
 
-TEST_F(PaymentsClientTest, UploadSuccessWithServerId) {
+TEST_F(PaymentsClientTest, UploadSuccessServerIdPresent) {
   StartUploading(/*include_cvc=*/true);
   IssueOAuthToken();
   ReturnResponse(net::HTTP_OK, "{ \"credit_card_id\": \"InstrumentData:1\" }");
   EXPECT_EQ(AutofillClient::PaymentsRpcResult::kSuccess, result_);
-  EXPECT_EQ("InstrumentData:1", upload_card_response_details_.server_id);
+  EXPECT_EQ(upload_card_response_details_.server_id, "InstrumentData:1");
+}
+
+TEST_F(PaymentsClientTest, UploadSuccessInstrumentIdPresent) {
+  StartUploading(/*include_cvc=*/true);
+  IssueOAuthToken();
+  ReturnResponse(net::HTTP_OK, "{ \"instrument_id\": 3 }");
+  EXPECT_EQ(AutofillClient::PaymentsRpcResult::kSuccess, result_);
+  EXPECT_EQ(upload_card_response_details_.instrument_id, 3);
+}
+
+TEST_F(PaymentsClientTest, UploadSuccessVirtualCardEnrollmentStatePresent) {
+  bool oauth_token_issued = false;
+  for (CreditCard::VirtualCardEnrollmentState virtual_card_enrollment_state :
+       {CreditCard::VirtualCardEnrollmentState::UNENROLLED_AND_NOT_ELIGIBLE,
+        CreditCard::VirtualCardEnrollmentState::UNENROLLED_AND_ELIGIBLE,
+        CreditCard::VirtualCardEnrollmentState::ENROLLED}) {
+    StartUploading(/*include_cvc=*/true);
+    // An OAuthToken needs to be issued to initiate the first UploadCard call
+    // from PaymentsClientTest::StartUploading(), but only for the first call.
+    // All future calls will use the first OAuthToken. If multiple OAuthTokens
+    // are issued this test will time out.
+    if (!oauth_token_issued) {
+      IssueOAuthToken();
+      oauth_token_issued = true;
+    }
+    switch (virtual_card_enrollment_state) {
+      case CreditCard::VirtualCardEnrollmentState::UNENROLLED_AND_NOT_ELIGIBLE:
+        ReturnResponse(net::HTTP_OK,
+                       "{ \"virtual_card_metadata\": { \"status\": "
+                       "\"ENROLLMENT_STATUS_UNSPECIFIED\" } }");
+        break;
+      case CreditCard::VirtualCardEnrollmentState::UNENROLLED_AND_ELIGIBLE:
+        ReturnResponse(net::HTTP_OK,
+                       "{ \"virtual_card_metadata\": { \"status\": "
+                       "\"ENROLLMENT_ELIGIBLE\" } }");
+        break;
+      case CreditCard::VirtualCardEnrollmentState::ENROLLED:
+        ReturnResponse(
+            net::HTTP_OK,
+            "{ \"virtual_card_metadata\": { \"status\": \"ENROLLED\" } }");
+        break;
+      case CreditCard::VirtualCardEnrollmentState::UNENROLLED:
+      case CreditCard::VirtualCardEnrollmentState::UNSPECIFIED:
+        break;
+    }
+    EXPECT_EQ(AutofillClient::PaymentsRpcResult::kSuccess, result_);
+    EXPECT_EQ(upload_card_response_details_.virtual_card_enrollment_state,
+              virtual_card_enrollment_state);
+  }
+}
+
+TEST_F(PaymentsClientTest, UploadSuccessCardArtUrlPresent) {
+  StartUploading(/*include_cvc=*/true);
+  IssueOAuthToken();
+  ReturnResponse(net::HTTP_OK,
+                 "{ \"card_art_url\": \"https://www.example.com/\" }");
+  EXPECT_EQ(AutofillClient::PaymentsRpcResult::kSuccess, result_);
+  EXPECT_EQ(upload_card_response_details_.card_art_url.spec(),
+            "https://www.example.com/");
 }
 
 TEST_F(PaymentsClientTest, UploadIncludesNonLocationData) {
@@ -1388,7 +1462,7 @@ TEST_F(PaymentsClientTest, UnmaskPermanentFailureWhenVcnMissingCvv) {
 }
 
 // Tests for the local card migration flow. Desktop only.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 TEST_F(PaymentsClientTest, GetDetailsFollowedByMigrationSuccess) {
   StartGettingUploadDetails();
   ReturnResponse(
@@ -1494,7 +1568,7 @@ TEST_F(PaymentsClientTest,
 
 TEST_F(PaymentsClientTest, MigrationRequestIncludesCardNickname) {
   StartMigrating(/*has_cardholder_name=*/true,
-                 /*set_nickname_to_first_card=*/true);
+                 /*set_nickname_for_first_card=*/true);
   IssueOAuthToken();
 
   // Nickname was set for the first card.
@@ -1727,5 +1801,100 @@ TEST_P(UpdateVirtualCardEnrollmentTest,
   TriggerFlow();
 }
 
-}  // namespace payments
-}  // namespace autofill
+class GetVirtualCardEnrollmentDetailsTest
+    : public PaymentsClientTest,
+      public ::testing::WithParamInterface<
+          std::tuple<VirtualCardEnrollmentSource,
+                     AutofillClient::PaymentsRpcResult>> {
+ public:
+  GetVirtualCardEnrollmentDetailsTest() = default;
+  ~GetVirtualCardEnrollmentDetailsTest() override = default;
+};
+
+// Initializes the parameterized test suite with all possible combinations of
+// VirtualCardEnrollmentSource and AutofillClient::PaymentsRpcResult.
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    GetVirtualCardEnrollmentDetailsTest,
+    testing::Combine(
+        testing::Values(VirtualCardEnrollmentSource::kUpstream,
+                        VirtualCardEnrollmentSource::kDownstream,
+                        VirtualCardEnrollmentSource::kSettingsPage),
+        testing::Values(
+            AutofillClient::PaymentsRpcResult::kSuccess,
+            AutofillClient::PaymentsRpcResult::kVcnRetrievalTryAgainFailure,
+            AutofillClient::PaymentsRpcResult::kTryAgainFailure,
+            AutofillClient::PaymentsRpcResult::kVcnRetrievalPermanentFailure,
+            AutofillClient::PaymentsRpcResult::kPermanentFailure,
+            AutofillClient::PaymentsRpcResult::kNetworkError)));
+
+// Parameterized test that tests all combinations of
+// VirtualCardEnrollmentSource and server PaymentsRpcResult. This test
+// will be run once for each combination.
+TEST_P(GetVirtualCardEnrollmentDetailsTest,
+       GetVirtualCardEnrollmentDetailsTest_TestAllFlows) {
+  VirtualCardEnrollmentSource source = std::get<0>(GetParam());
+
+  PaymentsClient::GetDetailsForEnrollmentRequestDetails request_details;
+  request_details.source = source;
+  request_details.instrument_id = 12345678;
+  request_details.billing_customer_number = 555666777888;
+  request_details.risk_data = "fake risk data";
+  request_details.app_locale = "en";
+
+  client_->GetVirtualCardEnrollmentDetails(
+      request_details,
+      base::BindOnce(&PaymentsClientTest::OnDidGetVirtualCardEnrollmentDetails,
+                     weak_ptr_factory_.GetWeakPtr()));
+
+  // Ensures the request contains the correct fields.
+  EXPECT_TRUE(!GetUploadData().empty());
+  EXPECT_TRUE(GetUploadData().find("language_code") != std::string::npos);
+  EXPECT_TRUE(GetUploadData().find("billable_service") != std::string::npos);
+  EXPECT_TRUE(GetUploadData().find("external_customer_id") !=
+              std::string::npos);
+  EXPECT_TRUE(GetUploadData().find("instrument_id") != std::string::npos);
+  EXPECT_TRUE(GetUploadData().find("risk_data_encoded") != std::string::npos);
+
+  // Ensures the PaymentsRpcResult is set correctly.
+  AutofillClient::PaymentsRpcResult result = std::get<1>(GetParam());
+  switch (result) {
+    case AutofillClient::PaymentsRpcResult::kSuccess:
+      ReturnResponse(
+          net::HTTP_OK,
+          "{ \"google_legal_message\": { \"line\" : [{ \"template\": \"This is "
+          "the entire message.\" }] }, \"external_legal_message\": {}, "
+          "\"context_token\": \"some_token\" }");
+      break;
+    case AutofillClient::PaymentsRpcResult::kVcnRetrievalTryAgainFailure:
+      ReturnResponse(
+          net::HTTP_OK,
+          "{ \"error\": { \"code\": \"ANYTHING_ELSE\", "
+          "\"api_error_reason\": \"virtual_card_temporary_error\"} }");
+      break;
+    case AutofillClient::PaymentsRpcResult::kTryAgainFailure:
+      ReturnResponse(net::HTTP_OK,
+                     "{ \"error\": { \"code\": \"INTERNAL\", "
+                     "\"api_error_reason\": \"ANYTHING_ELSE\"} }");
+      break;
+    case AutofillClient::PaymentsRpcResult::kVcnRetrievalPermanentFailure:
+      ReturnResponse(
+          net::HTTP_OK,
+          "{ \"error\": { \"code\": \"ANYTHING_ELSE\", "
+          "\"api_error_reason\": \"virtual_card_permanent_error\"} }");
+      break;
+    case AutofillClient::PaymentsRpcResult::kPermanentFailure:
+      ReturnResponse(net::HTTP_OK,
+                     "{ \"error\": { \"code\": \"ANYTHING_ELSE\" } }");
+      break;
+    case AutofillClient::PaymentsRpcResult::kNetworkError:
+      ReturnResponse(net::HTTP_REQUEST_TIMEOUT, "");
+      break;
+    case AutofillClient::PaymentsRpcResult::kNone:
+      NOTREACHED();
+      break;
+  }
+  EXPECT_EQ(result, result_);
+}
+
+}  // namespace autofill::payments

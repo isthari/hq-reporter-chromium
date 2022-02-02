@@ -31,6 +31,7 @@
 #include "net/cookies/cookie_store.h"
 #include "net/cookies/cookie_store_test_callbacks.h"
 #include "net/cookies/cookie_util.h"
+#include "net/cookies/first_party_set_metadata.h"
 #include "net/cookies/same_party_context.h"
 #include "net/cookies/site_for_cookies.h"
 #include "net/cookies/test_cookie_access_delegate.h"
@@ -42,6 +43,7 @@
 #include "services/network/test/test_network_context_client.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/origin.h"
 #include "url/url_util.h"
 
 namespace net {
@@ -51,6 +53,26 @@ bool operator==(const net::SiteForCookies& a, const net::SiteForCookies& b) {
 }  // namespace net
 
 namespace network {
+
+namespace {
+
+net::FirstPartySetMetadata ComputeFirstPartySetMetadataSync(
+    const url::Origin& origin,
+    const net::CookieStore* cookie_store,
+    const net::IsolationInfo& isolation_info) {
+  base::RunLoop run_loop;
+  net::FirstPartySetMetadata first_party_set_metadata;
+  RestrictedCookieManager::ComputeFirstPartySetMetadata(
+      origin, cookie_store, isolation_info,
+      base::BindLambdaForTesting([&](net::FirstPartySetMetadata metadata) {
+        first_party_set_metadata = std::move(metadata);
+        run_loop.Quit();
+      }));
+  run_loop.Run();
+  return first_party_set_metadata;
+}
+
+}  // namespace
 
 class RecordingCookieObserver : public network::mojom::CookieAccessObserver {
  public:
@@ -237,7 +259,9 @@ class RestrictedCookieManagerTest
     : public testing::TestWithParam<mojom::RestrictedCookieManagerRole> {
  public:
   RestrictedCookieManagerTest()
-      : cookie_monster_(nullptr, nullptr /* netlog */),
+      : cookie_monster_(/*store=*/nullptr,
+                        /*net_log=*/nullptr,
+                        kFirstPartySetsEnabled),
         isolation_info_(kDefaultIsolationInfo),
         service_(std::make_unique<RestrictedCookieManager>(
             GetParam(),
@@ -245,7 +269,11 @@ class RestrictedCookieManagerTest
             cookie_settings_,
             kDefaultOrigin,
             isolation_info_,
-            recording_client_.GetRemote())),
+            recording_client_.GetRemote(),
+            kFirstPartySetsEnabled,
+            ComputeFirstPartySetMetadataSync(kDefaultOrigin,
+                                             &cookie_monster_,
+                                             isolation_info_))),
         receiver_(service_.get(),
                   service_remote_.BindNewPipeAndPassReceiver()) {
     sync_service_ =
@@ -369,6 +397,7 @@ class RestrictedCookieManagerTest
                                  kDefaultOrigin,
                                  kDefaultOrigin,
                                  net::SiteForCookies());
+  const bool kFirstPartySetsEnabled = true;
 
   base::test::SingleThreadTaskEnvironment task_environment_{
       base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
@@ -387,8 +416,8 @@ class RestrictedCookieManagerTest
 class SamePartyEnabledRestrictedCookieManagerTest
     : public RestrictedCookieManagerTest {
  public:
-  SamePartyEnabledRestrictedCookieManagerTest() : first_party_sets_(true) {
-    feature_list_.InitAndEnableFeature(net::features::kFirstPartySets);
+  SamePartyEnabledRestrictedCookieManagerTest()
+      : first_party_sets_(/*enabled=*/true) {
     first_party_sets_.SetManuallySpecifiedSet(
         "https://example.com,https://member1.com");
     auto cookie_access_delegate = std::make_unique<CookieAccessDelegateImpl>(

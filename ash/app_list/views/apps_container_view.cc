@@ -15,6 +15,7 @@
 #include "ash/app_list/views/app_list_folder_view.h"
 #include "ash/app_list/views/app_list_item_view.h"
 #include "ash/app_list/views/app_list_main_view.h"
+#include "ash/app_list/views/app_list_reorder_undo_container_view.h"
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/continue_section_view.h"
@@ -27,11 +28,10 @@
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_model_delegate.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
+#include "ash/public/cpp/style/color_provider.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/search_box/search_box_constants.h"
 #include "ash/shelf/gradient_layer_delegate.h"
-#include "ash/style/ash_color_provider.h"
-#include "ash/style/style_util.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/cxx17_backports.h"
@@ -49,11 +49,8 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/accessibility/view_accessibility.h"
-#include "ui/views/animation/ink_drop.h"
-#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/focus/focus_manager.h"
-#include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/view_utils.h"
@@ -123,12 +120,6 @@ constexpr int kPageSwitcherEndMargin = 16;
 // The vertical margin for the `AppsGridView` contents.
 constexpr int kGridVerticalMargin = 24;
 
-// The space between sort ui controls (including sort button and redo button).
-constexpr int kSortUiControlSpacing = 10;
-
-// The preferred size of sort ui controls (like sort button and redo button).
-constexpr int kSortUiControlPreferredSize = 20;
-
 // The number of columns available for the ContinueSectionView.
 constexpr int kContinueColumnCount = 4;
 
@@ -146,119 +137,6 @@ constexpr int kSeparatorWidth = 240;
 // The actual height of the fadeout gradient mask at the top and bottom of the
 // `scrollable_container_`.
 constexpr int kDefaultFadeoutMaskHeight = 16;
-
-// SortUiControl ---------------------------------------------------------------
-
-class SortUiControl : public views::ImageButton {
- public:
-  SortUiControl(AppListViewDelegate* delegate,
-                views::Button::PressedCallback pressed_callback)
-      : views::ImageButton(pressed_callback), delegate_(delegate) {
-    SetPaintToLayer();
-    layer()->SetFillsBoundsOpaquely(false);
-    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
-    SetPreferredSize(
-        gfx::Size(kSortUiControlPreferredSize, kSortUiControlPreferredSize));
-
-    // This view is used behind the feature flag and is immature. Therefore
-    // ignore it in a11y for now.
-    GetViewAccessibility().OverrideIsIgnored(true);
-  }
-  SortUiControl(const SortUiControl&) = delete;
-  SortUiControl& operator=(const SortUiControl&) = delete;
-  ~SortUiControl() override = default;
-
-  // views::View:
-  void OnThemeChanged() override {
-    views::View::OnThemeChanged();
-    StyleUtil::ConfigureInkDropAttributes(
-        this, StyleUtil::kBaseColor | StyleUtil::kInkDropOpacity |
-                  StyleUtil::kHighlightOpacity);
-    views::InstallFixedSizeCircleHighlightPathGenerator(
-        this, kSortUiControlPreferredSize / 2);
-    views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(this),
-                                                 /*highlight_on_hover=*/true,
-                                                 /*highlight_on_focus=*/true);
-  }
-
- protected:
-  AppListViewDelegate* const delegate_;
-};
-
-// RedoButton ------------------------------------------------------------------
-
-// A button for reverting the temporary sort order if any.
-// TODO(https://crbug.com/1263999): remove `RedoButton` when the app list sort
-// is enabled as default.
-class RedoButton : public SortUiControl {
- public:
-  METADATA_HEADER(RedoButton);
-
-  explicit RedoButton(AppListViewDelegate* delegate)
-      : SortUiControl(delegate,
-                      base::BindRepeating(&RedoButton::RevertAppListSort,
-                                          base::Unretained(this))) {}
-  RedoButton(const RedoButton&) = delete;
-  RedoButton& operator=(const RedoButton&) = delete;
-  ~RedoButton() override = default;
-
- private:
-  // views::View:
-  void OnThemeChanged() override {
-    SortUiControl::OnThemeChanged();
-    const SkColor icon_color = AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kButtonIconColor);
-    SetImage(views::Button::STATE_NORMAL,
-             gfx::CreateVectorIcon(kSmallCloseButtonIcon,
-                                   GetPreferredSize().width(), icon_color));
-  }
-
-  void RevertAppListSort() {
-    views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(
-        views::InkDropState::ACTION_TRIGGERED);
-    AppListModelProvider::Get()
-        ->model()
-        ->delegate()
-        ->RequestAppListSortRevert();
-  }
-};
-
-BEGIN_METADATA(RedoButton, views::View)
-END_METADATA
-
-// SortUiControlContainer ------------------------------------------------------
-
-class SortUiControlContainer : public views::View {
- public:
-  METADATA_HEADER(SortUiControlContainer);
-
-  explicit SortUiControlContainer(AppListViewDelegate* delegate) {
-    // The layer is required in animation.
-    SetPaintToLayer(ui::LayerType::LAYER_NOT_DRAWN);
-
-    // Configure the layout.
-    auto box_layout = std::make_unique<views::BoxLayout>(
-        views::BoxLayout::Orientation::kHorizontal,
-        /*inside_border_insets=*/gfx::Insets(),
-        /*between_child_spacing=*/kSortUiControlSpacing);
-    box_layout->set_main_axis_alignment(
-        views::BoxLayout::MainAxisAlignment::kCenter);
-    box_layout->set_cross_axis_alignment(
-        views::BoxLayout::CrossAxisAlignment::kCenter);
-    SetLayoutManager(std::move(box_layout));
-
-    // Add children.
-    AddChildView(std::make_unique<RedoButton>(delegate));
-
-    GetViewAccessibility().OverrideIsIgnored(true);
-  }
-  SortUiControlContainer(const SortUiControlContainer&) = delete;
-  SortUiControlContainer& operator=(const SortUiControlContainer&) = delete;
-  ~SortUiControlContainer() override = default;
-};
-
-BEGIN_METADATA(SortUiControlContainer, views::View)
-END_METADATA
 
 }  // namespace
 
@@ -381,6 +259,14 @@ AppsContainerView::AppsContainerView(ContentsView* contents_view)
   if (features::IsProductivityLauncherEnabled()) {
     continue_container_ = scrollable_container_->AddChildView(
         std::make_unique<ContinueContainer>(this, view_delegate));
+    // Add a empty container view. A toast view should be added to
+    // `reorder_undo_container_` when the app list starts temporary sorting.
+    if (features::IsLauncherAppSortEnabled()) {
+      reorder_undo_container_ = scrollable_container_->AddChildView(
+          std::make_unique<AppListReorderUndoContainerView>(
+              /*tablet_mode=*/true));
+      reorder_undo_container_->SetPaintToLayer(ui::LAYER_NOT_DRAWN);
+    }
   } else {
     // Add child view at index 0 so focus traversal goes to suggestion chips
     // before the views in the scrollable_container.
@@ -418,11 +304,6 @@ AppsContainerView::AppsContainerView(ContentsView* contents_view)
   app_list_folder_view_ = AddChildView(std::move(app_list_folder_view));
   // The folder view is initially hidden.
   app_list_folder_view_->SetVisible(false);
-
-  if (features::IsLauncherAppSortEnabled()) {
-    sort_button_container_ =
-        AddChildView(std::make_unique<SortUiControlContainer>(view_delegate));
-  }
 
   // NOTE: At this point, the apps grid folder and recent apps grids are not
   // fully initialized - they require an `app_list_config_` instance (because
@@ -528,8 +409,8 @@ void AppsContainerView::OnActiveAppListModelsChanged(
   UpdateForActiveAppListModel();
 }
 
-void AppsContainerView::ShowFolderForItemView(
-    AppListItemView* folder_item_view) {
+void AppsContainerView::ShowFolderForItemView(AppListItemView* folder_item_view,
+                                              bool focus_name_input) {
   // Prevent new animations from starting if there are currently animations
   // pending. This fixes crbug.com/357099.
   if (app_list_folder_view_->IsAnimationRunning())
@@ -547,9 +428,12 @@ void AppsContainerView::ShowFolderForItemView(
   // silently focus the first item in the folder to avoid showing the selection
   // highlight or announcing to A11y, but still ensuring the arrow keys navigate
   // from the first item.
-  const bool silently = !apps_grid_view()->has_selected_view();
-  app_list_folder_view_->FocusFirstItem(silently);
-
+  if (focus_name_input) {
+    app_list_folder_view_->FocusNameInput();
+  } else {
+    const bool silently = !apps_grid_view()->has_selected_view();
+    app_list_folder_view_->FocusFirstItem(silently);
+  }
   // Disable all the items behind the folder so that they will not be reached
   // during focus traversal.
   DisableFocusForShowingActiveFolder(true);
@@ -624,6 +508,8 @@ void AppsContainerView::SelectedPageChanged(int old_selected,
   translate.set_y(-scrollable_container_->bounds().height() * new_selected);
   transform.Translate(translate);
   continue_container_->layer()->SetTransform(transform);
+  if (reorder_undo_container_)
+    reorder_undo_container_->layer()->SetTransform(transform);
 }
 
 void AppsContainerView::TransitionChanged() {
@@ -656,6 +542,8 @@ void AppsContainerView::TransitionChanged() {
     gfx::Transform transform;
     transform.Translate(translate);
     continue_container_->layer()->SetTransform(transform);
+    if (reorder_undo_container_)
+      reorder_undo_container_->layer()->SetTransform(transform);
   }
 }
 
@@ -764,6 +652,31 @@ void AppsContainerView::MoveFocusDownFromRecents(int column) {
   item->RequestFocus();
 }
 
+void AppsContainerView::UpdateForNewSortingOrder(
+    const absl::optional<AppListSortOrder>& new_order,
+    bool animate,
+    base::OnceClosure update_position_closure) {
+  DCHECK(features::IsLauncherAppSortEnabled());
+  DCHECK_EQ(animate, !update_position_closure.is_null());
+
+  if (!animate) {
+    // Reordering is not required so update the undo toast and return early.
+    reorder_undo_container_->OnTemporarySortOrderChanged(new_order);
+    return;
+  }
+
+  // If `apps_grid_view_` is under page transition animation, finish the
+  // animation before starting the reorder animation.
+  ash::PaginationModel* pagination_model = apps_grid_view_->pagination_model();
+  if (pagination_model->has_transition())
+    pagination_model->FinishAnimation();
+
+  update_position_closure_ = std::move(update_position_closure);
+  apps_grid_view_->FadeOutVisibleItemsForReorder(base::BindRepeating(
+      &AppsContainerView::OnAppsGridViewFadeOutAnimationEneded,
+      weak_ptr_factory_.GetWeakPtr(), new_order));
+}
+
 ContinueSectionView* AppsContainerView::GetContinueSection() {
   if (!continue_container_)
     return nullptr;
@@ -858,11 +771,6 @@ void AppsContainerView::AnimateYPosition(AppListViewState target_view_state,
   animator.Run(offset, scrollable_container_->layer());
   page_switcher_->SetY(target_suggestion_chip_y + chip_grid_y_distance_);
   animator.Run(offset, page_switcher_->layer());
-
-  if (features::IsLauncherAppSortEnabled()) {
-    sort_button_container_->SetY(target_suggestion_chip_y);
-    animator.Run(offset, sort_button_container_->layer());
-  }
 }
 
 void AppsContainerView::OnTabletModeChanged(bool started) {
@@ -938,10 +846,20 @@ void AppsContainerView::Layout() {
     continue_container_->SetBoundsRect(gfx::Rect(0, kDefaultFadeoutMaskHeight,
                                                  grid_rect.width(),
                                                  continue_container_height));
+    const int reorder_undo_container_height =
+        reorder_undo_container_
+            ? reorder_undo_container_->GetPreferredSize().height()
+            : 0;
+    if (reorder_undo_container_) {
+      reorder_undo_container_->SetBoundsRect(
+          gfx::Rect(0, continue_container_->bounds().bottom(),
+                    grid_rect.width(), reorder_undo_container_height));
+    }
     // Setting this offset prevents the app items in the grid from overlapping
     // with the continue section.
     first_page_config_changed = apps_grid_view_->ConfigureFirstPagePadding(
-        continue_container_height, continue_container_->HasRecentApps());
+        continue_container_height + reorder_undo_container_height,
+        continue_container_->HasRecentApps());
   }
 
   // Make sure that UpdateTopLevelGridDimensions() happens after setting the
@@ -974,19 +892,6 @@ void AppsContainerView::Layout() {
       grid_rect.right() + kGridToPageSwitcherMargin, grid_rect.y(),
       page_switcher_width, grid_rect.height());
   page_switcher_->SetBoundsRect(page_switcher_bounds);
-
-  if (features::IsLauncherAppSortEnabled()) {
-    // Align `sort_button_container_` with the bottom of the
-    // `suggestion_chip_container_view_` horizontally; align
-    // `sort_button_container_` with `page_switcher_bounds` vertically on the
-    // right edge.
-    const int sort_button_container_width =
-        sort_button_container_->GetPreferredSize().width();
-    gfx::Rect sort_button_container_rect(
-        page_switcher_bounds.right() - sort_button_container_width,
-        chip_container_rect.bottom(), sort_button_container_width, 20);
-    sort_button_container_->SetBoundsRect(sort_button_container_rect);
-  }
 
   switch (show_state_) {
     case SHOW_APPS:
@@ -1078,10 +983,10 @@ void AppsContainerView::OnShown() {
 
 void AppsContainerView::OnWillBeHidden() {
   DVLOG(1) << __FUNCTION__;
-  if (show_state_ == SHOW_APPS || show_state_ == SHOW_ITEM_REPARENT)
-    apps_grid_view_->EndDrag(true);
-  else if (show_state_ == SHOW_ACTIVE_FOLDER)
+  if (show_state_ == SHOW_ACTIVE_FOLDER)
     app_list_folder_view_->CloseFolderPage();
+  else
+    apps_grid_view_->CancelDragWithNoDropAnimation();
 }
 
 void AppsContainerView::OnHidden() {
@@ -1484,6 +1389,44 @@ void AppsContainerView::UpdateGradientMaskBounds() {
                                                /*fade_in=*/false,
                                                /*is_horizonal=*/false});
   gradient_layer_delegate_->layer()->SetBounds(container_bounds);
+}
+
+void AppsContainerView::OnAppsGridViewFadeOutAnimationEneded(
+    const absl::optional<AppListSortOrder>& new_order,
+    bool abort) {
+  // Update item positions after the fade out animation but before the fade in
+  // animation. NOTE: `update_position_closure_` can be empty in some edge
+  // cases. For example, the app list is set with a new order denoted by Order
+  // A. Then before the fade out animation is completed, the app list order is
+  // reset with the old value. In this case, `update_position_closure_` for
+  // Order A is never called. As a result, the closure for resetting the order
+  // is empty.
+  // Also update item positions only when the fade out animation ends normally.
+  // Because a fade out animation is aborted when:
+  // (1) Another reorder animation starts, or
+  // (2) The apps grid's view model updates due to the reasons such as app
+  // installation or model reset.
+  // It is meaningless to update item positions in either case.
+  if (update_position_closure_ && !abort)
+    std::move(update_position_closure_).Run();
+
+  // Record the undo toast's visibility before update.
+  const bool old_toast_visible = reorder_undo_container_->is_toast_visible();
+
+  reorder_undo_container_->OnTemporarySortOrderChanged(new_order);
+
+  // Skip the fade in animation if the fade out animation is aborted.
+  if (abort)
+    return;
+
+  // When the undo toast's visibility changes, the apps grid's bounds should
+  // change. Meanwhile, the fade in animation relies on the apps grid's bounds
+  // (because of calculating the visible items). Therefore trigger layout before
+  // starting the fade in animation.
+  if (old_toast_visible != reorder_undo_container_->is_toast_visible())
+    Layout();
+
+  apps_grid_view_->FadeInVisibleItemsForReorder();
 }
 
 }  // namespace ash

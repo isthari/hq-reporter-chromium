@@ -16,6 +16,7 @@
 #include "skia/ext/skia_matrix_44.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "ui/gfx/ca_layer_result.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/rrect_f.h"
 #include "ui/gfx/video_types.h"
@@ -101,6 +102,9 @@ class VIZ_SERVICE_EXPORT CALayerOverlayProcessor {
 
   virtual ~CALayerOverlayProcessor() = default;
 
+  void SetIsVideoCaptureEnabled(bool enabled) {
+    video_capture_enabled_ = enabled;
+  }
   bool AreClipSettingsValid(const CALayerOverlay& ca_layer_overlay,
                             CALayerOverlayList* ca_layer_overlay_list) const;
   void PutForcedOverlayContentIntoUnderlays(
@@ -126,7 +130,7 @@ class VIZ_SERVICE_EXPORT CALayerOverlayProcessor {
           render_pass_backdrop_filters,
       CALayerOverlayList* ca_layer_overlays);
 
-  int ca_layer_result() { return ca_layer_result_; }
+  gfx::CALayerResult ca_layer_result() { return ca_layer_result_; }
 
  private:
   // Returns whether future candidate quads should be considered
@@ -143,7 +147,7 @@ class VIZ_SERVICE_EXPORT CALayerOverlayProcessor {
       gfx::ProtectedVideoType protected_video_type,
       CALayerOverlayList* ca_layer_overlays) const;
 
-  void SaveCALayerResult(int result);
+  void SaveCALayerResult(gfx::CALayerResult result);
 
   // Set to false if the APIs required for overlays are not present, or the
   // feature has been disabled.
@@ -156,8 +160,14 @@ class VIZ_SERVICE_EXPORT CALayerOverlayProcessor {
   // CARenderer fails (so that we can use the tone mapping provided by macOS).
   const bool enable_hdr_underlays_;
 
+  // The CARenderer is disabled when video capture is enabled.
+  // https://crbug.com/836351, https://crbug.com/1290384
+  bool video_capture_enabled_ = false;
+
   size_t max_quad_list_size_ = 0;
-  int ca_layer_result_ = 0;
+
+  // The error code in ProcessForCALayerOverlays()
+  gfx::CALayerResult ca_layer_result_ = gfx::kCALayerSuccess;
 };
 
 }  // namespace viz

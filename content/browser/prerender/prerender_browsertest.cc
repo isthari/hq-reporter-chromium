@@ -327,7 +327,7 @@ class PrerenderBrowserTest : public ContentBrowserTest {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExperimentalWebPlatformFeatures);
     // The viewport meta tag is only enabled on Android.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
                                     "DisplayCutoutAPI");
 #endif
@@ -1792,7 +1792,7 @@ class MojoCapabilityControlTestContentBrowserClient
   void BindCancelInterface(
       RenderFrameHost* render_frame_host,
       mojo::PendingReceiver<mojom::TestInterfaceForCancel> receiver) {
-    cancel_receiver_.Bind(std::move(receiver));
+    cancel_receiver_set_.Add(this, std::move(receiver));
   }
 
   void BindUnexpectedInterface(
@@ -1811,7 +1811,7 @@ class MojoCapabilityControlTestContentBrowserClient
  private:
   mojo::ReceiverSet<mojom::TestInterfaceForDefer> defer_receiver_set_;
   mojo::ReceiverSet<mojom::TestInterfaceForGrant> grant_receiver_set_;
-  mojo::Receiver<mojom::TestInterfaceForCancel> cancel_receiver_{this};
+  mojo::ReceiverSet<mojom::TestInterfaceForCancel> cancel_receiver_set_;
   mojo::Receiver<mojom::TestInterfaceForUnexpected> unexpected_receiver_{this};
 };
 
@@ -2034,6 +2034,84 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   EXPECT_EQ(bad_message_error,
             "MBPA_BAD_INTERFACE: content.mojom.TestInterfaceForUnexpected");
 
+  SetBrowserClientForTesting(old_browser_client);
+}
+
+// Regression test for https://crbug.com/1268714.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MojoCapabilityControl_LoosenMode) {
+  MojoCapabilityControlTestContentBrowserClient test_browser_client;
+  auto* old_browser_client = SetBrowserClientForTesting(&test_browser_client);
+  IsolateAllSitesForTesting(base::CommandLine::ForCurrentProcess());
+  GURL initial_url = GetUrl("/empty.html");
+  GURL prerendering_url =
+      GetUrl("/cross_site_iframe_factory.html?a.test(a.test,a.test)");
+  GURL cross_origin_iframe_url = GetCrossOriginUrl("/title1.html");
+
+  // 1. Navigate to an initial page and prerender a page.
+  ASSERT_TRUE(NavigateToURL(shell(), initial_url));
+  int host_id = AddPrerender(prerendering_url);
+  RenderFrameHostImpl* prerendered_render_frame_host =
+      GetPrerenderedMainFrameHost(host_id);
+
+  // 2. Let the first iframe navigate to a cross-origin url. It will create a
+  // speculative RFH and the navigation will be deferred.
+  TestNavigationManager subframe_navigation_manager(web_contents(),
+                                                    cross_origin_iframe_url);
+  std::string js = R"(
+    const frame = document.getElementById($1);
+    frame.contentWindow.location.href = $2;
+  )";
+  EXPECT_TRUE(ExecJs(prerendered_render_frame_host,
+                     JsReplace(js, "child-0", cross_origin_iframe_url.spec())));
+
+  // 3. Wait until the navigation to `cross_origin_iframe_url` is deferred by
+  // NavigationThrottle.
+  subframe_navigation_manager.WaitForFirstYieldAfterDidStartNavigation();
+  FrameTreeNode* child_ftn =
+      FrameTreeNode::GloballyFindByID(host_id)->child_at(0);
+  NavigationRequest* child_navigation = child_ftn->navigation_request();
+  ASSERT_NE(child_navigation, nullptr);
+  ASSERT_TRUE(child_navigation->IsDeferredForTesting());
+
+  // 4. Collect all RenderFrameHosts in the frame tree.
+  std::vector<RenderFrameHostImpl*> all_prerender_frames;
+  size_t count_speculative = 0;
+  prerendered_render_frame_host->ForEachRenderFrameHostIncludingSpeculative(
+      base::BindLambdaForTesting([&](RenderFrameHostImpl* rfh) {
+        all_prerender_frames.push_back(rfh);
+        count_speculative +=
+            (rfh->lifecycle_state() == LifecycleStateImpl::kSpeculative);
+      }));
+  ASSERT_EQ(all_prerender_frames.size(), 4u);
+  ASSERT_EQ(count_speculative, 1u);
+
+  // 5. Activate the prerendered page and listen to the DidFinishNavigation
+  // event, to ensure the Activate IPC is sent.
+  TestNavigationManager prerendered_activation_navigation(web_contents(),
+                                                          prerendering_url);
+  ASSERT_TRUE(ExecJs(web_contents()->GetMainFrame(),
+                     JsReplace("location = $1", prerendering_url)));
+  prerendered_activation_navigation.WaitForNavigationFinished();
+  EXPECT_TRUE(
+      prerendered_activation_navigation.was_prerendered_page_activation());
+  EXPECT_TRUE(prerendered_activation_navigation.was_successful());
+
+  // 6. Renderers attempt to build Mojo connections for kCancel interfaces.
+  // This part simulates some subframe documents start sending kCancel
+  // interfaces after they know about the activation. It tests the regression
+  // situation caught by https://crbug.com/1268714. If some RenderFrameHostImpls
+  // are not informed of the activation, this test will crash.
+  for (auto* rfhi : all_prerender_frames) {
+    mojo::Receiver<blink::mojom::BrowserInterfaceBroker>& bib =
+        rfhi->browser_interface_broker_receiver_for_testing();
+    blink::mojom::BrowserInterfaceBroker* prerender_broker =
+        bib.internal_state()->impl();
+
+    // Send a kCancel request to the browser. This test should not crash.
+    mojo::Remote<mojom::TestInterfaceForCancel> remote;
+    prerender_broker->GetInterface(remote.BindNewPipeAndPassReceiver());
+    remote.FlushForTesting();
+  }
   SetBrowserClientForTesting(old_browser_client);
 }
 
@@ -2505,7 +2583,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, CSPDefaultSrc) {
 // TODO(https://crbug.com/1182032): Now the File System Access API is not
 // supported on Android. Enable this browser test after
 // https://crbug.com/1011535 is fixed.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_DeferPrivateOriginFileSystem DISABLED_DeferPrivateOriginFileSystem
 #else
 #define MAYBE_DeferPrivateOriginFileSystem DeferPrivateOriginFileSystem
@@ -2732,7 +2810,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PluginsCancelPrerendering) {
 // This is a browser test and cannot be upstreamed to WPT because it diverges
 // from the spec by cancelling prerendering in the Notification constructor,
 // whereas the spec says to defer upon use requestPermission().
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 // On Android the Notification constructor throws an exception regardless of
 // whether the page is being prerendered.
 // Tests that we will get the exception from the prerendering if the
@@ -2780,7 +2858,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, NotificationConstructor) {
       "Prerender.Experimental.PrerenderCancelledInterface",
       PrerenderCancelledInterface::kNotificationService, 1);
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 // TODO(crbug.com/1215073): Make a WPT when we have a stable way to wait
 // cancellation runs.
@@ -2918,7 +2996,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 }
 
 // The viewport meta tag is only enabled on Android.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 namespace {
 
 // Used to observe the viewport change in the WebContents.
@@ -2997,7 +3075,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, ViewportFit) {
   }
   EXPECT_TRUE(host_observer.was_activated());
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 // End: Tests for feature restrictions in prerendered pages ====================
 
@@ -3578,11 +3656,12 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(web_contents()->GetLastCommittedURL(), kPrerenderingUrl);
 }
 
-// Test that WebContentsObserver::DocumentAvailableInMainFrame is not
+// Test that WebContentsObserver::PrimaryMainDocumentElementAvailable is not
 // invoked when the page gets loaded while prerendering but it is deferred and
 // invoked on prerender activation.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       DocumentAvailableInMainFrameInvokedAfterActivation) {
+IN_PROC_BROWSER_TEST_F(
+    PrerenderBrowserTest,
+    PrimaryMainDocumentElementAvailableInvokedAfterActivation) {
   const GURL kInitialUrl = GetUrl("/empty.html");
   const GURL kPrerenderingUrl = GetUrl("/page_with_iframe.html");
 
@@ -3590,13 +3669,13 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   ASSERT_TRUE(NavigateToURL(shell(), kInitialUrl));
 
   // Initialize a MockWebContentsObserver and ensure that
-  // DocumentAvailableInMainFrame is not invoked while prerendering.
+  // PrimaryMainDocumentElementAvailable is not invoked while prerendering.
   testing::NiceMock<MockWebContentsObserver> observer(shell()->web_contents());
-  EXPECT_CALL(observer, DocumentAvailableInMainFrame(testing::_)).Times(0);
+  EXPECT_CALL(observer, PrimaryMainDocumentElementAvailable()).Times(0);
 
   // AddPrerender() below waits until WebContentsObserver::DidStopLoading() is
-  // called and RenderFrameHostImpl::DocumentAvailableInMainFrame() call is
-  // expected before it returns.
+  // called and RenderFrameHostImpl::PrimaryMainDocumentElementAvailable() call
+  // is expected before it returns.
   int prerender_host_id = AddPrerender(kPrerenderingUrl);
   RenderFrameHostImpl* prerender_frame_host =
       GetPrerenderedMainFrameHost(prerender_host_id);
@@ -3609,13 +3688,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   testing::InSequence s;
 
   // Activate the prerendered page. This should result in invoking
-  // DocumentOnLoadCompletedInPrimaryMainFrame only for main RenderFrameHost.
+  // PrimaryMainDocumentElementAvailable only for main RenderFrameHost.
   // Verify that DidFinishNavigation is invoked before
-  // DocumentAvailableInMainFrame on activation.
+  // PrimaryMainDocumentElementAvailable on activation.
   EXPECT_CALL(observer, DidFinishNavigation(testing::_));
 
-  EXPECT_CALL(observer, DocumentAvailableInMainFrame(prerender_frame_host))
-      .Times(1);
+  EXPECT_CALL(observer, PrimaryMainDocumentElementAvailable()).Times(1);
   NavigatePrimaryPage(kPrerenderingUrl);
   EXPECT_EQ(web_contents()->GetLastCommittedURL(), kPrerenderingUrl);
 }
@@ -3928,7 +4006,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   // this test is checking the behavior of a new renderer process which is
   // created for a back forward navigation from a prerendered page.
   DisableBackForwardCacheForTesting(shell()->web_contents(),
-                                    BackForwardCache::TEST_ASSUMES_NO_CACHING);
+                                    BackForwardCache::TEST_REQUIRES_NO_CACHING);
 
   const GURL kInitialUrl = GetUrl("/prerender/session_storage.html");
   const GURL kPrerenderingUrl =
@@ -4034,7 +4112,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, AbandonIfRendererProcessCrashes) {
     RenderProcessHost* process =
         GetPrerenderedMainFrameHost(host_id)->GetProcess();
     ScopedAllowRendererCrashes allow_renderer_crashes(process);
-#if defined(OS_ANDROID) && defined(ARCH_CPU_X86_FAMILY)
+#if BUILDFLAG(IS_ANDROID) && defined(ARCH_CPU_X86_FAMILY)
     // On x86 and x86_64 Android, IMMEDIATE_CRASH() macro used in
     // ChildProcessHostImpl::CrashHungProcess() called from ForceCrash()
     // does not seem to work as expected. (See https://crbug.com/1211655)
@@ -4052,11 +4130,11 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, AbandonIfRendererProcessCrashes) {
 
   histogram_tester.ExpectUniqueSample(
       "Prerender.Experimental.PrerenderHostFinalStatus.SpeculationRule",
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       PrerenderHost::FinalStatus::kRendererProcessKilled, 1);
 #else
       PrerenderHost::FinalStatus::kRendererProcessCrashed, 1);
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
 // Test if the host is abandoned when the renderer page is killed.
@@ -4139,7 +4217,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBackForwardCacheBrowserTest,
       EvalJs(current_frame_host(), "getSessionStorageKeys()").ExtractString());
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 // StorageServiceOutOfProcess is not implemented on Android. Also as commented
 // below, test_api->CrashNow() won't work on x86 and x86_64 Android.
 
@@ -4523,6 +4601,126 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, AddSpeculationRulesMultipleTimes) {
       PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 1);
 }
 
+// Tests that PrerenderHostRegistry can hold up to two prerendering for the
+// prerender embedders it receives.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, StartByEmbeddersMultipleTimes) {
+  base::HistogramTester histogram_tester;
+  const GURL kInitialUrl = GetUrl("/empty.html");
+  const GURL kFirstPrerenderingUrl = GetUrl("/empty.html?prerender1");
+  const GURL kSecondPrerenderingUrl = GetUrl("/empty.html?prerender2");
+  const GURL kThirdPrerenderingUrl = GetUrl("/empty.html?prerender3");
+
+  ASSERT_TRUE(NavigateToURL(shell(), kInitialUrl));
+  // Start prerendering by embedder triggered prerendering; this should be
+  // trigger successfully.
+  std::unique_ptr<PrerenderHandle> prerender_handle1 =
+      web_contents_impl()->StartPrerendering(
+          kFirstPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_TRUE(prerender_handle1);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 0);
+
+  // Start prerendering by embedder triggered prerendering; this should be
+  // trigger successfully.
+  std::unique_ptr<PrerenderHandle> prerender_handle2 =
+      web_contents_impl()->StartPrerendering(
+          kSecondPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_TRUE(prerender_handle2);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 0);
+
+  // Start prerendering by embedder triggered prerendering; this should hit the
+  // limit.
+  std::unique_ptr<PrerenderHandle> prerender_handle3 =
+      web_contents_impl()->StartPrerendering(
+          kThirdPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_FALSE(prerender_handle3);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 1);
+}
+
+// Tests that PrerenderHostRegistry can hold up to two prerendering for the
+// prerender speculation rule and prerender embedders in total.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
+                       StartByEmbeddersAndSpeculationRulesMultipleTimes) {
+  base::HistogramTester histogram_tester;
+  const GURL kInitialUrl = GetUrl("/empty.html");
+  const GURL kFirstPrerenderingUrl = GetUrl("/empty.html?prerender1");
+  const GURL kSecondPrerenderingUrl = GetUrl("/empty.html?prerender2");
+  const GURL kThirdPrerenderingUrl = GetUrl("/empty.html?prerender3");
+
+  ASSERT_TRUE(NavigateToURL(shell(), kInitialUrl));
+  // Add the first prerender speculation rule; it should trigger prerendering
+  // successfully.
+  AddPrerender(kFirstPrerenderingUrl);
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.SpeculationRule",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 0);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 0);
+
+  // Start prerendering by embedder triggered prerendering; this should be
+  // trigger successfully.
+  std::unique_ptr<PrerenderHandle> prerender_handle2 =
+      web_contents_impl()->StartPrerendering(
+          kSecondPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_TRUE(prerender_handle2);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 0);
+
+  // Start prerendering by embedder triggered prerendering; this should hit the
+  // limit.
+  std::unique_ptr<PrerenderHandle> prerender_handle3 =
+      web_contents_impl()->StartPrerendering(
+          kThirdPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_FALSE(prerender_handle3);
+
+  histogram_tester.ExpectBucketCount(
+      "Prerender.Experimental.PrerenderHostFinalStatus.Embedder_"
+      "EmbedderSuffixForTest",
+      PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded, 1);
+
+  // Start prerendering by embedder triggered prerendering; this should be
+  // trigger successfully as one of the prerenders is freed.
+  prerender_handle2.reset();
+  prerender_handle3 = web_contents_impl()->StartPrerendering(
+      kThirdPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+      "EmbedderSuffixForTest",
+      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+  EXPECT_TRUE(prerender_handle3);
+}
+
 // Tests that cross-origin urls cannot be prerendered.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, SkipCrossOriginPrerender) {
   base::HistogramTester histogram_tester;
@@ -4559,9 +4757,11 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 
   // Start prerendering by embedder triggered prerendering.
   std::unique_ptr<PrerenderHandle> prerender_handle =
-      web_contents_impl()->StartPrerendering(kPrerenderingUrl,
-                                             PrerenderTriggerType::kEmbedder,
-                                             "EmbedderSuffixForTest");
+      web_contents_impl()->StartPrerendering(
+          kPrerenderingUrl, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
   EXPECT_TRUE(prerender_handle);
   test::PrerenderTestHelper::WaitForPrerenderLoadCompletion(
       *shell()->web_contents(), kPrerenderingUrl);
@@ -4581,9 +4781,11 @@ void PrerenderEmbedderTriggeredCrossOriginRedirectionPage(
 
   // Start prerendering by embedder triggered prerendering.
   std::unique_ptr<PrerenderHandle> prerender_handle =
-      web_contents.StartPrerendering(prerendering_url,
-                                     PrerenderTriggerType::kEmbedder,
-                                     "EmbedderSuffixForTest");
+      web_contents.StartPrerendering(
+          prerendering_url, PrerenderTriggerType::kEmbedder,
+          "EmbedderSuffixForTest",
+          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                    ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
   EXPECT_TRUE(prerender_handle);
   test::PrerenderTestHelper::WaitForPrerenderLoadCompletion(web_contents,
                                                             prerendering_url);
@@ -5136,13 +5338,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, DoNotUpdateUserActivationState) {
 
 // Tests that prerendering is cancelled when a mixed content subframe is
 // detected.
-// TODO(crbug.com/1282218): Flaky on Linux and Windows
-#if defined(OS_LINUX) || defined(OS_WIN)
-#define MAYBE_MixedContent DISABLED_MixedContent
-#else
-#define MAYBE_MixedContent MixedContent
-#endif
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_MixedContent) {
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MixedContent) {
   base::HistogramTester histogram_tester;
   const GURL kInitialUrl = GetUrl("/empty.html");
   const GURL kPrerenderingUrl = GetUrl("/empty.html?prerendering");
@@ -5159,10 +5355,10 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_MixedContent) {
   test::PrerenderHostObserver host_observer(*web_contents(), host_id);
 
   // Make a mixed content iframe.
-  EXPECT_TRUE(
+  std::ignore =
       ExecJs(prerendered_rfh,
              "add_iframe_async('http://a.test/empty.html?prerendering')",
-             EvalJsOptions::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+             EvalJsOptions::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES);
 
   host_observer.WaitForDestroyed();
   EXPECT_EQ(prerender_helper()->GetHostForUrl(kPrerenderingUrl),

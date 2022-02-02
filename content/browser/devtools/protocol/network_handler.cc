@@ -1324,7 +1324,7 @@ NetworkHandler::BuildProtocolReport(const net::ReportingReport& report) {
         .SetDepth(report.depth)
         .SetCompletedAttempts(report.attempts)
         .SetBody(protocol::DictionaryValue::cast(
-            protocol::toProtocolValue(report.body.get(), 1000)))
+            protocol::toProtocolValue(*report.body.get(), 1000)))
         .SetStatus(BuildReportStatus(report.status))
         .Build();
   }
@@ -2080,7 +2080,7 @@ void NetworkHandler::NavigationRequestWillBeSent(
       nav_request.begin_params().devtools_initiator;
   if (initiator_optional.has_value()) {
     initiator = protocol::ValueTypeConverter<Network::Initiator>::FromValue(
-        *toProtocolValue(&initiator_optional.value(), 1000));
+        *toProtocolValue(initiator_optional.value(), 1000));
   }
   if (!initiator) {
     initiator = Network::Initiator::Create()
@@ -2153,14 +2153,24 @@ void NetworkHandler::RequestSent(
     request_object->SetTrustTokenParams(
         BuildTrustTokenParams(*request_info.trust_token_params));
   }
+
+  std::string resource_type = Network::ResourceTypeEnum::Other;
+  if (request_info.resource_type ==
+          static_cast<int>(blink::mojom::ResourceType::kWorker) ||
+      request_info.resource_type ==
+          static_cast<int>(blink::mojom::ResourceType::kSharedWorker) ||
+      request_info.resource_type ==
+          static_cast<int>(blink::mojom::ResourceType::kServiceWorker)) {
+    resource_type = Network::ResourceTypeEnum::Script;
+  }
+
   // TODO(crbug.com/1261605): Populate redirect_emitted_extra_info instead of
   // just returning false.
   frontend_->RequestWillBeSent(
       request_id, loader_id, url_without_fragment, std::move(request_object),
       timestamp.since_origin().InSecondsF(), base::Time::Now().ToDoubleT(),
       std::move(initiator), /*redirect_emitted_extra_info=*/false,
-      std::unique_ptr<Network::Response>(),
-      std::string(Network::ResourceTypeEnum::Other),
+      std::unique_ptr<Network::Response>(), resource_type,
       Maybe<std::string>() /* frame_id */, request_info.has_user_gesture);
 }
 
@@ -2727,6 +2737,10 @@ makeCrossOriginOpenerPolicyValue(
     case network::mojom::CrossOriginOpenerPolicyValue::kSameOriginPlusCoep:
       return protocol::Network::CrossOriginOpenerPolicyValueEnum::
           SameOriginPlusCoep;
+    case network::mojom::CrossOriginOpenerPolicyValue::
+        kSameOriginAllowPopupsPlusCoep:
+      return protocol::Network::CrossOriginOpenerPolicyValueEnum::
+          SameOriginAllowPopupsPlusCoep;
   }
 }
 protocol::Network::CrossOriginEmbedderPolicyValue
@@ -2992,6 +3006,10 @@ void NetworkHandler::LoadNetworkResource(
     auto factory = CreateNetworkFactoryForDevTools(
         gurl.scheme(), frame->GetProcess(), frame->GetRoutingID(),
         frame->GetLastCommittedOrigin(), std::move(params));
+    if (!factory.is_valid()) {
+      callback->sendFailure(Response::InvalidParams("Unsupported URL scheme"));
+      return;
+    }
 
     url_loader_factory.Bind(std::move(factory));
     auto loader = DevToolsNetworkResourceLoader::Create(

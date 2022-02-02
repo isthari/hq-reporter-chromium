@@ -36,7 +36,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cookie_access_details.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -63,8 +62,12 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/widevine/cdm/buildflags.h"
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PLUGINS)
+#include "content/public/browser/plugin_service.h"
 #endif
 
 using content::BrowserThread;
@@ -417,7 +420,7 @@ IN_PROC_BROWSER_TEST_P(CookieSettingsTest, BlockCookies) {
 // Verify that cookies can be allowed and set using exceptions for particular
 // website(s) when all others are blocked.
 // Flaky on Mac (crbug.com/1155077) and Linux (crbug.com/1242410).
-#if defined(OS_MAC) || defined(OS_LINUX)
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
 #define MAYBE_AllowCookiesUsingExceptions DISABLED_AllowCookiesUsingExceptions
 #else
 #define MAYBE_AllowCookiesUsingExceptions AllowCookiesUsingExceptions

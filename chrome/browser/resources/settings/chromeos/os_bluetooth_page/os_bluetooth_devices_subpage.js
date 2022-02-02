@@ -16,8 +16,10 @@ import {I18nBehavior, I18nBehaviorInterface} from '//resources/js/i18n_behavior.
 import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {getBluetoothConfig} from 'chrome://resources/cr_components/chromeos/bluetooth/cros_bluetooth_config.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {IronA11yAnnouncer} from 'chrome://resources/polymer/v3_0/iron-a11y-announcer/iron-a11y-announcer.js';
 
 import {Route, Router} from '../../router.js';
+import {DeepLinkingBehavior, DeepLinkingBehaviorInterface} from '../deep_linking_behavior.m.js';
 import {routes} from '../os_route.m.js';
 import {RouteObserverBehavior, RouteObserverBehaviorInterface} from '../route_observer_behavior.js';
 
@@ -28,9 +30,10 @@ const mojom = chromeos.bluetoothConfig.mojom;
  * @extends {PolymerElement}
  * @implements {I18nBehaviorInterface}
  * @implements {RouteObserverBehaviorInterface}
+ * @implements {DeepLinkingBehaviorInterface}
  */
-const SettingsBluetoothDevicesSubpageElementBase =
-    mixinBehaviors([I18nBehavior, RouteObserverBehavior], PolymerElement);
+const SettingsBluetoothDevicesSubpageElementBase = mixinBehaviors(
+    [I18nBehavior, RouteObserverBehavior, DeepLinkingBehavior], PolymerElement);
 
 /** @polymer */
 class SettingsBluetoothDevicesSubpageElement extends
@@ -57,6 +60,15 @@ class SettingsBluetoothDevicesSubpageElement extends
       systemProperties: {
         type: Object,
         observer: 'onSystemPropertiesChanged_',
+      },
+
+      /**
+       * Used by DeepLinkingBehavior to focus this page's deep links.
+       * @type {!Set<!chromeos.settings.mojom.Setting>}
+       */
+      supportedSettingIds: {
+        type: Object,
+        value: () => new Set([chromeos.settings.mojom.Setting.kBluetoothOnOff]),
       },
 
       /**
@@ -110,6 +122,12 @@ class SettingsBluetoothDevicesSubpageElement extends
     this.lastSelectedDeviceId_ = null;
   }
 
+  /** @override */
+  ready() {
+    super.ready();
+    IronA11yAnnouncer.requestAvailability();
+  }
+
   /**
    * RouteObserverBehaviorInterface override
    * @param {!Route} route
@@ -129,6 +147,8 @@ class SettingsBluetoothDevicesSubpageElement extends
     }
     recordBluetoothUiSurfaceMetrics(
         BluetoothUiSurface.SETTINGS_DEVICE_LIST_SUBPAGE);
+
+    this.attemptDeepLink();
 
     // If a backwards navigation occurred from a Bluetooth device's detail page,
     // focus the list item corresponding to that device.
@@ -205,6 +225,7 @@ class SettingsBluetoothDevicesSubpageElement extends
       return;
     }
     getBluetoothConfig().setBluetoothEnabledState(this.isBluetoothToggleOn_);
+    this.annouceBluetoothStateChange_();
   }
 
   /**
@@ -245,6 +266,19 @@ class SettingsBluetoothDevicesSubpageElement extends
    */
   shouldShowNoDevicesFound_() {
     return !this.connectedDevices_.length && !this.unconnectedDevices_.length;
+  }
+
+  /** @private */
+  annouceBluetoothStateChange_() {
+    this.dispatchEvent(new CustomEvent('iron-announce', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        text: this.isBluetoothToggleOn_ ?
+            this.i18n('bluetoothEnabledA11YLabel') :
+            this.i18n('bluetoothDisabledA11YLabel')
+      }
+    }));
   }
 }
 

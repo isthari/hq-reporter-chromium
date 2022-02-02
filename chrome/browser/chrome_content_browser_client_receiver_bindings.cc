@@ -24,7 +24,6 @@
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/predictors/loading_predictor.h"
 #include "chrome/browser/predictors/loading_predictor_factory.h"
-#include "chrome/browser/subresource_redirect/subresource_redirect_observer.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/common/buildflags.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
@@ -32,7 +31,6 @@
 #include "components/autofill_assistant/content/common/autofill_assistant_driver.mojom.h"
 #include "components/content_capture/browser/onscreen_content_provider.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/metrics/call_stack_profile_collector.h"
 #include "components/offline_pages/buildflags/buildflags.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
@@ -54,10 +52,10 @@
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/widevine/cdm/buildflags.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/download/android/available_offline_content_provider.h"
 #include "chrome/browser/plugins/plugin_observer_android.h"
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
 #include "chrome/browser/win/conflicts/module_database.h"
 #include "chrome/browser/win/conflicts/module_event_sink_impl.h"
 #elif BUILDFLAG(IS_CHROMEOS_ASH)
@@ -81,15 +79,15 @@
 #include "extensions/browser/extensions_browser_client.h"
 #endif
 
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || defined(OS_WIN)
+#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN)
 #include "chrome/browser/media/cdm_document_service_impl.h"
-#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS) || defined(OS_WIN)
+#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 #include "chrome/browser/media/output_protection_impl.h"
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
-#if BUILDFLAG(ENABLE_MOJO_CDM) && defined(OS_ANDROID)
+#if BUILDFLAG(ENABLE_MOJO_CDM) && BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/media/android/cdm/media_drm_storage_factory.h"
 #endif
 
@@ -101,7 +99,7 @@
 #endif
 #endif
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/badging/badge_manager.h"
 #include "chrome/browser/sync/sync_encryption_keys_tab_helper.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
@@ -188,7 +186,7 @@ void MaybeCreateSafeBrowsingForRenderer(
 }
 
 // BadgeManager is not used for Android.
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 void BindBadgeServiceForServiceWorker(
     const content::ServiceWorkerVersionBaseInfo& info,
     mojo::PendingReceiver<blink::mojom::BadgeService> receiver) {
@@ -251,7 +249,7 @@ void ChromeContentBrowserClient::ExposeInterfacesToRenderer(
   }
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Add the ModuleEventSink interface. This is the interface used by renderer
   // processes to notify the browser of modules in their address space. The
   // process handle is not yet available at this point so pass in a callback
@@ -272,7 +270,7 @@ void ChromeContentBrowserClient::ExposeInterfacesToRenderer(
           base::BindRepeating(&ModuleDatabase::HandleModuleLoadEvent)),
       ui_task_runner);
 #endif
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   registry->AddInterface(
       base::BindRepeating(&android::AvailableOfflineContentProvider::Create,
                           render_process_host->GetID()),
@@ -308,14 +306,14 @@ void ChromeContentBrowserClient::BindMediaServiceReceiver(
   }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || defined(OS_WIN)
+#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN)
   if (auto r = receiver.As<media::mojom::CdmDocumentService>()) {
     CdmDocumentServiceImpl::Create(render_frame_host, std::move(r));
     return;
   }
-#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS) || defined(OS_WIN)
+#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN)
 
-#if BUILDFLAG(ENABLE_MOJO_CDM) && defined(OS_ANDROID)
+#if BUILDFLAG(ENABLE_MOJO_CDM) && BUILDFLAG(IS_ANDROID)
   if (auto r = receiver.As<media::mojom::MediaDrmStorage>()) {
     CreateMediaDrmStorage(render_frame_host, std::move(r));
     return;
@@ -356,7 +354,7 @@ void ChromeContentBrowserClient::
     RegisterBrowserInterfaceBindersForServiceWorker(
         mojo::BinderMapWithContext<
             const content::ServiceWorkerVersionBaseInfo&>* map) {
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
   map->Add<blink::mojom::BadgeService>(
       base::BindRepeating(&BindBadgeServiceForServiceWorker));
 #endif
@@ -370,9 +368,11 @@ void ChromeContentBrowserClient::
            mojo::PendingReceiver<blink::mojom::CrosWindowManagement> receiver) {
           DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-          if (!SystemExtension::IsSystemExtensionOrigin(
-                  info.storage_key.origin()))
+          if (!SystemExtensionsProvider::IsDebugMode() &&
+              !SystemExtension::IsSystemExtensionOrigin(
+                  info.storage_key.origin())) {
             return;
+          }
 
           content::RenderProcessHost* render_process_host =
               content::RenderProcessHost::FromID(info.process_id);
@@ -471,9 +471,9 @@ void ChromeContentBrowserClient::
       },
       &render_frame_host));
 #endif
-#if BUILDFLAG(ENABLE_PLUGINS) || defined(OS_ANDROID)
-#if defined(OS_ANDROID)
-    using PluginObserverImpl = PluginObserverAndroid;
+#if BUILDFLAG(ENABLE_PLUGINS) || BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
+  using PluginObserverImpl = PluginObserverAndroid;
 #else
     using PluginObserverImpl = PluginObserver;
 #endif
@@ -485,8 +485,8 @@ void ChromeContentBrowserClient::
                                              render_frame_host);
         },
         &render_frame_host));
-#endif  // BUILDFLAG(ENABLE_PLUGINS) || defined(OS_ANDROID)
-#if !defined(OS_ANDROID)
+#endif  // BUILDFLAG(ENABLE_PLUGINS) || BUILDFLAG(IS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
     associated_registry.AddInterface(base::BindRepeating(
         [](content::RenderFrameHost* render_frame_host,
            mojo::PendingAssociatedReceiver<
@@ -495,7 +495,7 @@ void ChromeContentBrowserClient::
               std::move(receiver), render_frame_host);
         },
         &render_frame_host));
-#endif  // !defined(OS_ANDROID)
+#endif  // !BUILDFLAG(IS_ANDROID)
     associated_registry.AddInterface(base::BindRepeating(
         [](content::RenderFrameHost* render_frame_host,
            mojo::PendingAssociatedReceiver<
@@ -541,7 +541,7 @@ void ChromeContentBrowserClient::
         },
         &render_frame_host));
 #endif  // BUILDFLAG(ENABLE_PDF)
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
     associated_registry.AddInterface(base::BindRepeating(
         [](content::RenderFrameHost* render_frame_host,
            mojo::PendingAssociatedReceiver<
@@ -550,7 +550,7 @@ void ChromeContentBrowserClient::
                                                        render_frame_host);
         },
         &render_frame_host));
-#endif  //  !defined(OS_ANDROID)
+#endif  //  !BUILDFLAG(IS_ANDROID)
 #if BUILDFLAG(ENABLE_PRINTING)
     associated_registry.AddInterface(base::BindRepeating(
         [](content::RenderFrameHost* render_frame_host,
@@ -585,16 +585,6 @@ void ChromeContentBrowserClient::
                subresource_filter::mojom::SubresourceFilterHost> receiver) {
           subresource_filter::ContentSubresourceFilterThrottleManager::
               BindReceiver(std::move(receiver), render_frame_host);
-        },
-        &render_frame_host));
-    associated_registry.AddInterface(base::BindRepeating(
-        [](content::RenderFrameHost* render_frame_host,
-           mojo::PendingAssociatedReceiver<
-               subresource_redirect::mojom::SubresourceRedirectService>
-               receiver) {
-          subresource_redirect::SubresourceRedirectObserver::
-              BindSubresourceRedirectService(std::move(receiver),
-                                             render_frame_host);
         },
         &render_frame_host));
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)

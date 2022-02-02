@@ -6,11 +6,7 @@ import {
   getDefaultWindowSize,
 } from './app_window.js';
 import {assert, assertInstanceof} from './assert.js';
-import {
-  PhotoConstraintsPreferrer,
-  VideoConstraintsPreferrer,
-} from './device/constraints_preferrer.js';
-import {DeviceInfoUpdater} from './device/device_info_updater.js';
+import {CameraManager} from './device/index.js';
 import * as dom from './dom.js';
 import {reportError} from './error.js';
 import * as focusRing from './focus_ring.js';
@@ -59,44 +55,36 @@ const appWindow = window.appWindow;
 export class App {
   private perfLogger: PerfLogger;
   private intent: Intent|null;
-  private photoPreferrer: PhotoConstraintsPreferrer;
-  private videoPreferrer: VideoConstraintsPreferrer;
-  private infoUpdater: DeviceInfoUpdater;
+  private readonly cameraManager: CameraManager;
   private galleryButton = new GalleryButton();
   private cameraView: Camera;
 
   constructor({perfLogger, intent, facing, mode: defaultMode}: {
     perfLogger: PerfLogger,
     intent: Intent|null,
-    facing: Facing|null,
+    facing: Facing,
     mode: Mode|null,
   }) {
     this.perfLogger = perfLogger;
 
     this.intent = intent;
+    const shouldHandleIntentResult = this.intent?.shouldHandleResult === true;
+    state.set(
+        state.State.SHOULD_HANDLE_INTENT_RESULT, shouldHandleIntentResult);
 
-    this.photoPreferrer = new PhotoConstraintsPreferrer(async () => {
-      await this.cameraView.start();
-    });
-
-    this.videoPreferrer = new VideoConstraintsPreferrer(async () => {
-      await this.cameraView.start();
-    });
-
-    this.infoUpdater =
-        new DeviceInfoUpdater(this.photoPreferrer, this.videoPreferrer);
+    const modeConstraints = shouldHandleIntentResult ?
+        {exact: defaultMode} :
+        {default: defaultMode ?? Mode.PHOTO};
+    this.cameraManager =
+        new CameraManager(this.perfLogger, facing, modeConstraints);
 
     this.cameraView = (() => {
-      const mode = defaultMode ?? Mode.PHOTO;
-      if (this.intent !== null && this.intent.shouldHandleResult) {
-        state.set(state.State.SHOULD_HANDLE_INTENT_RESULT, true);
+      if (shouldHandleIntentResult) {
         return new CameraIntent(
-            this.intent, this.infoUpdater, this.photoPreferrer,
-            this.videoPreferrer, mode, this.perfLogger);
+            this.intent, this.cameraManager, this.perfLogger);
       } else {
         return new Camera(
-            this.galleryButton, this.infoUpdater, this.photoPreferrer,
-            this.videoPreferrer, mode, this.perfLogger, facing);
+            this.galleryButton, this.cameraManager, this.perfLogger);
       }
     })();
 
@@ -139,7 +127,7 @@ export class App {
         }
       });
 
-      const save = (element) => {
+      const save = (element: HTMLInputElement) => {
         if (element.dataset['key'] !== undefined) {
           localStorage.set(element.dataset['key'], element.checked);
         }
@@ -246,12 +234,13 @@ export class App {
     const cameraResourceInitialized = new WaitableEvent();
     const exploitUsage = async () => {
       if (cameraResourceInitialized.isSignaled()) {
-        await this.resume();
+        this.resume();
       } else {
         // CCA must get camera usage for completing its initialization when
         // first launched.
-        await this.cameraView.initialize();
         notifyCameraResourceReady();
+        await this.cameraManager.initialize(this.cameraView);
+        await this.cameraView.initialize();
         cameraResourceInitialized.signal();
       }
     };
@@ -264,10 +253,10 @@ export class App {
 
     const startCamera = (async () => {
       await cameraResourceInitialized.wait();
-      const isSuccess = await this.cameraView.start();
+      const isSuccess = await this.cameraManager.requestResume();
 
       if (isSuccess) {
-        const aspectRatio = this.cameraView.getPreviewAspectRatio();
+        const {aspectRatio} = this.cameraManager.getPreviewResolution();
         const {width, height} = getDefaultWindowSize(aspectRatio);
         window.resizeTo(width, height);
       }
@@ -275,7 +264,7 @@ export class App {
       nav.close(ViewName.SPLASH);
       nav.open(ViewName.CAMERA);
 
-      const windowCreationTime = window['windowCreationTime'];
+      const windowCreationTime = window.windowCreationTime;
       this.perfLogger.start(
           PerfEvent.LAUNCHING_FROM_WINDOW_CREATION, windowCreationTime);
       this.perfLogger.stop(
@@ -286,16 +275,17 @@ export class App {
     })();
 
     const preloadImages = (async () => {
-      const loadImage = (url) => new Promise<void>((resolve, reject) => {
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'image';
-        link.href = url;
-        link.onload = () => resolve();
-        link.onerror = () =>
-            reject(new Error(`Failed to preload image ${url}`));
-        document.head.appendChild(link);
-      });
+      const loadImage = (url: string) =>
+          new Promise<void>((resolve, reject) => {
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'image';
+            link.href = url;
+            link.onload = () => resolve();
+            link.onerror = () =>
+                reject(new Error(`Failed to preload image ${url}`));
+            document.head.appendChild(link);
+          });
       const results = await Promise.allSettled(
           preloadImagesList.map((name) => loadImage(`/images/${name}`)));
       for (const result of results) {
@@ -325,8 +315,7 @@ export class App {
    * Suspends app and hides app window.
    */
   async suspend(): Promise<void> {
-    state.set(state.State.SUSPEND, true);
-    await this.cameraView.start();
+    await this.cameraManager.requestSuspend();
     nav.open(ViewName.WARNING, WarningType.CAMERA_PAUSED);
   }
 
@@ -334,7 +323,7 @@ export class App {
    * Resumes app from suspension and shows app window.
    */
   resume(): void {
-    state.set(state.State.SUSPEND, false);
+    this.cameraManager.requestResume();
     nav.close(ViewName.WARNING, WarningType.CAMERA_PAUSED);
   }
 
@@ -354,7 +343,7 @@ export class App {
  */
 function parseSearchParams(): {
   intent: Intent|null,
-  facing: Facing|null,
+  facing: Facing,
   mode: Mode|null,
   openFrom: string|null,
   autoTake: boolean
@@ -362,7 +351,8 @@ function parseSearchParams(): {
   const url = new URL(window.location.href);
   const params = url.searchParams;
 
-  const facing = checkEnumVariant(Facing, params.get('facing'));
+  const facing =
+      checkEnumVariant(Facing, params.get('facing')) ?? Facing.NOT_SET;
 
   const mode = checkEnumVariant(Mode, params.get('mode'));
 

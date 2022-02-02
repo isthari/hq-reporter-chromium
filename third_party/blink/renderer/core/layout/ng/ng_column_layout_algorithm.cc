@@ -506,7 +506,8 @@ NGBreakStatus NGColumnLayoutAlgorithm::LayoutChildren() {
   if (!walker.IsFinished() || container_builder_.HasInflowChildBreakInside()) {
     // We broke in the main flow. Let this multicol container take up any
     // remaining space.
-    intrinsic_block_size_ = FragmentainerSpaceAtBfcStart(ConstraintSpace());
+    intrinsic_block_size_ = std::max(
+        intrinsic_block_size_, FragmentainerSpaceAtBfcStart(ConstraintSpace()));
 
     // Go through any remaining parts that we didn't get to, and push them as
     // break tokens for the next (outer) fragmentainer to handle.
@@ -902,12 +903,9 @@ scoped_refptr<const NGLayoutResult> NGColumnLayoutAlgorithm::LayoutRow(
   }
 
   // Commit all column fragments to the fragment builder.
-  const NGBlockBreakToken* incoming_column_token = next_column_token;
   for (auto result_with_offset : new_columns) {
     const NGPhysicalBoxFragment& column = result_with_offset.Fragment();
     container_builder_.AddChild(column, result_with_offset.offset);
-    Node().AddColumnResult(result_with_offset.result, incoming_column_token);
-    incoming_column_token = To<NGBlockBreakToken>(column.BreakToken());
   }
 
   if (min_break_appeal)
@@ -1279,14 +1277,16 @@ LayoutUnit NGColumnLayoutAlgorithm::ConstrainColumnBlockSize(
       ConstraintSpace(), style, BorderPadding(), style.LogicalMinHeight());
   max = std::max(max, min);
 
-  // If this multicol container is nested inside another fragmentation
-  // context, we need to subtract the space consumed in previous fragments.
-  if (BreakToken())
-    max -= BreakToken()->ConsumedBlockSize();
+  if (max != LayoutUnit::Max()) {
+    // If this multicol container is nested inside another fragmentation
+    // context, we need to subtract the space consumed in previous fragments.
+    if (BreakToken())
+      max -= BreakToken()->ConsumedBlockSize();
 
-  // We may already have used some of the available space in earlier column rows
-  // or spanners.
-  max -= CurrentContentBlockOffset(row_offset);
+    // We may already have used some of the available space in earlier column
+    // rows or spanners.
+    max -= CurrentContentBlockOffset(row_offset);
+  }
 
   // Constrain and convert the value back to content-box.
   size = std::min(size, max);

@@ -90,6 +90,7 @@
 <translation id="3115898365077584848">Show info</translation>
 <translation id="3123473560110926937">Blocked on some sites</translation>
 <translation id="3198916472715691905"><ph name="STORAGE_AMOUNT" /> stored data</translation>
+<translation id="3203366800380907218">From the web</translation>
 <translation id="321187648315454507">To let <ph name="APP_NAME" /> send you notifications, also turn on notifications in <ph name="BEGIN_LINK" />Android settings<ph name="END_LINK" />.</translation>
 <translation id="3227137524299004712">Microphone</translation>
 <translation id="3277252321222022663">Allow sites to access sensors (recommended)</translation>
@@ -119,6 +120,7 @@
 <translation id="4008040567710660924">Allow cookies for a specific site.</translation>
 <translation id="4046123991198612571">Next track</translation>
 <translation id="4165986682804962316">Site settings</translation>
+<translation id="4194328954146351878">Ask before allowing sites to see and change information on NFC devices (recommended)</translation>
 <translation id="4200726100658658164">Open location settings</translation>
 <translation id="4226663524361240545">Notifications may vibrate the device</translation>
 <translation id="4259722352634471385">Navigation is blocked: <ph name="URL" /></translation>
@@ -157,6 +159,7 @@
 <translation id="5186036860380548585">Option available near top of the screen</translation>
 <translation id="5197729504361054390">The contacts that you select will be shared with <ph name="BEGIN_BOLD" /><ph name="SITE" /><ph name="END_BOLD" />.</translation>
 <translation id="5216942107514965959">Last visited today</translation>
+<translation id="5264323282659631142">Remove '<ph name="CHIP_LABEL" />'</translation>
 <translation id="528192093759286357">Drag from top and touch the back button to exit full screen.</translation>
 <translation id="5300589172476337783">Show</translation>
 <translation id="5301954838959518834">OK, got it</translation>
@@ -181,7 +184,6 @@
 <translation id="5677928146339483299">Blocked</translation>
 <translation id="5689516760719285838">Location</translation>
 <translation id="5690795753582697420">Camera is turned off in Android settings</translation>
-<translation id="5710871682236653961">Ask before allowing sites to send and receive info when you tap NFC devices (recommended)</translation>
 <translation id="5719847187258001597">This will clear all data and cookies stored by <ph name="ORIGIN" /> or by its app on your home screen.</translation>
 <translation id="5771720122942595109"><ph name="PERMISSION_1" /> blocked</translation>
 <translation id="5804241973901381774">Permissions</translation>
@@ -240,7 +242,6 @@
 <translation id="7016516562562142042">Allowed for current search engine</translation>
 <translation id="7053983685419859001">Block</translation>
 <translation id="7066151586745993502">{NUM_SELECTED,plural, =1{1 selected}other{# selected}}</translation>
-<translation id="7070090581017165256">About this site</translation>
 <translation id="7087918508125750058"><ph name="ITEM_COUNT" /> selected. Options available near top of the screen</translation>
 <translation id="7141896414559753902">Block sites from showing pop-ups and redirects (recommended)</translation>
 <translation id="7176368934862295254"><ph name="KILOBYTES" /> KB</translation>
@@ -255,8 +256,8 @@
 <translation id="7521387064766892559">JavaScript</translation>
 <translation id="7554752735887601236">A site is using your microphone</translation>
 <translation id="7561196759112975576">Always</translation>
-<translation id="7572498721684305250">Block sites from sending and receiving info when you tap NFC devices</translation>
 <translation id="757524316907819857">Block sites from playing protected content</translation>
+<translation id="7577900504646297215">Manage interests</translation>
 <translation id="7649070708921625228">Help</translation>
 <translation id="7658239707568436148">Cancel</translation>
 <translation id="7781829728241885113">Yesterday</translation>
@@ -322,6 +323,7 @@
 <translation id="8903921497873541725">Zoom in</translation>
 <translation id="8921772741368021346"><ph name="POSITION" />/<ph name="DURATION" /></translation>
 <translation id="8926666909099850184">NFC is off for this device. Turn it on in <ph name="BEGIN_LINK" />Android settings<ph name="END_LINK" />.</translation>
+<translation id="8928445016601307354">Block sites from seeing and changing information on NFC devices</translation>
 <translation id="8941729603749328384">www.example.com</translation>
 <translation id="8958424370300090006">Block cookies for a specific site.</translation>
 <translation id="8959122750345127698">Navigation is unreachable: <ph name="URL" /></translation>

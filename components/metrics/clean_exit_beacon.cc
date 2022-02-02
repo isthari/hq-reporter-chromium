@@ -19,6 +19,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -26,7 +27,7 @@
 #include "components/variations/service/variations_safe_mode_constants.h"
 #include "components/variations/variations_switches.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #include "base/strings/string_util_win.h"
 #include "base/strings/utf_string_conversions.h"
@@ -210,25 +211,19 @@ version_info::Channel GetChannel(version_info::Channel channel) {
   return channel;
 }
 
-// Sets up the Extended Variations Safe Mode experiment, which is enabled on
-// only some channels. If assigned to an experiment group, returns the name of
-// the group name, e.g. "Control"; otherwise, returns the empty string.
+// Sets up the Extended Variations Safe Mode experiment, whose groups have
+// channel-specific weights. Returns the name of the client's experiment group
+// name, e.g. "Control".
 std::string SetUpExtendedSafeModeTrial(version_info::Channel channel) {
-  if (channel != version_info::Channel::UNKNOWN &&
-      channel != version_info::Channel::CANARY &&
-      channel != version_info::Channel::DEV &&
-      channel != version_info::Channel::BETA) {
-    return std::string();
-  }
-
   int default_group;
   scoped_refptr<base::FieldTrial> trial(
       base::FieldTrialList::FactoryGetFieldTrial(
           kExtendedSafeModeTrial, 100, kDefaultGroup,
           base::FieldTrial::ONE_TIME_RANDOMIZED, &default_group));
 
-  trial->AppendGroup(kControlGroup, 50);
-  trial->AppendGroup(kSignalAndWriteViaFileUtilGroup, 50);
+  int group_probability = channel == version_info::Channel::STABLE ? 1 : 50;
+  trial->AppendGroup(kControlGroup, group_probability);
+  trial->AppendGroup(kSignalAndWriteViaFileUtilGroup, group_probability);
   return trial->group_name();
 }
 
@@ -267,12 +262,16 @@ void CleanExitBeacon::Initialize() {
   did_previous_session_exit_cleanly_ =
       DidPreviousSessionExitCleanly(beacon_file_contents.get());
 
-#if defined(OS_ANDROID)
-  // TODO(crbug/1248239): Use the beacon file, if any, to determine the crash
-  // crash once the Extended Variations Safe Mode experiment is fully enabled
-  // on Android Chrome.
-  beacon_file_contents.reset();
-#endif  // defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
+  // TODO(crbug/1248239): Use the beacon file, if any, to maybe increment the
+  // crash streak when the Extended Variations Safe Mode experiment is fully
+  // enabled on Android Chrome beta and stable.
+  if (channel_ != version_info::Channel::UNKNOWN &&
+      channel_ != version_info::Channel::CANARY &&
+      channel_ != version_info::Channel::DEV) {
+    beacon_file_contents.reset();
+  }
+#endif  // BUILDFLAG(IS_ANDROID)
 
   MaybeIncrementCrashStreak(did_previous_session_exit_cleanly_,
                             beacon_file_contents.get(), local_state_);
@@ -287,11 +286,11 @@ bool CleanExitBeacon::DidPreviousSessionExitCleanly(
         local_state_->GetBoolean(prefs::kStabilityExitedCleanly));
   }
 
-#if defined(OS_WIN) || defined(OS_IOS)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
   absl::optional<bool> backup_beacon_value = ExitedCleanly();
   RecordBeaconConsistency("UMA.CleanExitBeaconConsistency2",
                           backup_beacon_value, local_state_beacon_value);
-#endif  // defined(OS_WIN) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
 
   absl::optional<bool> beacon_file_beacon_value;
   bool use_beacon_file =
@@ -307,23 +306,26 @@ bool CleanExitBeacon::DidPreviousSessionExitCleanly(
                             beacon_file_beacon_value, local_state_beacon_value);
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // TODO(crbug/1248239): Fully enable the Extended Variations Safe Mode
   // experiment on Android Chrome by using the beacon file's beacon value for
-  // clients in the SignalAndWriteViaFileUtil group.
-  return local_state_beacon_value.value_or(true);
-#else
-#if defined(OS_IOS)
+  // clients in the SignalAndWriteViaFileUtil group on beta and stable.
+  if (channel_ != version_info::Channel::UNKNOWN &&
+      channel_ != version_info::Channel::CANARY &&
+      channel_ != version_info::Channel::DEV) {
+    return local_state_beacon_value.value_or(true);
+  }
+#endif  // BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_IOS)
   // For the time being, this is a no-op to avoid interference with the Extended
   // Variations Safe Mode experiment; i.e., ShouldUseUserDefaultsBeacon() always
   // returns false.
   if (ShouldUseUserDefaultsBeacon())
     return backup_beacon_value.value_or(true);
-#endif  // defined(OS_IOS)
+#endif  // BUILDFLAG(IS_IOS)
 
   return use_beacon_file ? beacon_file_beacon_value.value_or(true)
                          : local_state_beacon_value.value_or(true);
-#endif  // defined(OS_ANDROID)
 }
 
 void CleanExitBeacon::WriteBeaconValue(bool exited_cleanly,
@@ -353,21 +355,21 @@ void CleanExitBeacon::WriteBeaconValue(bool exited_cleanly,
     }
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::win::RegKey regkey;
   if (regkey.Create(HKEY_CURRENT_USER, backup_registry_key_.c_str(),
                     KEY_ALL_ACCESS) == ERROR_SUCCESS) {
     regkey.WriteValue(base::ASCIIToWide(prefs::kStabilityExitedCleanly).c_str(),
                       exited_cleanly ? 1u : 0u);
   }
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   SetUserDefaultsBeacon(exited_cleanly);
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 }
 
-#if defined(OS_WIN) || defined(OS_IOS)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
 absl::optional<bool> CleanExitBeacon::ExitedCleanly() {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::win::RegKey regkey;
   DWORD value = 0u;
   if (regkey.Open(HKEY_CURRENT_USER, backup_registry_key_.c_str(),
@@ -378,14 +380,14 @@ absl::optional<bool> CleanExitBeacon::ExitedCleanly() {
     return value ? true : false;
   }
   return absl::nullopt;
-#endif  // defined(OS_WIN)
-#if defined(OS_IOS)
+#endif  // BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_IOS)
   if (HasUserDefaultsBeacon())
     return GetUserDefaultsBeacon();
   return absl::nullopt;
-#endif  // defined(OS_IOS)
+#endif  // BUILDFLAG(IS_IOS)
 }
-#endif  // #if defined(OS_WIN) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
 
 void CleanExitBeacon::UpdateLastLiveTimestamp() {
   local_state_->SetTime(prefs::kStabilityBrowserLastLiveTimeStamp,
@@ -417,18 +419,18 @@ void CleanExitBeacon::SetStabilityExitedCleanlyForTesting(
     PrefService* local_state,
     bool exited_cleanly) {
   local_state->SetBoolean(prefs::kStabilityExitedCleanly, exited_cleanly);
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
   SetUserDefaultsBeacon(exited_cleanly);
-#endif  // defined(OS_IOS)
+#endif  // BUILDFLAG(IS_IOS)
 }
 
 // static
 void CleanExitBeacon::ResetStabilityExitedCleanlyForTesting(
     PrefService* local_state) {
   local_state->ClearPref(prefs::kStabilityExitedCleanly);
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
   ResetUserDefaultsBeacon();
-#endif  // defined(OS_IOS)
+#endif  // BUILDFLAG(IS_IOS)
 }
 
 // static

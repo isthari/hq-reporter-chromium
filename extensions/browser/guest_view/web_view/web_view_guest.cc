@@ -141,7 +141,7 @@ static std::string TerminationStatusToString(base::TerminationStatus status) {
     case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
     case base::TERMINATION_STATUS_STILL_RUNNING:
       return "abnormal";
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
       return "oom killed";
 #endif
@@ -153,7 +153,7 @@ static std::string TerminationStatusToString(base::TerminationStatus status) {
       return "crashed";
     case base::TERMINATION_STATUS_LAUNCH_FAILED:
       return "failed to launch";
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case base::TERMINATION_STATUS_INTEGRITY_FAILURE:
       return "integrity failure";
 #endif
@@ -899,7 +899,11 @@ void WebViewGuest::UserAgentOverrideSet(
     const blink::UserAgentOverride& ua_override) {
   content::NavigationController& controller = web_contents()->GetController();
   content::NavigationEntry* entry = controller.GetVisibleEntry();
-  if (entry->IsInitialEntry())
+  // If we're on the initial NavigationEntry and no navigation had committed,
+  // return early. This preserves legacy behavior when the initial
+  // NavigationEntry used to not exist (which might still happen if the
+  // InitialNavigationEntry is disabled).
+  if (!entry || controller.IsInitialNavigation())
     return;
   entry->SetIsOverridingUserAgent(!ua_override.ua_string_override.empty());
   web_contents()->GetController().Reload(content::ReloadType::NORMAL, false);
@@ -1069,7 +1073,7 @@ bool WebViewGuest::HandleKeyboardShortcuts(
         blink::mojom::PointerLockResult::kUserRejected);
   }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   if (event.GetModifiers() != blink::WebInputEvent::kMetaKey)
     return false;
 
@@ -1250,8 +1254,7 @@ bool WebViewGuest::LoadDataWithBaseURL(const GURL& data_url,
   }
   const url::Origin& owner_origin =
       owner_web_contents()->GetMainFrame()->GetLastCommittedOrigin();
-  const bool base_in_owner_origin =
-      owner_origin.IsSameOriginWith(url::Origin::Create(base_url));
+  const bool base_in_owner_origin = owner_origin.IsSameOriginWith(base_url);
   // |base_url| must be a valid URL. It is also limited to URLs that the owner
   // is trusted to have control over.
   if (!base_url.is_valid() ||

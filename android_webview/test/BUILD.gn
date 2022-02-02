@@ -72,6 +72,7 @@ script_test("system_webview_wpt") {
     "//chrome/test/chromedriver:chromedriver($host_toolchain)",
     "//testing:wpt_android_lib",
     "//third_party/blink/tools:wpt_tests_android_isolate",
+    "//tools/imagediff",
   ]
 }
 
@@ -163,8 +164,7 @@ android_assets("webview_instrumentation_apk_assets") {
 
   if (use_v8_context_snapshot) {
     deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-  }
-  if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+  } else {
     deps += [ "//v8:v8_external_startup_data_assets" ]
   }
 }
@@ -272,6 +272,7 @@ instrumentation_test_apk("webview_instrumentation_test_apk") {
     "//third_party/androidx:androidx_test_core_java",
     "//third_party/androidx:androidx_test_rules_java",
     "//third_party/androidx:androidx_test_runner_java",
+    "//third_party/blink/public/common:common_java",
     "//third_party/blink/public/mojom:web_feature_mojo_bindings_java",
     "//third_party/hamcrest:hamcrest_java",
     "//third_party/junit",
@@ -582,6 +583,7 @@ test("android_webview_unittests") {
     "../browser/safe_browsing/aw_safe_browsing_allowlist_manager_unittest.cc",
     "../browser/scoped_add_feature_flags_unittests.cc",
     "../browser/state_serializer_unittest.cc",
+    "../browser/tracing/aw_background_tracing_metrics_provider_unittest.cc",
     "../lib/webview_tests.cc",
     "../nonembedded/component_updater/aw_component_installer_policy_shim_unittest.cc",
     "../nonembedded/component_updater/aw_component_installer_policy_unittest.cc",
@@ -592,8 +594,7 @@ test("android_webview_unittests") {
 
   if (use_v8_context_snapshot) {
     deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-  }
-  if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+  } else {
     deps += [ "//v8:v8_external_startup_data_assets" ]
   }
 }

@@ -86,7 +86,7 @@ AccessibilityPrivateOpenSettingsSubpageFunction::Run() {
   // TODO(chrome-a11y-core): we can't open a settings page when you're on the
   // signin profile, but maybe we should notify the user and explain why?
   Profile* profile = AccessibilityManager::Get()->profile();
-  if (!chromeos::ProfileHelper::IsSigninProfile(profile) &&
+  if (!ash::ProfileHelper::IsSigninProfile(profile) &&
       chromeos::settings::IsOSSettingsSubPage(params->subpage)) {
     chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
         profile, params->subpage);
@@ -774,11 +774,49 @@ AccessibilityPrivateUpdateDictationBubbleFunction::Run() {
   std::unique_ptr<accessibility_private::UpdateDictationBubble::Params> params(
       accessibility_private::UpdateDictationBubble::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params);
+  accessibility_private::DictationBubbleProperties& properties =
+      params->properties;
 
+  // Extract the icon type.
+  ash::DictationBubbleIconType icon = ash::DictationBubbleIconType::kHidden;
+  switch (properties.icon) {
+    case accessibility_private::DictationBubbleIconType::
+        DICTATION_BUBBLE_ICON_TYPE_HIDDEN:
+      icon = ash::DictationBubbleIconType::kHidden;
+      break;
+    case accessibility_private::DictationBubbleIconType::
+        DICTATION_BUBBLE_ICON_TYPE_STANDBY:
+      icon = ash::DictationBubbleIconType::kStandby;
+      break;
+    case accessibility_private::DictationBubbleIconType::
+        DICTATION_BUBBLE_ICON_TYPE_MACROSUCCESS:
+      icon = ash::DictationBubbleIconType::kMacroSuccess;
+      break;
+    case accessibility_private::DictationBubbleIconType::
+        DICTATION_BUBBLE_ICON_TYPE_MACROFAIL:
+      icon = ash::DictationBubbleIconType::kMacroFail;
+      break;
+    case accessibility_private::DictationBubbleIconType::
+        DICTATION_BUBBLE_ICON_TYPE_NONE:
+      NOTREACHED();
+      break;
+  }
+
+  // Extract text and hints.
   absl::optional<std::u16string> text;
-  if (params->text)
-    text = base::UTF8ToUTF16(*params->text);
-  ash::AccessibilityController::Get()->UpdateDictationBubble(params->visible,
-                                                             text);
+  absl::optional<std::vector<std::string>> hints;
+  if (properties.text)
+    text = base::UTF8ToUTF16(*properties.text);
+  // TODO(crbug.com/1252037): Convert string message IDs into ints. Then plumb
+  // vector<int> through and retrieve localized strings when populating
+  // the DictationBubbleView.
+  if (properties.hints)
+    hints = *properties.hints;
+
+  if (hints.has_value() && hints.value().size() > 5)
+    return RespondNow(Error("Should not provide more than five hints."));
+
+  ash::AccessibilityController::Get()->UpdateDictationBubble(properties.visible,
+                                                             icon, text, hints);
   return RespondNow(NoArguments());
 }

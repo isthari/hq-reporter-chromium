@@ -4,6 +4,7 @@
 
 #include "services/network/public/cpp/features.h"
 
+#include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/system/sys_info.h"
@@ -20,15 +21,6 @@ const base::Feature kExpectCTReporting{"ExpectCTReporting",
 
 const base::Feature kNetworkErrorLogging{"NetworkErrorLogging",
                                          base::FEATURE_ENABLED_BY_DEFAULT};
-// Enables the network service.
-const base::Feature kNetworkService {
-#if defined(OS_ANDROID)
-  "NetworkService",
-#else
-  "NetworkServiceNotSupported",
-#endif
-      base::FEATURE_ENABLED_BY_DEFAULT
-};
 
 const base::Feature kReporting{"Reporting", base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -99,6 +91,13 @@ const base::Feature kCrossOriginOpenerPolicy{"CrossOriginOpenerPolicy",
 const base::Feature kCrossOriginOpenerPolicyByDefault{
     "CrossOriginOpenerPolicyByDefault", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Introduce a new COOP value, Same-Origin-Opener-Policy-Plus-Coep, which grants
+// cross-origin isolation. This used mainly for testing the process model and
+// should not be enabled in any production code.
+// See https://crbug.com/1221127.
+const base::Feature kCoopSameOriginAllowPopupsPlusCoep{
+    "CoopSameOriginAllowPopupsPlusCoep", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables or defaults splittup up server (not proxy) entries in the
 // HttpAuthCache.
 const base::Feature kSplitAuthCacheByNetworkIsolationKey{
@@ -107,8 +106,8 @@ const base::Feature kSplitAuthCacheByNetworkIsolationKey{
 // Enable usage of hardcoded DoH upgrade mapping for use in automatic mode.
 const base::Feature kDnsOverHttpsUpgrade {
   "DnsOverHttpsUpgrade",
-#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_MAC) || defined(OS_ANDROID) || \
-    defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_MAC) || \
+    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_WIN)
       base::FEATURE_ENABLED_BY_DEFAULT
 #else
       base::FEATURE_DISABLED_BY_DEFAULT
@@ -189,8 +188,11 @@ const base::Feature kWebSocketReassembleShortMessages{
 const base::Feature kAcceptCHFrame{"AcceptCHFrame",
                                    base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kSCTAuditingRetryAndPersistReports{
-    "SCTAuditingRetryAndPersistReports", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kSCTAuditingRetryReports{"SCTAuditingRetryReports",
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kSCTAuditingPersistReports{
+    "SCTAuditingPersistReports", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // This feature is used for tuning several loading-related data pipe
 // parameters. See crbug.com/1041006.
@@ -264,6 +266,15 @@ const base::Feature kURLLoaderSyncClient{"URLLoaderSyncClient",
 // Optimize the implementation of calling URLLoaderFactory::UpdateLoadInfo().
 const base::Feature kOptimizeUpdateLoadInfo{"OptimizeUpdateLoadInfo",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Combine URLLoaderClient::OnReceiveResponse and OnStartLoadingResponseBody.
+const base::Feature kCombineResponseBody{"CombineResponseBody",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Don't wait for database write before responding to
+// RestrictedCookieManager::SetCookieFromString.
+const base::Feature kFasterSetCookie{"FasterSetCookie",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace features
 }  // namespace network

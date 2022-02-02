@@ -21,6 +21,10 @@ source_set("web") {
     "invalid_url_tab_helper.mm",
     "load_timing_tab_helper.h",
     "load_timing_tab_helper.mm",
+    "permissions_infobar_delegate.h",
+    "permissions_infobar_delegate.mm",
+    "permissions_tab_helper.h",
+    "permissions_tab_helper.mm",
     "repost_form_tab_helper.h",
     "repost_form_tab_helper.mm",
     "sad_tab_tab_helper.h",
@@ -90,6 +94,8 @@ source_set("delegate") {
     "//ios/chrome/browser/snapshots",
     "//ios/chrome/browser/ui/context_menu",
     "//ios/chrome/browser/ui/dialogs:dialogs_internal",
+    "//ios/chrome/browser/url_loading",
+    "//ios/chrome/browser/url_loading:url_loading_params_header",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:agents",
     "//ios/components/security_interstitials",
@@ -217,7 +223,7 @@ source_set("web_internal") {
     "//components/content_settings/core/browser",
     "//components/dom_distiller/core",
     "//components/google/core/common",
-    "//components/password_manager/core/common",
+    "//components/password_manager/core/common:features",
     "//components/password_manager/ios:password_manager_feature",
     "//components/payments/core",
     "//components/prefs",
@@ -230,6 +236,7 @@ source_set("web_internal") {
     "//ios/chrome/browser:browser_impl",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/content_settings",
+    "//ios/chrome/browser/follow",
     "//ios/chrome/browser/link_to_text",
     "//ios/chrome/browser/ntp",
     "//ios/chrome/browser/passwords",
@@ -277,6 +284,8 @@ source_set("test_support") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
   sources = [
+    "chrome_test.h",
+    "chrome_test.mm",
     "chrome_web_test.h",
     "chrome_web_test.mm",
   ]
@@ -287,6 +296,7 @@ source_set("test_support") {
     "//ios/chrome/browser/web",
     "//ios/web",
     "//ios/web/public/test",
+    "//ios/web/public/test:test_fixture",
   ]
 }
 

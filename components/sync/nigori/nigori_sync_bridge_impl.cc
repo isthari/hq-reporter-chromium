@@ -16,12 +16,12 @@
 #include "components/os_crypt/os_crypt.h"
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/base/time.h"
-#include "components/sync/engine/entity_data.h"
 #include "components/sync/engine/nigori/nigori.h"
 #include "components/sync/nigori/keystore_keys_cryptographer.h"
 #include "components/sync/nigori/nigori_storage.h"
 #include "components/sync/nigori/pending_local_nigori_commit.h"
 #include "components/sync/protocol/encryption.pb.h"
+#include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/nigori_local_data.pb.h"
 
 namespace syncer {
@@ -245,46 +245,46 @@ class NigoriSyncBridgeImpl::BroadcastingObserver
   void OnPassphraseRequired(
       const KeyDerivationParams& key_derivation_params,
       const sync_pb::EncryptedData& pending_keys) override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnPassphraseRequired(key_derivation_params, pending_keys);
     }
   }
 
   void OnPassphraseAccepted() override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnPassphraseAccepted();
     }
   }
 
   void OnTrustedVaultKeyRequired() override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnTrustedVaultKeyRequired();
     }
   }
 
   void OnTrustedVaultKeyAccepted() override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnTrustedVaultKeyAccepted();
     }
   }
 
   void OnEncryptedTypesChanged(ModelTypeSet encrypted_types,
                                bool encrypt_everything) override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnEncryptedTypesChanged(encrypted_types, encrypt_everything);
     }
   }
 
   void OnCryptographerStateChanged(Cryptographer* cryptographer,
                                    bool has_pending_keys) override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnCryptographerStateChanged(cryptographer, has_pending_keys);
     }
   }
 
   void OnPassphraseTypeChanged(PassphraseType type,
                                base::Time passphrase_time) override {
-    for (auto& observer : observers_) {
+    for (Observer& observer : observers_) {
       observer.OnPassphraseTypeChanged(type, passphrase_time);
     }
   }

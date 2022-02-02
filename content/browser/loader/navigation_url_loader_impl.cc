@@ -98,7 +98,7 @@
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/origin.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "content/browser/android/content_url_loader_factory.h"
 #endif
 
@@ -186,19 +186,19 @@ const net::NetworkTrafficAnnotationTag kNavigationUrlLoaderTrafficAnnotation =
         cookies_store: "user"
         setting: "This feature cannot be disabled."
         chrome_policy {
-          URLBlacklist {
-            URLBlacklist: { entries: '*' }
+          URLBlocklist {
+            URLBlocklist: { entries: '*' }
           }
         }
         chrome_policy {
-          URLWhitelist {
-            URLWhitelist { }
+          URLAllowlist {
+            URLAllowlist { }
           }
         }
       }
       comments:
         "Chrome would be unable to navigate to websites without this type of "
-        "request. Using either URLBlacklist or URLWhitelist policies (or a "
+        "request. Using either URLBlocklist or URLAllowlist policies (or a "
         "combination of both) limits the scope of these requests."
       )");
 
@@ -285,7 +285,6 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
   new_request->upgrade_if_insecure = request_info.upgrade_if_insecure;
   new_request->throttling_profile_id = request_info.devtools_frame_token;
   new_request->transition_type = request_info.common_params->transition;
-  new_request->previews_state = request_info.common_params->previews_state;
   new_request->devtools_request_id =
       request_info.devtools_navigation_token.ToString();
   new_request->obey_origin_policy = request_info.obey_origin_policy;
@@ -754,10 +753,13 @@ void NavigationURLLoaderImpl::OnReceiveEarlyHints(
 }
 
 void NavigationURLLoaderImpl::OnReceiveResponse(
-    network::mojom::URLResponseHeadPtr head) {
+    network::mojom::URLResponseHeadPtr head,
+    mojo::ScopedDataPipeConsumerHandle response_body) {
   LogQueueTimeHistogram("Navigation.QueueTime.OnReceiveResponse",
                         resource_request_->is_main_frame);
   head_ = std::move(head);
+  if (response_body)
+    OnStartLoadingResponseBody(std::move(response_body));
 }
 
 void NavigationURLLoaderImpl::OnStartLoadingResponseBody(
@@ -1341,7 +1343,7 @@ NavigationURLLoaderImpl::NavigationURLLoaderImpl(
                             browser_context_->GetSharedCorsOriginAccessList(),
                             file_factory_priority));
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   non_network_url_loader_factories_.emplace(url::kContentScheme,
                                             ContentURLLoaderFactory::Create());
 #endif
@@ -1376,8 +1378,7 @@ void NavigationURLLoaderImpl::Start() {
 void NavigationURLLoaderImpl::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
-    const net::HttpRequestHeaders& modified_cors_exempt_headers,
-    blink::PreviewsState new_previews_state) {
+    const net::HttpRequestHeaders& modified_cors_exempt_headers) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!redirect_info_.new_url.is_empty());
 
@@ -1411,7 +1412,6 @@ void NavigationURLLoaderImpl::FollowRedirect(
 
   resource_request_->referrer = GURL(redirect_info_.new_referrer);
   resource_request_->referrer_policy = redirect_info_.new_referrer_policy;
-  resource_request_->previews_state = new_previews_state;
   resource_request_->navigation_redirect_chain.push_back(
       redirect_info_.new_url);
   url_chain_.push_back(redirect_info_.new_url);

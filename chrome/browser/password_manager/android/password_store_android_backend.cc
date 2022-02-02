@@ -17,6 +17,7 @@
 #include "base/notreached.h"
 #include "base/strings/strcat.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "chrome/browser/password_manager/android/password_manager_lifecycle_helper_impl.h"
 #include "chrome/browser/password_manager/android/password_store_android_backend_bridge.h"
 #include "chrome/browser/password_manager/android/password_store_operation_target.h"
 #include "components/autofill/core/browser/autofill_regexes.h"
@@ -185,6 +186,40 @@ void PasswordStoreAndroidBackend::MetricsRecorder::RecordMetrics(
   }
 }
 
+class PasswordStoreAndroidBackend::ClearAllLocalPasswordsMetricRecorder {
+ public:
+  explicit ClearAllLocalPasswordsMetricRecorder(
+      PasswordStoreAndroidBackend::MetricsRecorder metrics_recorder)
+      : metrics_recorder_(std::move(metrics_recorder)) {}
+
+  void OnAllRemovalsFinished() {
+    metrics_recorder_.RecordMetrics(/*success=*/true, /*error=*/absl::nullopt);
+    base::UmaHistogramCounts1M(
+        "PasswordManager.PasswordStoreAndroidBackend.ClearAllLocalPasswords."
+        "LoginsToRemove",
+        total_count_);
+    if (total_count_ != 0) {
+      size_t success_rate =
+          100 * (total_count_ - failure_count_) / total_count_;
+      base::UmaHistogramPercentage(
+          "PasswordManager.PasswordStoreAndroidBackend.ClearAllLocalPasswords."
+          "SuccessRate",
+          success_rate);
+    }
+  }
+
+  void OnLoginRemoved(absl::optional<PasswordStoreChangeList> change_list) {
+    if (change_list && change_list.value().empty())
+      failure_count_++;
+    total_count_++;
+  }
+
+ private:
+  int total_count_ = 0;
+  int failure_count_ = 0;
+  MetricsRecorder metrics_recorder_;
+};
+
 PasswordStoreAndroidBackend::JobReturnHandler::JobReturnHandler() = default;
 
 PasswordStoreAndroidBackend::JobReturnHandler::JobReturnHandler(
@@ -288,7 +323,20 @@ void PasswordStoreAndroidBackend::SyncModelTypeControllerDelegate::
 
 PasswordStoreAndroidBackend::PasswordStoreAndroidBackend(
     std::unique_ptr<PasswordStoreAndroidBackendBridge> bridge)
-    : bridge_(std::move(bridge)), sync_controller_delegate_(bridge_.get()) {
+    : lifecycle_helper_(std::make_unique<PasswordManagerLifecycleHelperImpl>()),
+      bridge_(std::move(bridge)),
+      sync_controller_delegate_(bridge_.get()) {
+  DCHECK(bridge_);
+  bridge_->SetConsumer(weak_ptr_factory_.GetWeakPtr());
+}
+
+PasswordStoreAndroidBackend::PasswordStoreAndroidBackend(
+    base::PassKey<class PasswordStoreAndroidBackendTest>,
+    std::unique_ptr<PasswordStoreAndroidBackendBridge> bridge,
+    std::unique_ptr<PasswordManagerLifecycleHelper> lifecycle_helper)
+    : lifecycle_helper_(std::move(lifecycle_helper)),
+      bridge_(std::move(bridge)),
+      sync_controller_delegate_(bridge_.get()) {
   DCHECK(bridge_);
   bridge_->SetConsumer(weak_ptr_factory_.GetWeakPtr());
 }
@@ -300,17 +348,21 @@ base::WeakPtr<PasswordStoreBackend> PasswordStoreAndroidBackend::GetWeakPtr() {
 }
 
 void PasswordStoreAndroidBackend::InitBackend(
-    RemoteChangesReceived remote_form_changes_received,
+    RemoteChangesReceived stored_passwords_changed,
     base::RepeatingClosure sync_enabled_or_disabled_cb,
     base::OnceCallback<void(bool)> completion) {
   main_task_runner_ = base::SequencedTaskRunnerHandle::Get();
-  remote_form_changes_received_ = std::move(remote_form_changes_received);
+  stored_passwords_changed_ = std::move(stored_passwords_changed);
+  lifecycle_helper_->RegisterObserver(base::BindRepeating(
+      &PasswordStoreAndroidBackend::OnForegroundSessionStart,
+      base::Unretained(this)));
   // TODO(https://crbug.com/1229650): Create subscription before completion.
   std::move(completion).Run(/*success=*/true);
 }
 
 void PasswordStoreAndroidBackend::Shutdown(
     base::OnceClosure shutdown_completed) {
+  lifecycle_helper_->UnregisterObserver();
   // TODO(https://crbug.com/1229654): Implement (e.g. unsubscribe from GMS).
   std::move(shutdown_completed).Run();
 }
@@ -521,26 +573,45 @@ PasswordStoreAndroidBackend::CreateSyncControllerDelegate() {
 void PasswordStoreAndroidBackend::ClearAllLocalPasswords() {
   LoginsOrErrorReply cleaning_callback = base::BindOnce(
       [](base::WeakPtr<PasswordStoreAndroidBackend> weak_self,
+         MetricsRecorder metrics_recorder,
          LoginsResultOrError logins_or_error) {
-        if (!weak_self ||
-            absl::holds_alternative<PasswordStoreBackendError>(logins_or_error))
+        if (!weak_self || absl::holds_alternative<PasswordStoreBackendError>(
+                              logins_or_error)) {
+          metrics_recorder.RecordMetrics(/*success=*/false,
+                                         /*error=*/absl::nullopt);
           return;
+        }
 
-        base::OnceClosure callbacks_chain = base::DoNothing();
+        auto detailed_metric_recorder =
+            std::make_unique<ClearAllLocalPasswordsMetricRecorder>(
+                std::move(metrics_recorder));
+
+        raw_ptr<ClearAllLocalPasswordsMetricRecorder> raw_recorder =
+            detailed_metric_recorder.get();
+
+        base::OnceClosure callbacks_chain = base::BindOnce(
+            &ClearAllLocalPasswordsMetricRecorder::OnAllRemovalsFinished,
+            std::move(detailed_metric_recorder));
 
         for (const auto& login : absl::get<LoginsResult>(logins_or_error)) {
+          base::OnceCallback record_removal_result = base::BindOnce(
+              &ClearAllLocalPasswordsMetricRecorder::OnLoginRemoved,
+              // This is safe because |detailed_metric_recorder| will be deleted
+              // only after all removals are finished.
+              base::Unretained(raw_recorder));
+
           callbacks_chain = base::BindOnce(
               &PasswordStoreAndroidBackend::RemoveLoginForTarget, weak_self,
               std::move(*login), PasswordStoreOperationTarget::kLocalStorage,
-              IgnoreChangeListAndRunCallback(std::move(callbacks_chain)));
+              std::move(record_removal_result)
+                  .Then(std::move(callbacks_chain)));
         }
 
         std::move(callbacks_chain).Run();
       },
-      weak_ptr_factory_.GetWeakPtr());
+      weak_ptr_factory_.GetWeakPtr(),
+      MetricsRecorder(MetricInfix("ClearAllLocalPasswords")));
 
-  // TODO(https://crbug.com/1278748) Record whether the operation was
-  // successful.
   GetAllLoginsForTarget(PasswordStoreOperationTarget::kLocalStorage,
                         std::move(cleaning_callback));
 }
@@ -715,6 +786,16 @@ void PasswordStoreAndroidBackend::RemoveLoginForTarget(
   QueueNewJob(job_id, JobReturnHandler(
                           std::move(callback),
                           MetricsRecorder(MetricInfix("RemoveLoginAsync"))));
+}
+
+void PasswordStoreAndroidBackend::OnForegroundSessionStart() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(main_sequence_checker_);
+  DCHECK(stored_passwords_changed_);
+
+  // Calling the remote form changes with a nullopt means that changes are not
+  // available and the store should request all logins asynchronously to
+  // invoke `PasswordStoreInterface::Observer::OnLoginsRetained`.
+  stored_passwords_changed_.Run(absl::nullopt);
 }
 
 }  // namespace password_manager

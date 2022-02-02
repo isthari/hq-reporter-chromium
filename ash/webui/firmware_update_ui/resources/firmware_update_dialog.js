@@ -5,6 +5,7 @@
 import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-lite.js';
+import '/file_path.mojom-lite.js';
 import './firmware_shared_css.js';
 import './firmware_shared_fonts.js';
 import './mojom/firmware_update.mojom-lite.js';
@@ -14,15 +15,18 @@ import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
 import 'chrome://resources/polymer/v3_0/paper-progress/paper-progress.js';
 import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {FirmwareUpdate, InstallationProgress, UpdateControllerInterface} from './firmware_update_types.js';
-import {getUpdateController} from './mojo_interface_provider.js';
+import {DialogContent, FirmwareUpdate, InstallationProgress, InstallControllerRemote, UpdateProgressObserverInterface, UpdateProgressObserverReceiver, UpdateProviderInterface, UpdateState} from './firmware_update_types.js';
+import {getUpdateProvider} from './mojo_interface_provider.js';
 import {mojoString16ToString} from './mojo_utils.js';
 
-/** @enum {number} */
-export const DialogState = {
-  CLOSED: 0,
-  UPDATING: 2,
-  UPDATE_DONE: 3,
+/** @type {!Array<!UpdateState>} */
+const inactiveDialogStates = [UpdateState.kUnknown, UpdateState.kIdle];
+
+/** @type {!DialogContent} */
+const initialDialogContent = {
+  title: '',
+  body: '',
+  footer: ''
 };
 
 /**
@@ -51,20 +55,28 @@ export class FirmwareUpdateDialogElement extends
 
   static get properties() {
     return {
-      /** @type {!FirmwareUpdate} */
+      /** @type {?FirmwareUpdate} */
       update: {
         type: Object,
       },
 
-      /** @type {!DialogState} */
-      dialogState: {
-        type: Number,
-        value: DialogState.CLOSED,
-      },
-
-      /** @type {?InstallationProgress} */
+      /** @type {!InstallationProgress} */
       installationProgress: {
         type: Object,
+        value: {percentage: 0, state: UpdateState.kIdle},
+      },
+
+      /** @private {boolean} */
+      isInitiallyInflight_: {
+        value: false,
+      },
+
+      /** @type {!DialogContent} */
+      dialogContent: {
+        type: Object,
+        value: initialDialogContent,
+        computed: 'computeDialogContent_(installationProgress.*,' +
+            'isInitiallyInflight_)',
       },
     };
   }
@@ -73,8 +85,11 @@ export class FirmwareUpdateDialogElement extends
   constructor() {
     super();
 
-    /** @private {!UpdateControllerInterface} */
-    this.updateController_ = getUpdateController();
+    /** @private {!UpdateProviderInterface} */
+    this.updateProvider_ = getUpdateProvider();
+
+    /** @type {?InstallControllerRemote} */
+    this.installController_ = null;
 
     /**
      * Event callback for 'open-update-dialog'.
@@ -83,7 +98,8 @@ export class FirmwareUpdateDialogElement extends
      */
     this.openUpdateDialog_ = (e) => {
       this.update = e.detail.update;
-      this.startUpdate_();
+      this.isInitiallyInflight_ = e.detail.inflight;
+      this.prepareForUpdate_();
     };
   }
 
@@ -96,26 +112,52 @@ export class FirmwareUpdateDialogElement extends
   }
 
   /**
-   * Implements UpdateProgressObserver.onProgressChanged
-   * @param {!InstallationProgress} installationProgress
+   * Implements UpdateProgressObserver.onStatusChanged
+   * @param {!InstallationProgress} update
    */
-  onProgressChanged(installationProgress) {
-    this.installationProgress = installationProgress;
-    if (installationProgress.percentage === 100) {
-      this.dialogState = DialogState.UPDATE_DONE;
-    }
+  onStatusChanged(update) {
+    this.installationProgress = update;
   }
 
   /** @protected */
   closeDialog_() {
-    this.dialogState = DialogState.CLOSED;
-    this.installationProgress = null;
+    this.isInitiallyInflight_ = false;
+    // Resetting |installationProgress| triggers a call to
+    // |shouldShowUpdateDialog_|.
+    this.installationProgress = {percentage: 0, state: UpdateState.kIdle};
+    this.update = null;
   }
 
   /** @protected */
-  startUpdate_() {
-    this.dialogState = DialogState.UPDATING;
-    this.updateController_.startUpdate(this.update.deviceId, this);
+  async prepareForUpdate_() {
+    const response =
+        await this.updateProvider_.prepareForUpdate(this.update.deviceId);
+    if (!response.controller) {
+      // TODO(michaelcheco): Handle |StartInstall| failed case.
+      return;
+    }
+    this.installController_ =
+        /**@type {InstallControllerRemote} */ (response.controller);
+    this.bindReceiverAndMaybeStartUpdate_();
+  }
+
+  /** @protected */
+  bindReceiverAndMaybeStartUpdate_() {
+    /** @protected {?UpdateProgressObserverReceiver} */
+    this.updateProgressObserverReceiver_ = new UpdateProgressObserverReceiver(
+        /**
+         * @type {!UpdateProgressObserverInterface}
+         */
+        (this));
+
+    this.installController_.addObserver(
+        this.updateProgressObserverReceiver_.$.bindNewPipeAndPassRemote());
+
+    // Only start new updates, inflight updates will be observed instead.
+    if (!this.isInitiallyInflight_) {
+      this.installController_.beginUpdate(
+          this.update.deviceId, this.update.filepath);
+    }
   }
 
   /**
@@ -123,8 +165,26 @@ export class FirmwareUpdateDialogElement extends
    * @return {boolean}
    */
   shouldShowUpdateDialog_() {
-    return this.isUpdateInProgress_() ||
-        this.dialogState === DialogState.UPDATE_DONE;
+    if (!this.update) {
+      return false;
+    }
+
+    // Handles the case in which an update is in progress on app load, but has
+    // yet to receive an progress update callback.
+    if (this.isInitiallyInflight_) {
+      return true;
+    }
+
+    /** @type {!Array<!UpdateState>} */
+    const activeDialogStates = [
+      UpdateState.kUpdating,
+      UpdateState.kRestarting,
+      UpdateState.kFailed,
+      UpdateState.kSuccess,
+    ];
+    // Show dialog is there is an update in progress.
+    return activeDialogStates.includes(this.installationProgress.state) ||
+        this.installationProgress.percentage > 0;
   }
 
   /**
@@ -143,38 +203,113 @@ export class FirmwareUpdateDialogElement extends
    * @return {boolean}
    */
   isUpdateInProgress_() {
-    return this.dialogState === DialogState.UPDATING;
+    /** @type {!Array<!UpdateState>} */
+    const inactiveDialogStates = [UpdateState.kUnknown, UpdateState.kIdle];
+    if (inactiveDialogStates.includes(this.installationProgress.state)) {
+      return this.installationProgress.percentage > 0;
+    }
+
+    return this.installationProgress.state === UpdateState.kUpdating;
   }
 
   /**
    * @protected
-   * @return {string}
+   * @return {boolean}
    */
-  computeUpdateDialogTitle_() {
-    return this.isUpdateInProgress_() ?
-        this.i18n('updating', mojoString16ToString(this.update.deviceName)) :
-        this.i18n(
-            'deviceUpToDate', mojoString16ToString(this.update.deviceName));
+  isDeviceRestarting_() {
+    return this.installationProgress.state === UpdateState.kRestarting;
   }
 
   /**
    * @protected
-   * @return {string}
+   * @return {boolean}
    */
-  computeProgressText_() {
-    return this.i18n('installing', this.computePercentageValue_());
+  shouldShowProgressBar_() {
+    return this.isUpdateInProgress_() || this.isDeviceRestarting_();
+  }
+  /**
+   * @protected
+   * @return {boolean}
+   */
+  isUpdateDone_() {
+    return this.installationProgress.state === UpdateState.kSuccess ||
+        this.installationProgress.state === UpdateState.kFailed;
   }
 
   /**
-   * @protected
-   * @return {string}
+   * @param {!UpdateState} state
+   * @return {!DialogContent}
    */
-  computeUpdateDialogBodyText_() {
+  createDialogContentObj_(state) {
     const {deviceName, deviceVersion} = this.update;
-    return this.dialogState === DialogState.UPDATE_DONE ?
-        this.i18n(
-            'hasBeenUpdated', mojoString16ToString(deviceName), deviceVersion) :
-        this.i18n('updatingInfo');
+    const {percentage} = this.installationProgress;
+
+    const dialogContent = {
+      [UpdateState.kUpdating]: {
+        title: this.i18n('updating', mojoString16ToString(deviceName)),
+        body: this.i18n('updatingInfo'),
+        footer: this.i18n('installing', percentage),
+      },
+      [UpdateState.kRestarting]: {
+        title:
+            this.i18n('restartingTitleText', mojoString16ToString(deviceName)),
+        body: this.i18n('restartingBodyText'),
+        footer: this.i18n('restartingFooterText'),
+      },
+      [UpdateState.kFailed]: {
+        title: this.i18n(
+            'updateFailedTitleText', mojoString16ToString(deviceName)),
+        body: this.i18n('updateFailedBodyText'),
+        footer: '',
+      },
+      [UpdateState.kSuccess]: {
+        title: this.i18n('deviceUpToDate', mojoString16ToString(deviceName)),
+        body: this.i18n(
+            'hasBeenUpdated', mojoString16ToString(deviceName), deviceVersion),
+        footer: '',
+      },
+    };
+
+    return dialogContent[state];
+  }
+
+  /** @return {!DialogContent} */
+  computeDialogContent_() {
+    // No update in progress.
+    if (!this.isInitiallyInflight_ && !this.update) {
+      return initialDialogContent;
+    }
+
+    if (inactiveDialogStates.includes(this.installationProgress.state) ||
+        this.isDeviceRestarting_()) {
+      return this.createDialogContentObj_(UpdateState.kRestarting);
+    }
+
+    // Regular case: Update is in progress, started from the same instance of
+    // which the app launched.
+    // Edge case: App launch with an update in progress, but no progress
+    // callback has been called yet.
+    if (this.isInitiallyInflight_ || this.isUpdateInProgress_()) {
+      return this.createDialogContentObj_(UpdateState.kUpdating);
+    }
+
+    if (this.isUpdateDone_()) {
+      return this.createDialogContentObj_(this.installationProgress.state);
+    }
+    return initialDialogContent;
+  }
+
+  /**
+   * @protected
+   * @return {boolean}
+   */
+  isInIndeterminateState_() {
+    if (this.installationProgress) {
+      return inactiveDialogStates.includes(this.installationProgress.state) ||
+          this.isDeviceRestarting_();
+    }
+
+    return false;
   }
 }
 

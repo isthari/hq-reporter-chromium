@@ -14,6 +14,7 @@
 #include "base/callback_helpers.h"
 #include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
@@ -81,6 +82,15 @@ void DeleteComInterfaces(HKEY root, bool uninstall_all) {
   }
 }
 
+void DeleteGoogleUpdateEntries(UpdaterScope scope, HKEY root) {
+  InstallUtil::DeleteRegistryKey(root, UPDATER_KEY, KEY_WOW64_32KEY);
+
+  const absl::optional<base::FilePath> target_path =
+      GetGoogleUpdateExePath(scope);
+  if (target_path)
+    base::DeleteFile(*target_path);
+}
+
 int RunUninstallScript(UpdaterScope scope, bool uninstall_all) {
   const absl::optional<base::FilePath> versioned_dir =
       GetVersionedDirectory(scope);
@@ -145,7 +155,7 @@ int UninstallImpl(UpdaterScope scope, bool uninstall_all) {
   if (uninstall_all) {
     std::unique_ptr<WorkItemList> uninstall_list(
         WorkItem::CreateWorkItemList());
-    uninstall_list->AddDeleteRegKeyWorkItem(key, UPDATER_KEY, Wow6432(0));
+    uninstall_list->AddDeleteRegKeyWorkItem(key, UPDATER_KEY, KEY_WOW64_32KEY);
     if (!uninstall_list->Do()) {
       LOG(ERROR) << "Failed to delete the registry keys.";
       uninstall_list->Rollback();
@@ -157,6 +167,8 @@ int UninstallImpl(UpdaterScope scope, bool uninstall_all) {
   if (scope == UpdaterScope::kSystem)
     DeleteComService(uninstall_all);
   DeleteComServer(scope, key, uninstall_all);
+
+  DeleteGoogleUpdateEntries(scope, key);
 
   return RunUninstallScript(scope, uninstall_all);
 }

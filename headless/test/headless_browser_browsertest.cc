@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <memory>
+#include <tuple>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -48,8 +49,11 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/chrome_debug_urls.h"
+#include "third_party/blink/public/resources/grit/blink_resources.h"
+#include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/size.h"
 
 #if !BUILDFLAG(IS_FUCHSIA)
@@ -580,7 +584,7 @@ class TraceHelper : public tracing::ExperimentalObserver {
   // tracing::ExperimentalObserver implementation:
   void OnDataCollected(const tracing::DataCollectedParams& params) override {
     for (const auto& value : *params.GetValue()) {
-      tracing_data_->Append(value->CreateDeepCopy());
+      tracing_data_->Append(value->Clone());
     }
   }
 
@@ -690,15 +694,12 @@ IN_PROC_BROWSER_TEST_F(HeadlessBrowserTestAppendCommandLineFlags,
   // Create a new renderer process, and verify that callback was executed.
   HeadlessBrowserContext* browser_context =
       browser()->CreateBrowserContextBuilder().Build();
-  HeadlessWebContents* web_contents =
-      browser_context->CreateWebContentsBuilder()
-          .SetInitialURL(GURL("about:blank"))
-          .Build();
+  // Used only for lifetime, thus std::ignore.
+  std::ignore = browser_context->CreateWebContentsBuilder()
+                    .SetInitialURL(GURL("about:blank"))
+                    .Build();
 
   EXPECT_TRUE(callback_was_run_);
-
-  // Used only for lifetime.
-  (void)web_contents;
 }
 
 IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, ServerWantsClientCertificate) {
@@ -794,6 +795,18 @@ IN_PROC_BROWSER_TEST_P(HeadlessBrowserTestWithExplicitlyAllowedPorts,
     EXPECT_NE(error, net::ERR_UNSAFE_PORT);
   else
     EXPECT_EQ(error, net::ERR_UNSAFE_PORT);
+}
+
+// This assures that both string and data blink resources are
+// present. These are essential for correct rendering.
+IN_PROC_BROWSER_TEST_F(HeadlessBrowserTest, LocalizedResources) {
+  EXPECT_THAT(
+      ui::ResourceBundle::GetSharedInstance().LoadLocalizedResourceString(
+          IDS_FORM_SUBMIT_LABEL),
+      testing::Eq("Submit"));
+  EXPECT_THAT(ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+                  IDR_UASTYLE_HTML_CSS),
+              testing::Ne(""));
 }
 
 }  // namespace headless

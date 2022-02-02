@@ -52,7 +52,7 @@
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 
 namespace blink {
@@ -424,10 +424,12 @@ class CORE_EXPORT PaintLayerScrollableArea final
 
   void PositionOverflowControls();
 
-  // isPointInResizeControl() is used for testing if a pointer/touch position is
-  // in the resize control area.
-  bool IsPointInResizeControl(const gfx::Point& absolute_point,
-                              ResizerHitTestType) const;
+  // Test if a pointer/touch position is in the resize control area.
+  bool IsAbsolutePointInResizeControl(const gfx::Point& absolute_point,
+                                      ResizerHitTestType) const;
+  bool IsLocalPointInResizeControl(const gfx::Point& local_point,
+                                   ResizerHitTestType) const;
+
   bool HitTestOverflowControls(HitTestResult&, const gfx::Point& local_point);
 
   bool HitTestResizerInFragments(const PaintLayerFragments&,

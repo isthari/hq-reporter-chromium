@@ -766,7 +766,7 @@ void GuestOsRegistryService::LoadIcon(const std::string& app_id,
   // we need to ensure that returned icons are always resized to be
   // size_hint_in_dip big. crbug/1170455 is an example.
   apps::IconEffects icon_effects = static_cast<apps::IconEffects>(
-      icon_key.icon_effects | apps::IconEffects::kResizeAndPad);
+      icon_key.icon_effects | apps::IconEffects::kMdIconStyle);
   auto scale_factor = apps_util::GetPrimaryDisplayUIScaleFactor();
 
   auto load_icon_from_vm_fallback = base::BindOnce(
@@ -907,7 +907,7 @@ void GuestOsRegistryService::ClearApplicationList(
   // The DictionaryPrefUpdate should be destructed before calling the observer.
   {
     DictionaryPrefUpdate update(prefs_, guest_os::prefs::kGuestOsRegistry);
-    base::DictionaryValue* apps = update.Get();
+    base::Value* apps = update.Get();
 
     for (const auto item : apps->DictItems()) {
       if (item.first == crostini::kCrostiniTerminalSystemAppId) {
@@ -968,7 +968,7 @@ void GuestOsRegistryService::UpdateApplicationList(
   // The DictionaryPrefUpdate should be destructed before calling the observer.
   {
     DictionaryPrefUpdate update(prefs_, guest_os::prefs::kGuestOsRegistry);
-    base::DictionaryValue* apps = update.Get();
+    base::Value* apps = update.Get();
     for (const App& app : app_list.apps()) {
       if (app.desktop_file_id().empty()) {
         LOG(WARNING) << "Received app with missing desktop file id";
@@ -1105,7 +1105,7 @@ void GuestOsRegistryService::RemoveObserver(Observer* observer) {
 
 void GuestOsRegistryService::AppLaunched(const std::string& app_id) {
   DictionaryPrefUpdate update(prefs_, guest_os::prefs::kGuestOsRegistry);
-  base::DictionaryValue* apps = update.Get();
+  base::Value* apps = update.Get();
 
   base::Value* app = apps->FindKey(app_id);
   if (!app) {
@@ -1131,7 +1131,7 @@ void GuestOsRegistryService::SetAppScaled(const std::string& app_id,
   DCHECK_NE(app_id, crostini::kCrostiniTerminalSystemAppId);
 
   DictionaryPrefUpdate update(prefs_, guest_os::prefs::kGuestOsRegistry);
-  base::DictionaryValue* apps = update.Get();
+  base::Value* apps = update.Get();
 
   base::Value* app = apps->FindKey(app_id);
   if (!app) {

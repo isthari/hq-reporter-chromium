@@ -15,11 +15,16 @@
 #include "components/policy/core/common/policy_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/privacy_sandbox/privacy_sandbox_settings.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_service_observer.h"
 
 class PrefService;
+
+namespace content {
+class InterestGroupManager;
+}
 
 namespace content_settings {
 class CookieSettings;
@@ -38,14 +43,51 @@ class PrivacySandboxService : public KeyedService,
                               public syncer::SyncServiceObserver,
                               public signin::IdentityManager::Observer {
  public:
+  // Possible types of Privacy Sandbox dialogs that may be shown to the user.
+  enum class DialogType { kNone, kNotice, kConsent };
+
+  // An exhaustive list of actions related to showing & interacting with the
+  // dialog. Includes actions which do not impact consent / notice state.
+  enum class DialogAction {
+    // Shared between notice & consent:
+    kShown,
+    kOpenSettings,
+    kOpenMoreInfo,
+    kCloseMoreInfo,
+
+    // Consent Only
+    kAcceptConsent,
+    kDeclineConsent,
+
+    // Notice Only
+    kAcknowledge,
+    kClose,
+  };
+
   PrivacySandboxService(PrivacySandboxSettings* privacy_sandbox_settings,
                         content_settings::CookieSettings* cookie_settings,
                         PrefService* pref_service,
                         policy::PolicyService* policy_service,
                         syncer::SyncService* sync_service,
                         signin::IdentityManager* identity_manager,
-                        federated_learning::FlocIdProvider* floc_id_provider);
+                        federated_learning::FlocIdProvider* floc_id_provider,
+                        content::InterestGroupManager* interest_group_manager,
+                        profile_metrics::BrowserProfileType profile_type);
   ~PrivacySandboxService() override;
+
+  // Returns the dialog type that should be shown to the user. This consults
+  // previous consent / notice information stored in preferences, the current
+  // state of the Privacy Sandbox settings, and the current location of the
+  // user, to determine the appropriate type. This is expected to be called by
+  // UI code locations determining whether a dialog should be shown on startup.
+  DialogType GetRequiredDialogType();
+
+  // Informs the service that |action| occurred with the dialog. This allows
+  // the service to record this information in preferences such that future
+  // calls to GetRequiredDialogType() are correct. This is expected to be
+  // called appropriately by all locations showing the dialog. Metrics shared
+  // between platforms will also be recorded.
+  void DialogActionOccur(DialogAction action);
 
   // Returns a description of FLoC ready for display to the user. Correctly
   // takes into account the FLoC feature parameters when determining the number
@@ -104,6 +146,12 @@ class PrivacySandboxService : public KeyedService,
   // Called when a preference relevant to the the Privacy Sandbox is changed.
   void OnPrivacySandboxPrefChanged();
 
+  // Returns the set of eTLD + 1's on which the user was joined to a FLEDGE
+  // interest group. Consults with the InterestGroupManager associated with
+  // |profile_| and formats the returned data for direct display to the user.
+  void GetFledgeJoiningEtldPlusOneForDisplay(
+      base::OnceCallback<void(std::vector<std::string>)> callback);
+
   // KeyedService:
   void Shutdown() override;
 
@@ -149,6 +197,8 @@ class PrivacySandboxService : public KeyedService,
                            NoReconciliationSandboxSettingsDisabled);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTestReconciliationBlocked,
                            MetricsLoggingOccursCorrectly);
+  FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTestNonRegularProfile,
+                           NoMetricsRecorded);
 
   // Contains all possible privacy sandbox states, recorded on startup.
   // These values are persisted to logs. Entries should not be renumbered and
@@ -195,6 +245,12 @@ class PrivacySandboxService : public KeyedService,
   // profile startup.
   void LogPrivacySandboxState();
 
+  // Converts the provided list of |top_frames| into eTLD+1s for display, and
+  // provides those to |callback|.
+  void ConvertFledgeJoiningTopFramesForDisplay(
+      base::OnceCallback<void(std::vector<std::string>)> callback,
+      std::vector<url::Origin> top_frames);
+
  private:
   raw_ptr<PrivacySandboxSettings> privacy_sandbox_settings_;
   raw_ptr<content_settings::CookieSettings> cookie_settings_;
@@ -203,6 +259,8 @@ class PrivacySandboxService : public KeyedService,
   raw_ptr<syncer::SyncService> sync_service_;
   raw_ptr<signin::IdentityManager> identity_manager_;
   raw_ptr<federated_learning::FlocIdProvider> floc_id_provider_;
+  raw_ptr<content::InterestGroupManager> interest_group_manager_;
+  profile_metrics::BrowserProfileType profile_type_;
 
   base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver>
       sync_service_observer_{this};
@@ -215,6 +273,8 @@ class PrivacySandboxService : public KeyedService,
   // A manual record of whether policy_service_ is being observerd.
   // Unfortunately PolicyService does not support scoped observers.
   bool policy_service_observed_ = false;
+
+  base::WeakPtrFactory<PrivacySandboxService> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_PRIVACY_SANDBOX_PRIVACY_SANDBOX_SERVICE_H_

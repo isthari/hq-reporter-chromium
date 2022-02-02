@@ -11,8 +11,8 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/media/router/discovery/mdns/media_sink_util.h"
 #include "components/cast_channel/cast_socket.h"
+#include "components/media_router/common/discovery/media_sink_internal.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_address.h"
@@ -23,7 +23,8 @@ namespace media_router {
 
 namespace {
 
-uint8_t ConvertDeviceCapabilitiesToInt(DeviceCapabilities proto) {
+uint8_t ConvertDeviceCapabilitiesToInt(
+    chrome_browser_media::proto::DeviceCapabilities proto) {
   // Meaning of capacity value for each bit:
   // NONE: 0,
   // VIDEO_OUT: 1 << 0,
@@ -87,9 +88,9 @@ CreateAccessCodeMediaSink(const DiscoveryDevice& discovery_device) {
 
   CastSinkExtraData extra_data;
   const std::string& port = discovery_device.network_info().port();
-  int port_value = 0;
+  int port_value = kCastControlPort;
   // Convert port from string to int
-  if (port.empty() || !base::StringToInt(port, &port_value)) {
+  if (!port.empty() && !base::StringToInt(port, &port_value)) {
     return std::make_pair(absl::nullopt,
                           CreateCastMediaSinkResult::kMissingOrInvalidPort);
   }
@@ -105,6 +106,7 @@ CreateAccessCodeMediaSink(const DiscoveryDevice& discovery_device) {
   }
   extra_data.capabilities =
       ConvertDeviceCapabilitiesToInt(discovery_device.device_capabilities());
+  extra_data.discovered_by_access_code = true;
 
   const std::string& processed_uuid =
       MediaSinkInternal::ProcessDeviceUUID(unique_id);

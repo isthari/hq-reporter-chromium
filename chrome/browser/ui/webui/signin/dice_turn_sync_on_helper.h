@@ -132,17 +132,6 @@ class DiceTurnSyncOnHelper
     // after this object gets destroyed.
     static void ShowLoginErrorForBrowser(const SigninUIError& error,
                                          Browser* browser);
-
-    // Shows the enterprise account confirmation dialog with `email` for
-    // `browser` and returns the result via `callback`. The variant of the
-    // dialog is based on `prompt_for_new_profile`. This helper is static
-    // because in some cases it needs to be called after this object gets
-    // destroyed.
-    static void ShowEnterpriseAccountConfirmationForBrowser(
-        const std::string& email,
-        bool prompt_for_new_profile,
-        DiceTurnSyncOnHelper::SigninChoiceCallback callback,
-        Browser* browser);
   };
 
   // Create a helper that turns sync on for an account that is already present
@@ -179,6 +168,9 @@ class DiceTurnSyncOnHelper
   // Fakes that sync enabled for testing, but does not create a sync service.
   static void SetShowSyncEnabledUiForTesting(
       bool show_sync_enabled_ui_for_testing);
+
+  // Returns true if a `DiceTurnSyncOnHelper` is currently active for `profile`.
+  static bool HasCurrentDiceTurnSyncOnHelperForTesting(Profile* profile);
 
  private:
   friend class base::DeleteHelper<DiceTurnSyncOnHelper>;

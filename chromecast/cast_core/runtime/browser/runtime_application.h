@@ -7,15 +7,14 @@
 
 #include <string>
 
+#include "base/callback.h"
 #include "third_party/cast_core/public/src/proto/common/application_config.pb.h"
 #include "third_party/cast_core/public/src/proto/runtime/runtime_service.grpc.pb.h"
 #include "url/gurl.h"
 
-namespace url_rewrite {
-class UrlRequestRewriteRulesManager;
-}
-
 namespace chromecast {
+
+class CastWebContents;
 
 // This represents an application that can be hosted by RuntimeService.  Its
 // lifecycle is very simple: Load() -> Launch() -> Destruction.  Implementations
@@ -23,7 +22,10 @@ namespace chromecast {
 // For example, Launch needs to respond with SetApplicationStatus.
 class RuntimeApplication {
  public:
-  RuntimeApplication();
+  using StatusCallback = base::OnceCallback<void(grpc::Status)>;
+
+  RuntimeApplication(std::string cast_session_id,
+                     cast::common::ApplicationConfig app_config);
   virtual ~RuntimeApplication() = 0;
 
   // NOTE: These fields are the empty string until after Load().
@@ -34,53 +36,36 @@ class RuntimeApplication {
   // NOTE: These fields are the empty string until after Load().
   const std::string& cast_session_id() const { return cast_session_id_; }
 
-  // NOTE: This is the empty string until after Launch().
-  const std::string& cast_media_service_grpc_endpoint() const {
-    return cast_media_service_grpc_endpoint_;
-  }
+  // Returns the Cast application URL.
+  virtual const GURL& GetApplicationUrl() const = 0;
 
-  // NOTE: This is the empty string until after Launch().
-  const GURL& app_url() const { return app_url_; }
+  // Returns the root instance of CastWebContents.
+  virtual CastWebContents* GetCastWebContents() = 0;
 
-  // NOTE: These fields are the empty string until after Load().
-  virtual url_rewrite::UrlRequestRewriteRulesManager*
-  GetUrlRewriteRulesManager() = 0;
+  // Returns the Cast media service endpoint for MZ.
+  virtual const std::string& GetCastMediaServiceEndpoint() const = 0;
 
   // Called before Launch() to perform any pre-launch loading that is
-  // necessary. This should return true if the load was successful and it's
-  // valid to call Launch, false otherwise.  If Load fails, |this| should be
-  // destroyed since it's not necessarily valid to retry Load with a new
-  // |request|.
-  virtual bool Load(const cast::runtime::LoadApplicationRequest& request) = 0;
+  // necessary. The |callback| will be called indicating if the operation
+  // succeeded or not. If Load fails, |this| should be destroyed since it's not
+  // necessarily valid to retry Load with a new |request|.
+  virtual void Load(cast::runtime::LoadApplicationRequest request,
+                    StatusCallback callback) = 0;
 
-  // Called to launch the application.  The application will indicate that it is
-  // started by calling SetApplicationStatus back over gRPC.  This should return
-  // true if initial processing of |request| succeeded, false otherwise.
-  virtual bool Launch(
-      const cast::runtime::LaunchApplicationRequest& request) = 0;
+  // Called to launch the application. The application will indicate that it is
+  // started by calling SetApplicationStatus back over gRPC. The |callback| will
+  // be called indicating if the operation succeeded or not. If Load fails,
+  // |this| should be destroyed since it's not necessarily valid to retry Load
+  // with a new |request|.
+  virtual void Launch(cast::runtime::LaunchApplicationRequest request,
+                      StatusCallback callback) = 0;
 
- protected:
-  void set_application_config(cast::common::ApplicationConfig app_config) {
-    app_config_ = std::move(app_config);
-  }
-
-  void set_cast_session_id(std::string cast_session_id) {
-    cast_session_id_ = std::move(cast_session_id);
-  }
-
-  void set_cast_media_service_grpc_endpoint(
-      std::string cast_media_service_grpc_endpoint) {
-    cast_media_service_grpc_endpoint_ =
-        std::move(cast_media_service_grpc_endpoint);
-  }
-
-  void set_app_url(GURL app_url) { app_url_ = std::move(app_url); }
+  // Returns whether this instance is associated with cast streaming.
+  virtual bool IsStreamingApplication() const = 0;
 
  private:
-  cast::common::ApplicationConfig app_config_;
-  std::string cast_session_id_;
-  std::string cast_media_service_grpc_endpoint_;
-  GURL app_url_;
+  const std::string cast_session_id_;
+  const cast::common::ApplicationConfig app_config_;
 };
 
 std::ostream& operator<<(std::ostream& os, const RuntimeApplication& app);

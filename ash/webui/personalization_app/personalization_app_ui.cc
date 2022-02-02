@@ -7,8 +7,10 @@
 #include "ash/constants/ash_features.h"
 #include "ash/grit/ash_personalization_app_resources.h"
 #include "ash/grit/ash_personalization_app_resources_map.h"
+#include "ash/webui/personalization_app/personalization_app_ambient_provider.h"
 #include "ash/webui/personalization_app/personalization_app_theme_provider.h"
 #include "ash/webui/personalization_app/personalization_app_url_constants.h"
+#include "ash/webui/personalization_app/personalization_app_user_provider.h"
 #include "ash/webui/personalization_app/personalization_app_wallpaper_provider.h"
 #include "base/strings/strcat.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
@@ -52,7 +54,9 @@ void AddResources(content::WebUIDataSource* source) {
 
 void AddStrings(content::WebUIDataSource* source) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
-      {"title", IDS_PERSONALIZATION_APP_TITLE},
+      {"personalizationTitle",
+       IDS_PERSONALIZATION_APP_PERSONALIZATION_HUB_TITLE},
+      {"wallpaperLabel", IDS_PERSONALIZATION_APP_WALLPAPER_LABEL},
       {"back", IDS_PERSONALIZATION_APP_BACK_BUTTON},
       {"currentlySet", IDS_PERSONALIZATION_APP_CURRENTLY_SET},
       {"myImagesLabel", IDS_PERSONALIZATION_APP_MY_IMAGES},
@@ -81,7 +85,13 @@ void AddStrings(content::WebUIDataSource* source) {
       {"setAsWallpaper", IDS_PERSONALIZATION_APP_SET_AS_WALLPAPER},
       {"themeLabel", IDS_PERSONALIZATION_APP_THEME_LABEL},
       {"darkColorMode", IDS_PERSONALIZATION_APP_THEME_DARK_COLOR_MODE},
-      {"lightColorMode", IDS_PERSONALIZATION_APP_THEME_LIGHT_COLOR_MODE}};
+      {"lightColorMode", IDS_PERSONALIZATION_APP_THEME_LIGHT_COLOR_MODE},
+      {"zeroImages", IDS_PERSONALIZATION_APP_NO_IMAGES},
+      {"oneImage", IDS_PERSONALIZATION_APP_ONE_IMAGE},
+      {"multipleImages", IDS_PERSONALIZATION_APP_MULTIPLE_IMAGES},
+      {"avatarLabel", IDS_PERSONALIZATION_APP_AVATAR_LABEL},
+      {"screensaverLabel", IDS_PERSONALIZATION_APP_SCREENSAVER_LABEL}};
+
   source->AddLocalizedStrings(kLocalizedStrings);
 
   if (features::IsWallpaperGooglePhotosIntegrationEnabled()) {
@@ -117,10 +127,14 @@ void AddBooleans(content::WebUIDataSource* source) {
 
 PersonalizationAppUI::PersonalizationAppUI(
     content::WebUI* web_ui,
+    std::unique_ptr<PersonalizationAppAmbientProvider> ambient_provider,
     std::unique_ptr<PersonalizationAppThemeProvider> theme_provider,
+    std::unique_ptr<PersonalizationAppUserProvider> user_provider,
     std::unique_ptr<PersonalizationAppWallpaperProvider> wallpaper_provider)
     : ui::MojoWebUIController(web_ui),
+      ambient_provider_(std::move(ambient_provider)),
       theme_provider_(std::move(theme_provider)),
+      user_provider_(std::move(user_provider)),
       wallpaper_provider_(std::move(wallpaper_provider)) {
   DCHECK(wallpaper_provider_);
 
@@ -154,6 +168,12 @@ PersonalizationAppUI::PersonalizationAppUI(
 PersonalizationAppUI::~PersonalizationAppUI() = default;
 
 void PersonalizationAppUI::BindInterface(
+    mojo::PendingReceiver<personalization_app::mojom::AmbientProvider>
+        receiver) {
+  ambient_provider_->BindInterface(std::move(receiver));
+}
+
+void PersonalizationAppUI::BindInterface(
     mojo::PendingReceiver<personalization_app::mojom::ThemeProvider> receiver) {
   theme_provider_->BindInterface(std::move(receiver));
 }
@@ -162,6 +182,11 @@ void PersonalizationAppUI::BindInterface(
     mojo::PendingReceiver<personalization_app::mojom::WallpaperProvider>
         receiver) {
   wallpaper_provider_->BindInterface(std::move(receiver));
+}
+
+void PersonalizationAppUI::BindInterface(
+    mojo::PendingReceiver<personalization_app::mojom::UserProvider> receiver) {
+  user_provider_->BindInterface(std::move(receiver));
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(PersonalizationAppUI)

@@ -5,6 +5,8 @@
 #ifndef IOS_WEB_PUBLIC_WEB_STATE_H_
 #define IOS_WEB_PUBLIC_WEB_STATE_H_
 
+#import <Foundation/Foundation.h>
+
 #include <stdint.h>
 
 #include <map>
@@ -50,8 +52,8 @@ namespace web {
 class BrowserState;
 struct FaviconStatus;
 class NavigationManager;
-enum class Permission;
-enum class PermissionState;
+enum Permission : NSUInteger;
+enum PermissionState : NSUInteger;
 class SessionCertificatePolicyCache;
 class WebFrame;
 class WebFramesManager;
@@ -382,9 +384,9 @@ class WebState : public base::SupportsUserData {
   // this WebState is still alive, and do nothing if this WebState is already
   // destroyed. Therefore if the caller want to stop receiving JS messages it
   // can just destroy the subscription.
-  virtual base::CallbackListSubscription AddScriptCommandCallback(
+  [[nodiscard]] virtual base::CallbackListSubscription AddScriptCommandCallback(
       const ScriptCommandCallback& callback,
-      const std::string& command_prefix) WARN_UNUSED_RESULT = 0;
+      const std::string& command_prefix) = 0;
 
   // Returns the current CRWWebViewProxy object.
   virtual CRWWebViewProxyType GetWebViewProxy() const = 0;
@@ -425,6 +427,10 @@ class WebState : public base::SupportsUserData {
   virtual void CreateFullPagePdf(
       base::OnceCallback<void(NSData*)> callback) = 0;
 
+  // Tries to dismiss the presented states of the media (fullscreen or Picture
+  // in Picture).
+  virtual void CloseMediaPresentations() = 0;
+
   // Adds and removes observers for page navigation notifications. The order in
   // which notifications are sent to observers is undefined. Clients must be
   // sure to remove the observer before they go away.
@@ -446,6 +452,13 @@ class WebState : public base::SupportsUserData {
       API_AVAILABLE(ios(15.0)) = 0;
   virtual void SetStateForPermission(PermissionState state,
                                      Permission permission)
+      API_AVAILABLE(ios(15.0)) = 0;
+
+  // Gets a mapping of all available permissions and their states.
+  // Note that both key and value are in NSNumber format, and should be
+  // translated to NSUInteger and casted to web::Permission or
+  // web::PermissionState before use.
+  virtual NSDictionary<NSNumber*, NSNumber*>* GetStatesForAllPermissions() const
       API_AVAILABLE(ios(15.0)) = 0;
 
  protected:

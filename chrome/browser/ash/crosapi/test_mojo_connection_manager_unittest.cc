@@ -77,7 +77,9 @@ class TestBrowserService : public crosapi::mojom::BrowserService {
   void NewFullscreenWindow(const GURL& url,
                            NewFullscreenWindowCallback callback) override {}
   void NewTab(NewTabCallback callback) override {}
-  void OpenUrl(const GURL& url, OpenUrlCallback callback) override {}
+  void OpenUrl(const GURL& url,
+               crosapi::mojom::OpenUrlParamsPtr params,
+               OpenUrlCallback callback) override {}
   void RestoreTab(RestoreTabCallback callback) override {}
   void HandleTabScrubbing(float x_offset) override {}
   void GetFeedbackData(GetFeedbackDataCallback callback) override {}
@@ -194,8 +196,7 @@ TEST_F(TestMojoConnectionManagerTest, ConnectMultipleClients) {
   TestingProfile* profile =
       testing_profile_manager.CreateTestingProfile(account.GetUserEmail());
   profile->set_profile_name(account.GetUserEmail());
-  chromeos::ProfileHelper::Get()->SetUserToProfileMappingForTesting(user,
-                                                                    profile);
+  ash::ProfileHelper::Get()->SetUserToProfileMappingForTesting(user, profile);
 
   auto crosapi_manager = std::make_unique<CrosapiManager>();
 

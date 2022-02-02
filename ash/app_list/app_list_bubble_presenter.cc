@@ -232,6 +232,8 @@ void AppListBubblePresenter::OnZeroStateSearchDone(int64_t display_id) {
     // The bubble widget is cached, but it may change displays. Update pointers
     // that are tied to the display.
     bubble_view_->SetDragAndDropHostOfCurrentAppList(drag_and_drop_host);
+    // Refresh suggestions now that zero-state search data is updated.
+    bubble_view_->UpdateSuggestions();
     bubble_event_filter_->SetButton(home_button);
     // The observer for the correct display will be added below.
     aura::client::GetFocusClient(bubble_widget_->GetNativeWindow())
@@ -255,9 +257,7 @@ void AppListBubblePresenter::OnZeroStateSearchDone(int64_t display_id) {
   // The page must be set before triggering the show animation so the correct
   // animations are triggered.
   bubble_view_->ShowPage(target_page_);
-  if (features::IsProductivityLauncherAnimationEnabled()) {
-    bubble_view_->StartShowAnimation();
-  }
+  bubble_view_->StartShowAnimation();
   controller_->OnVisibilityChanged(/*visible=*/true, display_id);
 }
 
@@ -283,6 +283,9 @@ void AppListBubblePresenter::Dismiss() {
   if (bubble_view_)
     bubble_view_->AbortAllAnimations();
 
+  // Must call before setting `is_target_visibility_show_` to false.
+  const int64_t display_id = GetDisplayId();
+
   is_target_visibility_show_ = false;
 
   // Reset keyboard traversal in case the user switches to tablet launcher.
@@ -290,20 +293,11 @@ void AppListBubblePresenter::Dismiss() {
   controller_->SetKeyboardTraversalMode(false);
 
   controller_->ViewClosing();
-
-  const int64_t display_id = GetDisplayId();
   controller_->OnVisibilityWillChange(/*visible=*/false, display_id);
-  if (features::IsProductivityLauncherAnimationEnabled()) {
-    if (bubble_view_) {
-      bubble_view_->StartHideAnimation(
-          base::BindOnce(&AppListBubblePresenter::OnHideAnimationEnded,
-                         weak_factory_.GetWeakPtr()));
-    }
-  } else {
-    // Check for widget because the code could be waiting for zero-state search
-    // results before first show.
-    if (bubble_widget_)
-      OnHideAnimationEnded();
+  if (bubble_view_) {
+    bubble_view_->StartHideAnimation(
+        base::BindOnce(&AppListBubblePresenter::OnHideAnimationEnded,
+                       weak_factory_.GetWeakPtr()));
   }
   controller_->OnVisibilityChanged(/*visible=*/false, display_id);
 
@@ -328,9 +322,21 @@ bool AppListBubblePresenter::IsShowingEmbeddedAssistantUI() const {
   return bubble_view_->IsShowingEmbeddedAssistantUI();
 }
 
-void AppListBubblePresenter::OnTemporarySortOrderChanged(
-    const absl::optional<AppListSortOrder>& new_order) {
-  bubble_view_->apps_page()->OnTemporarySortOrderChanged(new_order);
+void AppListBubblePresenter::UpdateForNewSortingOrder(
+    const absl::optional<AppListSortOrder>& new_order,
+    bool animate,
+    base::OnceClosure update_position_closure) {
+  DCHECK_EQ(animate, !update_position_closure.is_null());
+
+  if (!bubble_view_) {
+    // A rare case. Still handle it for safety.
+    if (update_position_closure)
+      std::move(update_position_closure).Run();
+    return;
+  }
+
+  bubble_view_->UpdateForNewSortingOrder(new_order, animate,
+                                         std::move(update_position_closure));
 }
 
 void AppListBubblePresenter::ShowEmbeddedAssistantUI() {
@@ -397,7 +403,7 @@ void AppListBubblePresenter::OnPressOutsideBubble() {
 }
 
 int64_t AppListBubblePresenter::GetDisplayId() const {
-  if (!is_target_visibility_show_)
+  if (!is_target_visibility_show_ || !bubble_widget_)
     return display::kInvalidDisplayId;
   return display::Screen::GetScreen()
       ->GetDisplayNearestView(bubble_widget_->GetNativeView())

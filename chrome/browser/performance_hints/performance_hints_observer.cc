@@ -17,15 +17,13 @@
 #include "components/optimization_guide/core/optimization_guide_permissions_util.h"
 #include "components/optimization_guide/core/url_pattern_with_wildcards.h"
 #include "components/optimization_guide/proto/performance_hints_metadata.pb.h"
-#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
-#include "url/gurl.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/android/jni_string.h"
 #include "chrome/browser/performance_hints/android/jni_headers/PerformanceHintsObserver_jni.h"
 #include "url/android/gurl_android.h"
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
 using optimization_guide::OptimizationGuideDecision;
 using optimization_guide::URLPatternWithWildcards;
@@ -83,7 +81,7 @@ const char* ToString(HintLookupSource source) {
 }
 }  // namespace
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 static jint JNI_PerformanceHintsObserver_GetPerformanceClassForURL(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& java_web_contents,
@@ -99,7 +97,7 @@ static jboolean
 JNI_PerformanceHintsObserver_IsContextMenuPerformanceInfoEnabled(JNIEnv* env) {
   return features::IsContextMenuPerformanceInfoEnabled();
 }
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
 PerformanceHintsObserver::PerformanceHintsObserver(
     content::WebContents* web_contents)
@@ -429,19 +427,8 @@ PerformanceHintsObserver::FastHostHintForURL(const GURL& url) const {
   }
 }
 
-void PerformanceHintsObserver::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
+void PerformanceHintsObserver::PrimaryPageChanged(content::Page& page) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(navigation_handle);
-  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
-  // frames. This caller was converted automatically to the primary main frame
-  // to preserve its semantics. Follow up to confirm correctness.
-  if (!navigation_handle->IsInPrimaryMainFrame() ||
-      navigation_handle->IsSameDocument() ||
-      !navigation_handle->HasCommitted()) {
-    // Use the same hints if the main frame hasn't changed.
-    return;
-  }
 
   // We've navigated to a new page, so clear out any existing cached hints.
   link_hints_.clear();
@@ -451,12 +438,13 @@ void PerformanceHintsObserver::DidFinishNavigation(
   if (!optimization_guide_decider_) {
     return;
   }
-  if (navigation_handle->IsErrorPage()) {
+
+  if (page.GetMainDocument().IsErrorDocument()) {
     // Don't provide hints on Chrome error pages.
     return;
   }
 
-  page_url_ = navigation_handle->GetURL();
+  page_url_ = page.GetMainDocument().GetLastCommittedURL();
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(PerformanceHintsObserver);

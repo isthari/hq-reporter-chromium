@@ -41,7 +41,6 @@ import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
 import org.chromium.chrome.browser.continuous_search.ContinuousSearchContainerCoordinator;
 import org.chromium.chrome.browser.continuous_search.ContinuousSearchContainerCoordinator.HeightObserver;
-import org.chromium.chrome.browser.datareduction.DataReductionPromoScreen;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedFollowIntroController;
 import org.chromium.chrome.browser.findinpage.FindToolbarObserver;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
@@ -69,6 +68,7 @@ import org.chromium.chrome.browser.ntp.NewTabPageUtils;
 import org.chromium.chrome.browser.offlinepages.indicator.OfflineIndicatorControllerV2;
 import org.chromium.chrome.browser.offlinepages.indicator.OfflineIndicatorInProductHelpController;
 import org.chromium.chrome.browser.omnibox.UrlFocusChangeListener;
+import org.chromium.chrome.browser.omnibox.suggestions.OmniboxPedalDelegate;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -287,6 +287,7 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
             @NonNull Supplier<InsetObserverView> insetObserverViewSupplier,
             @NonNull Function<Tab, Boolean> backButtonShouldCloseTabFn,
             OneshotSupplier<TabReparentingController> tabReparentingControllerSupplier,
+            @NonNull OmniboxPedalDelegate omniboxPedalDelegate,
             boolean initializeUiWithIncognitoColors) {
         super(activity, onOmniboxFocusChangedListener, shareDelegateSupplier, tabProvider,
                 profileSupplier, bookmarkBridgeSupplier, contextualSearchManagerSupplier,
@@ -300,7 +301,7 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
                 overviewModeBehaviorSupplier, snackbarManagerSupplier, activityType,
                 isInOverviewModeSupplier, shouldShowOverviewPageOnStartSupplier,
                 isWarmOnResumeSupplier, appMenuDelegate, statusBarColorProvider,
-                intentRequestTracker, tabReparentingControllerSupplier,
+                intentRequestTracker, tabReparentingControllerSupplier, omniboxPedalDelegate,
                 initializeUiWithIncognitoColors);
         mEphemeralTabCoordinatorSupplier = ephemeralTabCoordinatorSupplier;
         mControlContainerHeightResource = controlContainerHeightResource;
@@ -899,10 +900,6 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
         // Only one promo can be shown in one run to avoid nagging users too much.
         if (SigninPromoUtil.launchSigninPromoIfNeeded(mActivity,
                     SyncConsentActivityLauncherImpl.get(), VersionInfo.getProductMajorVersion())) {
-            return true;
-        }
-        if (DataReductionPromoScreen.launchDataReductionPromo(
-                    mActivity, mTabModelSelectorSupplier.get().isIncognitoSelected())) {
             return true;
         }
         if (DefaultBrowserPromoUtils.prepareLaunchPromoIfNeeded(mActivity, mWindowAndroid)) {

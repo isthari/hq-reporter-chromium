@@ -1285,7 +1285,12 @@ Element* Node::FlatTreeParentForChildDirty() const {
       return data->AssignedSlot();
     return nullptr;
   }
-  return ParentOrShadowHostElement();
+  Element* parent = ParentOrShadowHostElement();
+  if (HTMLSlotElement* slot = DynamicTo<HTMLSlotElement>(parent)) {
+    if (slot->HasAssignedNodesNoRecalc())
+      return nullptr;
+  }
+  return parent;
 }
 
 void Node::MarkAncestorsWithChildNeedsReattachLayoutTree() {
@@ -1387,13 +1392,6 @@ bool Node::InActiveDocument() const {
 bool Node::ShouldHaveFocusAppearance() const {
   DCHECK(IsFocused());
   return true;
-}
-
-// TODO(crbug.com/692360): Remove this method.
-bool Node::IsInert() const {
-  if (const ComputedStyle* style = GetComputedStyle())
-    return style->IsInert();
-  return false;
 }
 
 LinkHighlightCandidate Node::IsLinkHighlightCandidate() const {

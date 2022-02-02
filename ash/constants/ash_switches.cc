@@ -12,7 +12,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 
-namespace chromeos {
+namespace ash {
 namespace switches {
 
 namespace {
@@ -382,6 +382,10 @@ const char kEnableArcVm[] = "enable-arcvm";
 
 // Enables ARCVM realtime VCPU feature.
 const char kEnableArcVmRtVcpu[] = "enable-arcvm-rt-vcpu";
+
+// Enables testing the selfie camera feature of Capture Mode using fake cameras.
+// Used only in tests and the emulator.
+const char kEnableCaptureModeFakeCameras[] = "enable-capture-mode-fake-cameras";
 
 // Enables the Cast Receiver.
 const char kEnableCastReceiver[] = "enable-cast-receiver";
@@ -774,6 +778,10 @@ const char kSupportsClamshellAutoRotation[] =
 // Hides all Message Center notification popups (toasts). Used for testing.
 const char kSuppressMessageCenterPopups[] = "suppress-message-center-popups";
 
+// Enables System Extensions Debug mode e.g Force enable System Extensions APIs
+// on all Service Workers.
+const char kSystemExtensionsDebug[] = "system-extensions-debug";
+
 // Specifies directory for the Telemetry System Web Extension.
 const char kTelemetryExtensionDirectory[] = "telemetry-extension-dir";
 
@@ -837,6 +845,11 @@ bool IsAuthSessionCryptohomeEnabled() {
 
 bool IsCellularFirstDevice() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(kCellularFirst);
+}
+
+bool AreCaptureModeFakeCamerasEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnableCaptureModeFakeCameras);
 }
 
 bool IsRevenBranding() {
@@ -950,4 +963,4 @@ bool ShouldClearFastInkBuffer() {
 }
 
 }  // namespace switches
-}  // namespace chromeos
+}  // namespace ash

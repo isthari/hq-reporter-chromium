@@ -459,7 +459,7 @@ TEST_F(VaapiTest, LowQualityEncodingSetting) {
 
 // This test checks the supported SVC scalability mode.
 TEST_F(VaapiTest, CheckSupportedSVCScalabilityModes) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   const std::vector<SVCScalabilityMode> kSupportedTemporalSVC = {
       SVCScalabilityMode::kL1T2, SVCScalabilityMode::kL1T3};
   const std::vector<SVCScalabilityMode> kSupportedTemporalAndKeySVC = {
@@ -471,7 +471,7 @@ TEST_F(VaapiTest, CheckSupportedSVCScalabilityModes) {
   const auto scalability_modes_vp9_profile0 =
       VaapiWrapper::GetSupportedScalabilityModes(VP9PROFILE_PROFILE0,
                                                  VAProfileVP9Profile0);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   if (base::FeatureList::IsEnabled(kVaapiVp9kSVCHWEncoding) &&
       VaapiWrapper::GetDefaultVaEntryPoint(
           VaapiWrapper::kEncodeConstantQuantizationParameter,
@@ -489,10 +489,22 @@ TEST_F(VaapiTest, CheckSupportedSVCScalabilityModes) {
                                                  VAProfileVP9Profile2);
   EXPECT_TRUE(scalability_modes_vp9_profile2.empty());
 
+  const auto scalability_modes_vp8 = VaapiWrapper::GetSupportedScalabilityModes(
+      VP8PROFILE_ANY, VAProfileVP8Version0_3);
+#if BUILDFLAG(IS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(kVaapiVp8TemporalLayerHWEncoding)) {
+    EXPECT_EQ(scalability_modes_vp8, kSupportedTemporalSVC);
+  } else {
+    EXPECT_TRUE(scalability_modes_vp8.empty());
+  }
+#else
+  EXPECT_TRUE(scalability_modes_vp8.empty());
+#endif
+
   const auto scalability_modes_h264_baseline =
       VaapiWrapper::GetSupportedScalabilityModes(
           H264PROFILE_BASELINE, VAProfileH264ConstrainedBaseline);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // TODO(b/199487660): Enable H.264 temporal layer encoding on AMD once their
   // drivers support them.
   const auto implementation = VaapiWrapper::GetImplementationType();

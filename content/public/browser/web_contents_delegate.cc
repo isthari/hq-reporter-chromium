@@ -11,7 +11,6 @@
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "build/build_config.h"
-#include "components/viz/common/surfaces/surface_id.h"
 #include "content/public/browser/color_chooser.h"
 #include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
@@ -186,7 +185,7 @@ void WebContentsDelegate::RequestKeyboardLock(WebContents* web_contents,
   web_contents->GotResponseToKeyboardLockRequest(false);
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 std::unique_ptr<ColorChooser> WebContentsDelegate::OpenColorChooser(
     WebContents* web_contents,
     SkColor color,
@@ -246,7 +245,7 @@ std::string WebContentsDelegate::GetTitleForMediaControls(
   return {};
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 bool WebContentsDelegate::ShouldBlockMediaRequest(const GURL& url) {
   return false;
 }
@@ -327,9 +326,7 @@ bool WebContentsDelegate::OnlyExpandTopControlsAtPageTop() {
 }
 
 PictureInPictureResult WebContentsDelegate::EnterPictureInPicture(
-    WebContents* web_contents,
-    const viz::SurfaceId&,
-    const gfx::Size&) {
+    WebContents* web_contents) {
   return PictureInPictureResult::kNotSupported;
 }
 
@@ -375,6 +372,10 @@ WebContentsDelegate::GetInstalledWebappGeolocationContext() {
 
 base::WeakPtr<WebContentsDelegate> WebContentsDelegate::GetDelegateWeakPtr() {
   return nullptr;
+}
+
+bool WebContentsDelegate::IsPrivileged() {
+  return false;
 }
 
 }  // namespace content

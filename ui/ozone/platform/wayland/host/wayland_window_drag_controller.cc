@@ -132,7 +132,7 @@ bool WaylandWindowDragController::StartDragSession() {
   data_source_->Offer({kMimeTypeChromiumWindow});
   data_source_->SetDndActions(kDndActionWindowDrag);
 
-  if (IsExtendedDragAvailable()) {
+  if (IsExtendedDragAvailableInternal()) {
     extended_drag_source_ = std::make_unique<ExtendedDragSource>(
         *connection_, data_source_->data_source());
   } else {
@@ -352,7 +352,7 @@ void WaylandWindowDragController::OnDataSourceFinish(bool completed) {
   // wrongly kept to the latest surface received through wl_data_device::enter
   // (see OnDragEnter function).
   // In case of touch, though, we simply reset the focus altogether.
-  if (IsExtendedDragAvailable() && dragged_window_) {
+  if (IsExtendedDragAvailableInternal() && dragged_window_) {
     if (*drag_source_ == DragSource::kMouse) {
       pointer_delegate_->OnPointerFocusChanged(dragged_window_,
                                                pointer_location_);
@@ -457,8 +457,16 @@ void WaylandWindowDragController::HandleMotionEvent(LocatedEvent* event) {
 // about to finish.
 void WaylandWindowDragController::HandleDropAndResetState() {
   DCHECK_EQ(state_, State::kDropped);
-  DCHECK(drag_source_);
   DVLOG(1) << "Notifying drop. window=" << pointer_grab_owner_;
+
+  // StopDragging() may get called in response to bogus input events, eg:
+  // wl_pointer.button release, which would imply in multiple calls to this
+  // function for a single drop event. That results in ILL_ILLOPN crashes in
+  // below code, because |drag_source_| is null after the first call to this
+  // function. So, early out here in that case.
+  // TODO(crbug.com/1280981): Revert this once Exo-side issue gets solved.
+  if (!drag_source_.has_value())
+    return;
 
   if (*drag_source_ == DragSource::kMouse) {
     if (pointer_grab_owner_) {
@@ -524,6 +532,12 @@ void WaylandWindowDragController::SetDraggedWindow(
 }
 
 bool WaylandWindowDragController::IsExtendedDragAvailable() const {
+  return set_extended_drag_available_for_testing_
+             ? true
+             : IsExtendedDragAvailableInternal();
+}
+
+bool WaylandWindowDragController::IsExtendedDragAvailableInternal() const {
   return !!connection_->extended_drag_v1();
 }
 

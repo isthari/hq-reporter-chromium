@@ -12,6 +12,7 @@
 #include "base/trace_event/trace_event.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_role_properties.h"
 #include "ui/accessibility/platform/ax_platform_node_mac.h"
 #include "ui/accessibility/platform/ax_private_attributes_mac.h"
 #include "ui/accessibility/platform/ax_private_roles_mac.h"
@@ -653,9 +654,11 @@ bool IsAXSetter(SEL selector) {
 
   // These attributes are required on all accessibility objects.
   NSArray* const kAllRoleAttributes = @[
+    NSAccessibilityBlockQuoteLevelAttribute,
+    NSAccessibilityChildrenAttribute,
     NSAccessibilityDOMClassList,
     NSAccessibilityDOMIdentifierAttribute,
-    NSAccessibilityChildrenAttribute,
+    NSAccessibilityElementBusyAttribute,
     NSAccessibilityParentAttribute,
     NSAccessibilityPositionAttribute,
     NSAccessibilityRoleAttribute,
@@ -696,7 +699,7 @@ bool IsAXSetter(SEL selector) {
       [axAttributes addObject:kTextAttributes];
       if (!_node->HasState(ax::mojom::State::kProtected))
         [axAttributes addObjectsFromArray:kUnprotectedTextAttributes];
-      FALLTHROUGH;
+      [[fallthrough]];
     case ax::mojom::Role::kCheckBox:
     case ax::mojom::Role::kComboBoxMenuButton:
     case ax::mojom::Role::kMenuItemCheckBox:
@@ -775,6 +778,12 @@ bool IsAXSetter(SEL selector) {
   if (ui::IsSetLike(role))
     [axAttributes addObject:@"AXARIASetSize"];
 
+  // Caret navigation and text selection attributes.
+  if (!ui::IsPlatformDocument(_node->GetRole())) {
+    [axAttributes
+        addObjectsFromArray:@[ NSAccessibilityFocusableAncestorAttribute ]];
+  }
+
   // Live regions.
   if (_node->HasStringAttribute(ax::mojom::StringAttribute::kLiveStatus))
     [axAttributes addObject:NSAccessibilityARIALiveAttribute];
@@ -803,6 +812,14 @@ bool IsAXSetter(SEL selector) {
   if (_node->HasIntListAttribute(ax::mojom::IntListAttribute::kDetailsIds)) {
     [axAttributes addObject:NSAccessibilityDetailsElementsAttribute];
   }
+
+  // Drop effect.
+  if (_node->HasHtmlAttribute("aria-dropeffect"))
+    [axAttributes addObject:NSAccessibilityDropEffectsAttribute];
+
+  // Grabbed
+  if (_node->HasHtmlAttribute("aria-grabbed"))
+    [axAttributes addObject:NSAccessibilityGrabbedAttribute];
 
   if (ui::SupportsRequired(role)) {
     [axAttributes addObject:NSAccessibilityRequiredAttributeChrome];
@@ -1005,6 +1022,24 @@ bool IsAXSetter(SEL selector) {
   return [self getStringAttribute:ax::mojom::StringAttribute::kAutoComplete];
 }
 
+- (id)AXBlockQuoteLevel {
+  if (![self instanceActive])
+    return nil;
+  // This is for the number of ancestors that are a <blockquote>, including
+  // self, useful for tracking replies to replies etc. in an email.
+  int level = 0;
+
+  for (ui::AXPlatformNodeBase* ancestor = _node; ancestor;
+       ancestor = ancestor->GetPlatformParent()) {
+    // Do not cross document boundaries.
+    if (ui::IsPlatformDocument(ancestor->GetRole()))
+      break;
+    if (ancestor->GetRole() == ax::mojom::Role::kBlockquote)
+      ++level;
+  }
+  return @(level);
+}
+
 - (NSArray*)AXColumnHeaderUIElements {
   return [self accessibilityColumnHeaderUIElements];
 }
@@ -1050,6 +1085,33 @@ bool IsAXSetter(SEL selector) {
     return base::SysUTF8ToNSString(id);
 
   return @"";
+}
+
+- (NSString*)AXDropEffects {
+  if (![self instanceActive])
+    return nil;
+
+  std::string dropEffects;
+  if (_node->GetHtmlAttribute("aria-dropeffect", &dropEffects))
+    return base::SysUTF8ToNSString(dropEffects);
+
+  return nil;
+}
+
+- (NSNumber*)AXElementBusy {
+  if (![self instanceActive])
+    return nil;
+  return @(_node->GetBoolAttribute(ax::mojom::BoolAttribute::kBusy));
+}
+
+- (NSNumber*)AXGrabbed {
+  if (![self instanceActive])
+    return nil;
+  std::string grabbed;
+  if (_node->GetHtmlAttribute("aria-grabbed", &grabbed) && grabbed == "true")
+    return @YES;
+
+  return @NO;
 }
 
 - (NSNumber*)AXHasPopup {
@@ -1167,6 +1229,21 @@ bool IsAXSetter(SEL selector) {
     return
         @(_node->GetDelegate()->GetFocus() == _node->GetNativeViewAccessible());
   return @NO;
+}
+
+- (id)AXFocusableAncestor {
+  if (![self instanceActive])
+    return nil;
+
+  ui::AXPlatformNodeBase* ancestor = _node;
+  for (; ancestor; ancestor = ancestor->GetPlatformParent()) {
+    // Do not cross document boundaries.
+    if (ui::IsPlatformDocument(ancestor->GetRole()))
+      return nil;
+    if (ancestor->HasState(ax::mojom::State::kFocusable))
+      break;
+  }
+  return ancestor->GetNativeViewAccessible();
 }
 
 - (id)AXParent {
@@ -1365,32 +1442,27 @@ bool IsAXSetter(SEL selector) {
                                     [self AXTitle], [self AXRole]];
 }
 
-// The methods below implement the NSAccessibility protocol. These methods
-// appear to be the minimum needed to avoid AppKit refusing to handle the
-// element or crashing internally. Most of the remaining old API methods (the
-// ones from NSObject) are implemented in terms of the new NSAccessibility
-// methods.
 //
-// TODO(https://crbug.com/386671): Does this class need to implement the various
-// accessibilityPerformFoo methods, or are the stub implementations from
-// NSAccessibilityElement sufficient?
-- (NSArray*)accessibilityChildren {
-  return [self AXChildren];
-}
+// UIAccessibility protocol.
+//
 
 - (BOOL)isAccessibilityElement {
   if (!_node)
     return NO;
 
+  // Do not return false for invisible elements, otherwise no events for menus
+  // are fired.
   return (![[self AXRole] isEqualToString:NSAccessibilityUnknownRole] &&
-          !_node->IsInvisibleOrIgnored());
+          !_node->GetDelegate()->IsIgnored());
 }
+
 - (BOOL)isAccessibilityEnabled {
   if (!_node)
     return NO;
 
   return _node->GetData().GetRestriction() != ax::mojom::Restriction::kDisabled;
 }
+
 - (NSRect)accessibilityFrame {
   return [self boundsInScreen];
 }
@@ -1411,7 +1483,23 @@ bool IsAXSetter(SEL selector) {
   return [self AXValue];
 }
 
-// NSAccessibility protocol:
+//
+// NSAccessibility protocol.
+//
+
+// The methods below implement the NSAccessibility protocol. These methods
+// appear to be the minimum needed to avoid AppKit refusing to handle the
+// element or crashing internally. Most of the remaining old API methods (the
+// ones from NSObject) are implemented in terms of the new NSAccessibility
+// methods.
+//
+// TODO(https://crbug.com/386671): Does this class need to implement the various
+// accessibilityPerformFoo methods, or are the stub implementations from
+// NSAccessibilityElement sufficient?
+- (NSArray*)accessibilityChildren {
+  return [self AXChildren];
+}
+
 - (NSNumber*)accessibilityRequired {
   TRACE_EVENT1("accessibility", "accessibilityRequired",
                "role=", ui::ToString([self internalRole]));
@@ -1745,8 +1833,7 @@ bool IsAXSetter(SEL selector) {
     case ax::mojom::Role::kRegion:
       return l10n_util::GetNSString(IDS_AX_ROLE_REGION);
     case ax::mojom::Role::kSpinButton:
-      // This control is similar to what VoiceOver calls a "stepper".
-      return l10n_util::GetNSString(IDS_AX_ROLE_STEPPER);
+      return l10n_util::GetNSString(IDS_AX_ROLE_SPIN_BUTTON);
     case ax::mojom::Role::kStatus:
       return l10n_util::GetNSString(IDS_AX_ROLE_STATUS);
     case ax::mojom::Role::kSearchBox:

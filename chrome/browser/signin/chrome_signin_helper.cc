@@ -50,7 +50,7 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "net/http/http_response_headers.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/android/signin/signin_bridge.h"
 #include "ui/android/view_android.h"
 #else
@@ -58,12 +58,12 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/account_manager_core/chromeos/account_manager_facade_factory.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/supervised_user/supervised_user_service.h"
@@ -337,6 +337,14 @@ void ProcessMirrorHeader(
   // 3. Displaying an account addition window.
   if (service_type == GAIA_SERVICE_TYPE_ADDSESSION) {
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
+    // As per https://crbug.com/1286822 and internal b/215509741, the session
+    // may sometimes become invalid on the server without notice. When this
+    // happens, the user may try to fix it by signing-in again.
+    // Trigger a cookie jar update now to fix the session if needed.
+    signin::IdentityManager* const identity_manager =
+        IdentityManagerFactory::GetForProfile(profile);
+    identity_manager->GetAccountsCookieMutator()->TriggerCookieJarUpdate();
+
     AccountProfileMapper* mapper =
         g_browser_process->profile_manager()->GetAccountProfileMapper();
     GetAccountsAvailableAsSecondary(
@@ -358,7 +366,7 @@ void ProcessMirrorHeader(
       ->ShowManageAccountsSettings();
   return;
 
-#elif defined(OS_ANDROID)
+#elif BUILDFLAG(IS_ANDROID)
   if (manage_accounts_params.show_consistency_promo) {
     auto* window = web_contents->GetNativeView()->GetWindowAndroid();
     if (!window) {

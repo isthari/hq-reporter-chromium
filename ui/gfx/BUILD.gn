@@ -56,6 +56,8 @@ component("gfx") {
     "break_list.h",
     "color_analysis.cc",
     "color_analysis.h",
+    "color_conversion_sk_filter_cache.cc",
+    "color_conversion_sk_filter_cache.h",
     "color_transform.cc",
     "color_transform.h",
     "decorated_text.cc",
@@ -161,6 +163,7 @@ component("gfx") {
   }
   if (is_mac) {
     sources += [
+      "ca_layer_result.h",
       "canvas_paint_mac.h",
       "canvas_paint_mac.mm",
       "decorated_text_mac.h",

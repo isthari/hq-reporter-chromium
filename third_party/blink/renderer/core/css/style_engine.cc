@@ -64,6 +64,7 @@
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/css/vision_deficiency.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
+#include "third_party/blink/renderer/core/document_transition/document_transition_supplement.h"
 #include "third_party/blink/renderer/core/dom/document_lifecycle.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
@@ -1515,11 +1516,34 @@ void StyleEngine::EnsureUAStyleForElement(const Element& element) {
 
 void StyleEngine::EnsureUAStyleForPseudoElement(PseudoId pseudo_id) {
   DCHECK(global_rule_set_);
+
+  if (IsTransitionPseudoElement(pseudo_id)) {
+    EnsureUAStyleForTransitionPseudos();
+    return;
+  }
+
   if (CSSDefaultStyleSheets::Instance()
           .EnsureDefaultStyleSheetsForPseudoElement(pseudo_id)) {
     global_rule_set_->MarkDirty();
     UpdateActiveStyle();
   }
+}
+
+void StyleEngine::EnsureUAStyleForTransitionPseudos() {
+  if (ua_document_transition_style_)
+    return;
+
+  // Note that we don't need to mark any state dirty for style invalidation
+  // here. This is done externally by the code which invalidates this style
+  // sheet.
+  auto* document_transition =
+      DocumentTransitionSupplement::FromIfExists(GetDocument())
+          ->GetTransition();
+  auto* style_sheet_contents =
+      CSSDefaultStyleSheets::ParseUASheet(document_transition->UAStyleSheet());
+  ua_document_transition_style_ = MakeGarbageCollected<RuleSet>();
+  ua_document_transition_style_->AddRulesFromSheet(
+      style_sheet_contents, CSSDefaultStyleSheets::ScreenEval());
 }
 
 void StyleEngine::EnsureUAStyleForForcedColors() {
@@ -1530,6 +1554,15 @@ void StyleEngine::EnsureUAStyleForForcedColors() {
     if (GetDocument().IsActive())
       UpdateActiveStyle();
   }
+}
+
+RuleSet* StyleEngine::DefaultDocumentTransitionStyle() const {
+  DCHECK(ua_document_transition_style_);
+  return ua_document_transition_style_.Get();
+}
+
+void StyleEngine::InvalidateUADocumentTransitionStyle() {
+  ua_document_transition_style_ = nullptr;
 }
 
 bool StyleEngine::HasRulesForId(const AtomicString& id) const {
@@ -1551,14 +1584,9 @@ void StyleEngine::InitialStyleChanged() {
       StyleChangeReasonForTracing::Create(style_change_reason::kSettings));
 }
 
-void StyleEngine::InitialViewportChanged() {
-  if (viewport_resolver_)
-    viewport_resolver_->InitialViewportChanged();
-}
-
 void StyleEngine::ViewportRulesChanged() {
   if (viewport_resolver_)
-    viewport_resolver_->SetNeedsCollectRules();
+    viewport_resolver_->SetNeedsUpdate();
 
   // When we remove an import link and re-insert it into the document, the
   // import Document and CSSStyleSheet pointers are persisted. That means the
@@ -2276,6 +2304,50 @@ scoped_refptr<StyleInitialData> StyleEngine::MaybeCreateAndGetInitialData() {
   return initial_data_;
 }
 
+void StyleEngine::RecalcStyleForContainer(Element& container,
+                                          StyleRecalcChange change) {
+  // The container node must not need recalc at this point.
+  DCHECK(!StyleRecalcChange().ShouldRecalcStyleFor(container));
+
+  // If the container itself depends on an outer container, then its
+  // DependsOnContainerQueries flag will be set, and we would recalc its
+  // style (due to ForceRecalcContainer/ForceRecalcDescendantContainers).
+  // This is not necessary, hence we suppress recalc for this element.
+  change = change.SuppressRecalc();
+
+  // The StyleRecalcRoot invariants requires the root to be dirty/child-dirty
+  container.SetChildNeedsStyleRecalc();
+  style_recalc_root_.Update(nullptr, &container);
+
+  // TODO(crbug.com/1145970): Consider use a caching mechanism for FromAncestors
+  // as we typically will call it for all containers on the first style/layout
+  // pass.
+  RecalcStyle(change, StyleRecalcContext::FromAncestors(container));
+}
+
+void StyleEngine::RecalcStyleForContainerDescendantsInLegacyLayoutTree(
+    Element& container) {
+  if (!RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
+    return;
+
+  // This method is called from AttachLayoutTree() when we are forced to use
+  // legacy layout for a query container. At the time of RecalcStyle, it is not
+  // necessarily known that some sibling tree may enforce us to have legacy
+  // layout, which means we may have skipped style recalc for the container
+  // subtree. Style recalc will not be resumed during layout for legacy layout.
+  // Instead, finish recalc for the subtree when it is discovered that the
+  // container is in legacy layout.
+
+  auto* cq_data = container.GetContainerQueryData();
+  if (!cq_data)
+    return;
+
+  if (cq_data->SkippedStyleRecalc())
+    RecalcStyleForContainer(container, {});
+
+  cq_data->SetContainerQueryEvaluator(nullptr);
+}
+
 void StyleEngine::UpdateStyleAndLayoutTreeForContainer(
     Element& container,
     const LogicalSize& logical_size,
@@ -2317,25 +2389,9 @@ void StyleEngine::UpdateStyleAndLayoutTreeForContainer(
       break;
   }
 
-  // The container node must not need recalc at this point.
-  DCHECK(!StyleRecalcChange().ShouldRecalcStyleFor(container));
-
-  // If the container itself depends on an outer container, then its
-  // DependsOnContainerQueries flag will be set, and we would recalc its
-  // style (due to ForceRecalcContainer/ForceRecalcDescendantContainers).
-  // This is not necessary, hence we suppress recalc for this element.
-  change = change.SuppressRecalc();
-
   NthIndexCache nth_index_cache(GetDocument());
-  // The StyleRecalcRoot invariants requires the root to be dirty/child-dirty
-  container.SetChildNeedsStyleRecalc();
-  style_recalc_root_.Update(nullptr, &container);
 
-  // No need to initialize container for the StyleRecalcContext with
-  // FromAncestors because style will not be recalculated for "container, and
-  // Element::RecalcStyle for the "container" will initialize StyleRecalcContext
-  // with itself for its children.
-  RecalcStyle(change, StyleRecalcContext());
+  RecalcStyleForContainer(container, change);
 
   if (UNLIKELY(container.NeedsReattachLayoutTree())) {
     // Generally, the container itself should not be marked for re-attachment.
@@ -2406,14 +2462,8 @@ void StyleEngine::RecalcTransitionPseudoStyle() {
 }
 
 void StyleEngine::RecalcStyle() {
-  Element& root_element = style_recalc_root_.RootElement();
-
-  auto style_recalc_context =
-      RuntimeEnabledFeatures::CSSContainerQueriesEnabled()
-          ? StyleRecalcContext::FromAncestors(root_element)
-          : StyleRecalcContext();
-
-  RecalcStyle({}, style_recalc_context);
+  RecalcStyle(
+      {}, StyleRecalcContext::FromAncestors(style_recalc_root_.RootElement()));
   RecalcTransitionPseudoStyle();
 }
 
@@ -2895,6 +2945,7 @@ void StyleEngine::Trace(Visitor* visitor) const {
   visitor->Trace(text_tracks_);
   visitor->Trace(vtt_originating_element_);
   visitor->Trace(parent_for_detached_subtree_);
+  visitor->Trace(ua_document_transition_style_);
   FontSelectorClient::Trace(visitor);
 }
 

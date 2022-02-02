@@ -201,8 +201,6 @@ std::string GetDisableReasonsString(
     return "None";
   }
   std::vector<std::string> reason_strings;
-  if (disable_reasons.Has(SyncService::DISABLE_REASON_PLATFORM_OVERRIDE))
-    reason_strings.push_back("Platform override");
   if (disable_reasons.Has(SyncService::DISABLE_REASON_ENTERPRISE_POLICY))
     reason_strings.push_back("Enterprise policy");
   if (disable_reasons.Has(SyncService::DISABLE_REASON_NOT_SIGNED_IN))
@@ -569,7 +567,8 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   if (is_status_valid) {
     cryptographer_can_encrypt->Set(full_status.cryptographer_can_encrypt);
     has_pending_keys->Set(full_status.crypto_has_pending_keys);
-    encrypted_types->Set(ModelTypeSetToString(full_status.encrypted_types));
+    encrypted_types->Set(
+        ModelTypeSetToDebugString(full_status.encrypted_types));
     has_keystore_key->Set(full_status.has_keystore_key);
     keystore_migration_time->Set(
         GetTimeStr(full_status.keystore_migration_time, "Not Migrated"));

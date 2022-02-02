@@ -50,8 +50,9 @@ struct BASE_EXPORT PostedTask {
   ~PostedTask();
 
   bool is_delayed() const {
-    return absl::holds_alternative<TimeTicks>(delay_or_delayed_run_time) ||
-           !absl::get<TimeDelta>(delay_or_delayed_run_time).is_zero();
+    return absl::holds_alternative<TimeTicks>(delay_or_delayed_run_time)
+               ? !absl::get<TimeTicks>(delay_or_delayed_run_time).is_null()
+               : !absl::get<TimeDelta>(delay_or_delayed_run_time).is_zero();
   }
 
   OnceClosure callback;
@@ -154,7 +155,10 @@ struct BASE_EXPORT Task : public PendingTask {
   EnqueueOrder enqueue_order_;
 
   // The delegate for the DelayedTaskHandle, if this task was posted through
-  // PostCancelableDelayedTask(), nullptr otherwise.
+  // `PostCancelableDelayedTask()`, not set otherwise. The task is canceled if
+  // `WeakPtr::WasInvalidated` is true. Note: if the task was not posted via
+  // `PostCancelableDelayedTask()`. the weak pointer won't be valid, but
+  // `WeakPtr::WasInvalidated` will be false.
   WeakPtr<internal::DelayedTaskHandleDelegate> delayed_task_handle_delegate_;
 };
 

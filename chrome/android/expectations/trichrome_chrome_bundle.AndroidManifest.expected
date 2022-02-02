@@ -42,15 +42,12 @@
   <uses-permission android:name="android.permission.NFC"/>
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.READ_SYNC_SETTINGS"/>
-  <uses-permission android:name="android.permission.READ_SYNC_STATS"/>
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.USE_CREDENTIALS"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS"/>
   <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT"/>
   <uses-permission android:name="com.chrome.permission.DEVICE_EXTRAS"/>
   <uses-permission android:name="com.google.android.apps.now.CURRENT_ACCOUNT_ACCESS"/>
@@ -401,6 +398,15 @@
         android:noHistory="true"
         android:theme="@style/Theme.BrowserUI.NoDisplay">
     </activity>  # DIFF-ANCHOR: e86e2b49
+    <activity  # DIFF-ANCHOR: 01e92ad4
+        android:name="org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager$DismissNotificationChromeActivity"
+        android:autoRemoveFromRecents="true"
+        android:documentLaunchMode="always"
+        android:excludeFromRecents="true"
+        android:exported="false"
+        android:noHistory="true"
+        android:theme="@style/Theme.BrowserUI.NoDisplay">
+    </activity>  # DIFF-ANCHOR: 01e92ad4
     <activity  # DIFF-ANCHOR: 24aedc77
         android:name="org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager$TrampolineActivity"
         android:autoRemoveFromRecents="true"

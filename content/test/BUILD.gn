@@ -6,7 +6,6 @@ import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/compiler/compiler.gni")
-import("//build/config/crypto.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build/nocompile.gni")
@@ -749,11 +748,6 @@ group("telemetry_gpu_integration_test_support") {
     # added in the future.
     "//tools/perf/page_sets/maps_perf_test/",
 
-    # For depth_capture
-    "//content/test/data/media/depth_stream_test_utilities.js",
-    "//content/test/data/media/getusermedia-depth-capture.html",
-    "//content/test/data/media/webrtc_test_utilities.js",
-
     # For GpuProcess.video
     "//content/test/data/media/bear.ogv",
 
@@ -790,32 +784,35 @@ group("telemetry_gpu_integration_test_support") {
   ]
 }
 
-group("telemetry_gpu_unittest_data") {
+group("telemetry_gpu_common_data") {
   testonly = true
   data = [
     "//content/test/data/gpu/",
+    "//content/test/gpu/gpu_path_util/",
     "//content/test/gpu/gpu_tests/",
     "//content/test/gpu/unittest_data/",
 
     "//content/test/gpu/gpu_project_config.py",
     "//content/test/gpu/run_gpu_integration_test.py",
-    "//content/test/gpu/run_unittests.py",
   ]
+}
+
+group("telemetry_gpu_unittest_data") {
+  testonly = true
+  data = [ "//content/test/gpu/run_unittests.py" ]
+  data_deps = [ ":telemetry_gpu_common_data" ]
 }
 
 group("telemetry_gpu_integration_test_data") {
   testonly = true
   data = [
-    "//content/test/data/gpu/",
     "//content/test/gpu/gold_inexact_matching/",
-    "//content/test/gpu/gpu_tests/",
     "//content/test/gpu/power_measurement_results/",
-    "//content/test/gpu/unittest_data/",
 
-    "//content/test/gpu/gpu_project_config.py",
     "//content/test/gpu/measure_power_intel.py",
     "//content/test/gpu/run_gpu_integration_test.py",
   ]
+  data_deps = [ ":telemetry_gpu_common_data" ]
 }
 
 # browsertest_support can be used by targets that run content_shell based
@@ -1337,7 +1334,6 @@ test("content_browsertests") {
     "../browser/webrtc/webrtc_content_browsertest_base.h",
     "../browser/webrtc/webrtc_data_browsertest.cc",
     "../browser/webrtc/webrtc_datachannel_browsertest.cc",
-    "../browser/webrtc/webrtc_depth_capture_browsertest.cc",
     "../browser/webrtc/webrtc_getusermedia_browsertest.cc",
     "../browser/webrtc/webrtc_image_capture_browsertest.cc",
     "../browser/webrtc/webrtc_internals_browsertest.cc",
@@ -1567,7 +1563,9 @@ test("content_browsertests") {
     if (use_aura && !is_chromecast) {
       sources += [ "../browser/media/capture/aura_window_video_capture_device_browsertest.cc" ]
     }
+  }
 
+  if (is_linux || is_chromeos || is_mac || is_win || is_fuchsia) {
     deps += [ "//third_party/libyuv" ]
     data += [
       "//net/tools/testserver/",
@@ -1651,6 +1649,7 @@ test("content_browsertests") {
     }
     sources += [
       "../browser/accessibility/android_granularity_movement_browsertest.cc",
+      "../browser/android/date_time_chooser_browsertest.cc",
       "../browser/android/nfc_host_browsertest.cc",
       "../browser/android/render_widget_host_connector_browsertest.cc",
       "../browser/android/render_widget_host_connector_browsertest.h",
@@ -1787,6 +1786,11 @@ test("content_browsertests") {
     data_deps += [ "//ppapi:ppapi_tests" ]
   }
 
+  if (enable_vr) {
+    sources += [ "../browser/xr/metrics/session_metrics_browsertest.cc" ]
+    deps += [ "//device/vr:vr_fakes" ]
+  }
+
   if ((is_win || is_chromeos || is_linux) && !is_tsan) {
     # NOTE: We don't bother to build these tests when TSan is enabled, because
     # they can't properly launch a child content_shell in that environment.
@@ -1867,6 +1871,8 @@ test("content_browsertests") {
   }
 
   if (is_fuchsia) {
+    use_test_server = true
+
     additional_manifest_fragments = [
       "//build/config/fuchsia/test/audio_capabilities.test-cmx",
       "//build/config/fuchsia/test/font_capabilities.test-cmx",
@@ -1935,6 +1941,7 @@ test("content_unittests") {
     "../browser/attribution_reporting/attribution_storage_sql_migrations_unittest.cc",
     "../browser/attribution_reporting/attribution_storage_sql_unittest.cc",
     "../browser/attribution_reporting/attribution_storage_unittest.cc",
+    "../browser/attribution_reporting/combinatorics_unittest.cc",
     "../browser/attribution_reporting/rate_limit_table_unittest.cc",
     "../browser/background_fetch/background_fetch_cross_origin_filter_unittest.cc",
     "../browser/background_fetch/background_fetch_data_manager_unittest.cc",
@@ -2059,6 +2066,7 @@ test("content_unittests") {
     "../browser/interest_group/auction_process_manager_unittest.cc",
     "../browser/interest_group/auction_runner_unittest.cc",
     "../browser/interest_group/auction_url_loader_factory_proxy_unittest.cc",
+    "../browser/interest_group/auction_worklet_manager_unittest.cc",
     "../browser/interest_group/interest_group_storage_unittest.cc",
     "../browser/loader/cors_origin_pattern_setter_unittest.cc",
     "../browser/loader/file_url_loader_factory_unittest.cc",
@@ -2185,6 +2193,7 @@ test("content_unittests") {
     "../browser/renderer_host/policy_container_host_unittest.cc",
     "../browser/renderer_host/policy_container_navigation_bundle_unittest.cc",
     "../browser/renderer_host/recently_destroyed_hosts_unittest.cc",
+    "../browser/renderer_host/render_frame_host_csp_context_unittest.cc",
     "../browser/renderer_host/render_frame_host_impl_unittest.cc",
     "../browser/renderer_host/render_frame_host_manager_unittest.cc",
     "../browser/renderer_host/render_frame_host_permissions_policy_unittest.cc",
@@ -2492,7 +2501,6 @@ test("content_unittests") {
     "//gpu/ipc/host",
     "//gpu/ipc/service",
     "//ipc:test_support",
-    "//jingle:jingle_glue",
     "//media:test_support",
     "//media/capture",
     "//media/midi:midi",
@@ -2664,6 +2672,7 @@ test("content_unittests") {
       "../child/dwrite_font_proxy/dwrite_font_proxy_win_unittest.cc",
       "../child/dwrite_font_proxy/font_fallback_win_unittest.cc",
       "../child/font_warmup_win_unittest.cc",
+      "../renderer/media/win/dcomp_texture_wrapper_unittest.cc",
     ]
     deps += [
       "//sandbox/policy:sandbox_test_utils",
@@ -2739,8 +2748,7 @@ test("content_unittests") {
 
     if (use_v8_context_snapshot) {
       deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-    }
-    if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+    } else {
       deps += [ "//v8:v8_external_startup_data_assets" ]
     }
 
@@ -2749,6 +2757,7 @@ test("content_unittests") {
     # Non-Android.
     sources += [
       "../browser/devtools/protocol/webauthn_handler_unittest.cc",
+      "../browser/direct_sockets/direct_sockets_udp_unittest.cc",
       "../browser/direct_sockets/direct_sockets_unittest.cc",
       "../browser/host_zoom_map_impl_unittest.cc",
       "../browser/serial/serial_unittest.cc",

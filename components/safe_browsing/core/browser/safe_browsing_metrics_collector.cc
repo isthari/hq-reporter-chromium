@@ -156,7 +156,7 @@ void SafeBrowsingMetricsCollector::LogDailyEventMetrics() {
 void SafeBrowsingMetricsCollector::RemoveOldEventsFromPref() {
   DictionaryPrefUpdate update(pref_service_,
                               prefs::kSafeBrowsingEventTimestamps);
-  base::DictionaryValue* mutable_state_dict = update.Get();
+  base::Value* mutable_state_dict = update.Get();
   bool is_pref_valid = mutable_state_dict->is_dict();
   base::UmaHistogramBoolean("SafeBrowsing.MetricsCollector.IsPrefValid",
                             is_pref_valid);
@@ -220,7 +220,7 @@ void SafeBrowsingMetricsCollector::AddSafeBrowsingEventAndUserStateToPref(
     EventType event_type) {
   DictionaryPrefUpdate update(pref_service_,
                               prefs::kSafeBrowsingEventTimestamps);
-  base::DictionaryValue* mutable_state_dict = update.Get();
+  base::Value* mutable_state_dict = update.Get();
 
   base::Value* event_dict =
       mutable_state_dict->FindDictKey(UserStateToPrefKey(user_state));

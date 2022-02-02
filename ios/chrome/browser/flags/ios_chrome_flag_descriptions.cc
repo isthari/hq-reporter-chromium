@@ -218,6 +218,11 @@ const char kEnableOptimizationHintsFetchingMSBBDescription[] =
     "Enable optimization hints fetching for users who have enabled the 'Make "
     "Searches and Browsing Better' setting.";
 
+const char kEnableUnicornAccountSupportName[] =
+    "Enable Unicorn account support";
+const char kEnableUnicornAccountSupportDescription[] =
+    "Allows users to sign-in with their Unicorn account.";
+
 const char kEnableShortenedPasswordAutoFillInstructionName[] =
     "Enable shortened instructions to turn on Password AutoFill for Chrome";
 const char kEnableShortenedPasswordAutoFillInstructionDescription[] =
@@ -289,11 +294,6 @@ const char kIOSEnablePasswordManagerBrandingUpdateName[] =
     "Enable new Google Password Manager branding";
 const char kIOSEnablePasswordManagerBrandingUpdateDescription[] =
     "Updates icons, strings, and views for Google Password Manager.";
-
-const char kIOSPersistCrashRestoreName[] = "Persist Crash Restore Infobar";
-const char kIOSPersistCrashRestoreDescription[] =
-    "When enabled, the Crash Restore Infobar will persist through navigations "
-    "instead of dismissing.";
 
 const char kIOSSharedHighlightingColorChangeName[] =
     "IOS Shared Highlighting color change";
@@ -437,17 +437,6 @@ const char kSearchHistoryLinkIOSDescription[] =
     "Changes the Clear Browsing Data "
     "UI to display a link to clear search history on My Google Activity.";
 
-const char kSendTabToSelfWhenSignedInName[] = "Send-tab-to-self when signed in";
-const char kSendTabToSelfWhenSignedInDescription[] =
-    "Makes the tab sharing feature also available for users who have \"only\" "
-    "signed-in to their Google Account (as opposed to having enabled Sync).";
-
-const char kSendTabToSelfManageDevicesLinkName[] =
-    "Send-tab-to-self manage devices link";
-const char kSendTabToSelfManageDevicesLinkDescription[] =
-    "Shows a link to manage the user's devices below the device list when "
-    "sharing";
-
 const char kSendUmaOverAnyNetwork[] =
     "Send UMA data over any network available.";
 const char kSendUmaOverAnyNetworkDescription[] =
@@ -457,6 +446,11 @@ const char kSharedHighlightingIOSName[] = "Enable Shared Highlighting features";
 const char kSharedHighlightingIOSDescription[] =
     "Adds a Link to Text option in the Edit Menu which generates URLs with a "
     "text fragment.";
+
+const char kSingleCellContentSuggestionsName[] =
+    "Use Single Cell for Content Suggestions";
+const char kSingleCellContentSuggestionsDescription[] =
+    "Uses a single cell for all items in the NTP's content suggestions.";
 
 const char kSingleNtpName[] = "Enable Single NTP";
 const char kSingleNtpDescription[] =

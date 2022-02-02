@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/limits.h"
 #include "media/base/media_log.h"
@@ -115,7 +116,7 @@ V4L2VideoDecoder::~V4L2VideoDecoder() {
 
   // Call all pending decode callback.
   if (backend_) {
-    backend_->ClearPendingRequests(DecodeStatus::ABORTED);
+    backend_->ClearPendingRequests(DecoderStatus::Codes::kAborted);
     backend_ = nullptr;
   }
 
@@ -156,14 +157,13 @@ void V4L2VideoDecoder::Initialize(const VideoDecoderConfig& config,
     case State::kError:
       VLOGF(1) << "V4L2 decoder should not be initialized at state: "
                << static_cast<int>(state_);
-      std::move(init_cb).Run(
-          Status(Status::Codes::kDecoderInitializationFailed));
+      std::move(init_cb).Run(DecoderStatus::Codes::kFailed);
       return;
   }
 
   if (cdm_context || config.is_encrypted()) {
     VLOGF(1) << "V4L2 decoder does not support encrypted stream";
-    std::move(init_cb).Run(StatusCode::kEncryptedContentUnsupported);
+    std::move(init_cb).Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
     return;
   }
 
@@ -176,7 +176,7 @@ void V4L2VideoDecoder::Initialize(const VideoDecoderConfig& config,
       // TODO(crbug/1103510): Make StopStreamV4L2Queue return a StatusOr, and
       // pipe that back instead.
       std::move(init_cb).Run(
-          Status(Status::Codes::kDecoderInitializeNeverCompleted)
+          DecoderStatus(DecoderStatus::Codes::kNotInitialized)
               .AddCause(
                   V4L2Status(V4L2Status::Codes::kFailedToStopStreamQueue)));
       return;
@@ -199,7 +199,7 @@ void V4L2VideoDecoder::Initialize(const VideoDecoderConfig& config,
       // TODO(crbug/1103510): Make V4L2Device::Create return a StatusOr, and
       // pipe that back instead.
       std::move(init_cb).Run(
-          Status(Status::Codes::kDecoderInitializeNeverCompleted)
+          DecoderStatus(DecoderStatus::Codes::kNotInitialized)
               .AddCause(V4L2Status(V4L2Status::Codes::kNoDevice)));
       return;
     }
@@ -214,12 +214,13 @@ void V4L2VideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   profile_ = config.profile();
   aspect_ratio_ = config.aspect_ratio();
+  color_space_ = config.color_space_info();
 
   if (profile_ == VIDEO_CODEC_PROFILE_UNKNOWN) {
     VLOGF(1) << "Unknown profile.";
     SetState(State::kError);
     std::move(init_cb).Run(
-        Status(Status::Codes::kDecoderInitializeNeverCompleted)
+        DecoderStatus(DecoderStatus::Codes::kNotInitialized)
             .AddCause(V4L2Status(V4L2Status::Codes::kNoProfile)));
     return;
   }
@@ -227,7 +228,7 @@ void V4L2VideoDecoder::Initialize(const VideoDecoderConfig& config,
   // Call init_cb
   output_cb_ = std::move(output_cb);
   SetState(State::kInitialized);
-  std::move(init_cb).Run(::media::OkStatus());
+  std::move(init_cb).Run(DecoderStatus::Codes::kOk);
 }
 
 bool V4L2VideoDecoder::NeedsBitstreamConversion() const {
@@ -315,14 +316,14 @@ V4L2Status V4L2VideoDecoder::InitializeBackend() {
     VLOGF(1) << "Using a stateful API for profile: " << GetProfileName(profile_)
              << " and fourcc: " << FourccToString(input_format_fourcc);
     backend_ = std::make_unique<V4L2StatefulVideoDecoderBackend>(
-        this, device_, profile_, decoder_task_runner_);
+        this, device_, profile_, color_space_, decoder_task_runner_);
   } else {
     DCHECK_EQ(preferred_api_and_format.first, kStateless);
     VLOGF(1) << "Using a stateless API for profile: "
              << GetProfileName(profile_)
              << " and fourcc: " << FourccToString(input_format_fourcc);
     backend_ = std::make_unique<V4L2StatelessVideoDecoderBackend>(
-        this, device_, profile_, decoder_task_runner_);
+        this, device_, profile_, color_space_, decoder_task_runner_);
   }
 
   if (!backend_->Initialize()) {
@@ -524,7 +525,7 @@ void V4L2VideoDecoder::Reset(base::OnceClosure closure) {
   }
 
   // Call all pending decode callback.
-  backend_->ClearPendingRequests(DecodeStatus::ABORTED);
+  backend_->ClearPendingRequests(DecoderStatus::Codes::kAborted);
 
   // Streamoff V4L2 queues to drop input and output buffers.
   // If the queues are streaming before reset, then we need to start streaming
@@ -554,14 +555,14 @@ void V4L2VideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   // VideoDecoder interface: |decode_cb| can't be called from within Decode().
   auto trampoline_decode_cb = base::BindOnce(
       [](const scoped_refptr<base::SequencedTaskRunner>& this_sequence_runner,
-         DecodeCB decode_cb, Status status) {
+         DecodeCB decode_cb, DecoderStatus status) {
         this_sequence_runner->PostTask(
             FROM_HERE, base::BindOnce(std::move(decode_cb), status));
       },
       base::SequencedTaskRunnerHandle::Get(), std::move(decode_cb));
 
   if (state_ == State::kError) {
-    std::move(trampoline_decode_cb).Run(DecodeStatus::DECODE_ERROR);
+    std::move(trampoline_decode_cb).Run(DecoderStatus::Codes::kFailed);
     return;
   }
 
@@ -570,7 +571,7 @@ void V4L2VideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
     if (status != V4L2Status::Codes::kOk) {
       SetState(State::kError);
       std::move(trampoline_decode_cb)
-          .Run(Status(Status::Codes::kDecoderFailedDecode)
+          .Run(DecoderStatus(DecoderStatus::Codes::kFailed)
                    .AddCause(std::move(status)));
       return;
     }
@@ -813,6 +814,7 @@ void V4L2VideoDecoder::ServiceDeviceTask(bool event) {
 
 void V4L2VideoDecoder::OutputFrame(scoped_refptr<VideoFrame> frame,
                                    const gfx::Rect& visible_rect,
+                                   const VideoColorSpace& color_space,
                                    base::TimeDelta timestamp) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(decoder_sequence_checker_);
   DVLOGF(4) << "timestamp: " << timestamp.InMilliseconds() << " msec";
@@ -834,6 +836,8 @@ void V4L2VideoDecoder::OutputFrame(scoped_refptr<VideoFrame> frame,
 
     frame = std::move(wrapped_frame);
   }
+
+  frame->set_color_space(color_space.ToGfxColorSpace());
 
   output_cb_.Run(std::move(frame));
 }
@@ -890,7 +894,7 @@ void V4L2VideoDecoder::SetState(State new_state) {
     VLOGF(1) << "Error occurred, stopping queues.";
     StopStreamV4L2Queue(true);
     if (backend_)
-      backend_->ClearPendingRequests(DecodeStatus::DECODE_ERROR);
+      backend_->ClearPendingRequests(DecoderStatus::Codes::kFailed);
     return;
   }
   state_ = new_state;

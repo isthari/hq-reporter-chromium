@@ -27,7 +27,6 @@
 #include "content/browser/bad_message.h"
 #include "content/browser/isolated_origin_util.h"
 #include "content/browser/process_lock.h"
-#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/site_info.h"
 #include "content/browser/webui/url_data_manager_backend.h"
@@ -384,7 +383,7 @@ class ChildProcessSecurityPolicyImpl::SecurityState {
     return (it->second & permissions) == permissions;
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Determine if the certain permissions have been granted to a content URI.
   bool HasPermissionsForContentUri(const base::FilePath& file,
                                    int permissions) {
@@ -462,7 +461,7 @@ class ChildProcessSecurityPolicyImpl::SecurityState {
 
   // Determine if the certain permissions have been granted to a file.
   bool HasPermissionsForFile(const base::FilePath& file, int permissions) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     if (file.IsContentUri())
       return HasPermissionsForContentUri(file, permissions);
 #endif
@@ -1758,7 +1757,7 @@ bool ChildProcessSecurityPolicyImpl::CanAccessDataForMaybeOpaqueOrigin(
         } else {
           // Citadel-style enforcement - an unlocked process should not be
           // able to access data from origins that require a lock.
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
           // TODO(lukasza): https://crbug.com/566091: Once remote NTP is
           // capable of embedding OOPIFs, start enforcing citadel-style checks
           // on desktop platforms.

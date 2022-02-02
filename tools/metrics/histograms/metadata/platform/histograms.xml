@@ -117,32 +117,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Platform.Cast.MeminfoMemAvailable2" units="MiB"
-    expires_after="2021-11-30">
-  <obsolete>
-    Removed from code Nov 2021, expiry approaching and we don't use this data
-    any longer (newer cgroup memory data is more useful).
-  </obsolete>
-  <owner>halliwell@chromium.org</owner>
-  <summary>
-    /proc/meminfo's 'MemAvailable' in MiB. Collected every 5s on Cast devices
-    with kernel version 3.14 and above and capped at 2000.
-  </summary>
-</histogram>
-
-<histogram name="Platform.Cast.MeminfoMemFreeDerived2" units="MiB"
-    expires_after="2021-11-30">
-  <obsolete>
-    Removed from code Nov 2021, expiry approaching and we don't use this data
-    any longer (newer cgroup memory data is more useful).
-  </obsolete>
-  <owner>halliwell@chromium.org</owner>
-  <summary>
-    Collect free + buffers + cache memory in MiB every 5s on Cast devices,
-    capped at 2000.
-  </summary>
-</histogram>
-
 <histogram name="Platform.CompressedSwapSize" units="MB"
     expires_after="2021-11-07">
   <owner>sonnyrao@chromium.org</owner>
@@ -166,7 +140,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Platform.Cr50.BoardIdFlags" enum="Cr50BoardIdFlags"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>apronin@chromium.org</owner>
   <owner>vbendeb@chromium.org</owner>
   <summary>
@@ -189,7 +163,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Platform.Cr50.FlashLog" enum="Cr50FlashLogs"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>apronin@chromium.org</owner>
   <owner>vbendeb@chromium.org</owner>
   <owner>cros-hwsec+uma@chromium.org</owner>
@@ -600,14 +574,15 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Platform.Mem" units="%" expires_after="2021-07-02">
+<histogram name="Platform.Mem" units="%" expires_after="2022-07-02">
   <owner>hajimehoshi@chromium.org</owner>
   <owner>kouhei@chromium.org</owner>
   <owner>sonnyrao@chromium.org</owner>
   <owner>chromeos-memory@google.com</owner>
   <summary>
     Various memory usage % of total memory on Chrome OS devices (snapshotted
-    every 30s).
+    every 30s). Warning: this histogram was expired from 2021-07-02 to 2022-01;
+    data may be missing.
   </summary>
 </histogram>
 
@@ -1349,7 +1324,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Platform.Trunks.TpmErrorCode" enum="TPMResponseCode"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>yich@google.com</owner>
   <owner>cros-hwsec+uma@chromium.org</owner>
   <summary>

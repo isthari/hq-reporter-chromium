@@ -13,7 +13,6 @@
 #include "chrome/browser/ui/autofill/payments/card_unmask_otp_input_dialog_view.h"
 #include "components/autofill/core/browser/payments/otp_unmask_delegate.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
 namespace autofill {
@@ -22,7 +21,6 @@ enum class OtpUnmaskResult;
 
 class CardUnmaskOtpInputDialogControllerImpl
     : public CardUnmaskOtpInputDialogController,
-      public content::WebContentsObserver,
       public content::WebContentsUserData<
           CardUnmaskOtpInputDialogControllerImpl> {
  public:
@@ -45,9 +43,9 @@ class CardUnmaskOtpInputDialogControllerImpl
   void OnNewCodeLinkClicked() override;
   std::u16string GetWindowTitle() const override;
   std::u16string GetTextfieldPlaceholderText() const override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   int GetExpectedOtpLength() const override;
-#endif  // OS_ANDROID
+#endif
   bool IsValidOtp(const std::u16string& otp) const override;
   FooterText GetFooterText(const std::u16string& link_text) const override;
   std::u16string GetNewCodeLinkText() const override;

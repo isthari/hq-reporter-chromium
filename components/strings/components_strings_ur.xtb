@@ -20,7 +20,6 @@
 <translation id="1038842779957582377">نامعلوم نام</translation>
 <translation id="1041998700806130099">جاب شیٹ کا پیغام</translation>
 <translation id="1048785276086539861">آپ کے تشریحات میں ترمیم کرنے پر، یہ دستاویز واحد صفحے کے منظر پر واپس آ جائے گا</translation>
-<translation id="1049743911850919806">پوشیدگی</translation>
 <translation id="1050038467049342496">دیگر ایپس بند کریں</translation>
 <translation id="1055184225775184556">شامل کریں کو &amp;کالعدم کریں</translation>
 <translation id="1056898198331236512">وارننگ</translation>
@@ -111,7 +110,6 @@
 <translation id="1307966114820526988">فرسودہ خصوصیات</translation>
 <translation id="1308113895091915999">پیشکش دستیاب ہے</translation>
 <translation id="1312803275555673949">کون سا ثبوت اس کو سپورٹ کرتا ہے؟</translation>
-<translation id="131405271941274527">‏آپ کے NFC آلہ پر تھپتھپاتے وقت <ph name="URL" /> معلومات بھیجنا اور وصول کرنا چاہتا ہے</translation>
 <translation id="1314311879718644478">افزودہ حقیقت کا مواد دیکھیں</translation>
 <translation id="1314509827145471431">دائیں طرف باندھیں</translation>
 <translation id="1318023360584041678">ٹیب گروپ مں محفوظ کردہ</translation>
@@ -209,9 +207,11 @@
 <translation id="1559572115229829303">‏&lt;p&gt;<ph name="BEGIN_BOLD" /><ph name="DOMAIN" /><ph name="END_BOLD" /> سے ایک نجی کنکشن تشکیل نہیں دیا جا سکتا ہے کیونکہ آپ کے آلے کی تاریخ اور وقت (<ph name="DATE_AND_TIME" />) غلط ہیں۔&lt;‎/p&gt;
 
       &lt;p&gt;براہ کرم تاریخ اور وقت کو &lt;strong&gt;ترتیبات&lt;‎/strong&gt; ایپ کے &lt;strong&gt;عمومی&lt;‎/strong&gt; سیکشن سے ایڈجسٹ کریں۔&lt;‎/p&gt;</translation>
+<translation id="156703335097561114">نیٹ ورکنگ معلومات جیسے پتے، انٹرفیس کنفیگریشن اور کنکشن کا معیار</translation>
 <translation id="1567040042588613346">یہ پالیسی توقع کے مطابق کام کر رہی ہے لیکن کسی دوسری جگہ ایک جیسی قدر سیٹ کی گئی ہے اور اس نے اس پالیسی کی جگہ لے لی ہے۔</translation>
 <translation id="1569487616857761740">تاریخ اختتام درج کریں</translation>
 <translation id="1581080074034554886">CVC</translation>
+<translation id="1581767074483369314">ورچوئل کارڈ میں اندراج کریں</translation>
 <translation id="1583294866416602487">Plex</translation>
 <translation id="1583429793053364125">یہ ویب صفحہ ڈسپلے کرتے ہوئے کچھ غلط ہو گیا۔</translation>
 <translation id="1586541204584340881">آپ نے کن ایکسٹینشنز کو انسٹال کیا ہے</translation>
@@ -377,6 +377,7 @@
 <translation id="2101225219012730419">ورژن:</translation>
 <translation id="2102134110707549001">مضبوط پاس ورڈ تجویز کریں…</translation>
 <translation id="2102495993840063010">‏Android ایپس</translation>
+<translation id="2106249949168291652">محفوظ ہو گیا۔ ورچوئل کارڈ کے ساتھ اسے مزید محفوظ بنائیں؟</translation>
 <translation id="2107021941795971877">پرنٹ سپورٹس</translation>
 <translation id="2108755909498034140">اپنے کمپیوٹر کو دوبارہ شروع کریں</translation>
 <translation id="2111166930115883695">کھیلنے کے لیے اسپیس دبائیں</translation>
@@ -480,6 +481,7 @@
 <translation id="2465655957518002998">ڈیلیوری کا طریقہ منتخب کریں</translation>
 <translation id="2465688316154986572">سٹیپل</translation>
 <translation id="2465914000209955735">‏Chrome میں ڈاؤن لوڈ کردہ اپنی فائلز کا نظم کریں</translation>
+<translation id="2466004615675155314">ویب سے معلومات دکھائیں</translation>
 <translation id="2467694685043708798"><ph name="BEGIN_LINK" />نیٹ ورک کی تشخیصات چلانے کی<ph name="END_LINK" /></translation>
 <translation id="2469153820345007638">‏1 سے N ترتیب</translation>
 <translation id="2470767536994572628">آپ کے تشریحات میں ترمیم کرنے پر، یہ دستاویز واحد صفحے کے منظر اور اپنے اصل گھماؤ پر واپس آ جائے گا</translation>
@@ -526,10 +528,12 @@
 <translation id="2609632851001447353">تغیرات</translation>
 <translation id="2610561535971892504">کلک کر کے کاپی کریں</translation>
 <translation id="2618023639789766142">C10 ‎(Envelope‎)‎</translation>
+<translation id="2623663032199728144">آپ کی اسکرینز کے بارے میں معلومات کا استعمال کرنے کے لیے پوچھ سکتی ہیں</translation>
 <translation id="2625385379895617796">آپ کی گھڑی آگے ہے</translation>
 <translation id="262745152991669301">‏سائٹ USB آلات سے منسلک ہونے کیلئے پوچھ سکتی ہے</translation>
 <translation id="2629325967560697240">‏Chrome کی اعلی ترین سیکیورٹی حاصل کرنے کے لیے <ph name="BEGIN_ENHANCED_PROTECTION_LINK" />بہتر کردہ حفاظت کو آن کریں<ph name="END_ENHANCED_PROTECTION_LINK" /></translation>
 <translation id="2634124572758952069">‏<ph name="HOST_NAME" /> کے سرور کا IP پتہ نہیں مل سکا۔</translation>
+<translation id="2638001509205834345">اپنے کارڈ کو مزید محفوظ بنائیں؟</translation>
 <translation id="2639739919103226564">صورتحال:</translation>
 <translation id="264810637653812429">کوئی مطابقت پذیر آلہ نہیں ملا۔</translation>
 <translation id="2649204054376361687"><ph name="CITY" />، <ph name="COUNTRY" /></translation>
@@ -645,6 +649,7 @@
 <translation id="3037605927509011580">ارے، رکیں!</translation>
 <translation id="3041612393474885105">سرٹیفکیٹ کی معلومات</translation>
 <translation id="3044034790304486808">اپنی ریسرچ دوبارہ شروع کریں</translation>
+<translation id="305162504811187366">‏بشمول ٹائم سٹیمپس، میزبانوں اور کلائنٹ سیشن IDs کے Chrome ریموٹ ڈیسک ٹاپ کی سرگزشت</translation>
 <translation id="3060227939791841287">C9 ‎(Envelope‎)‎</translation>
 <translation id="3061707000357573562">پیچ سروس</translation>
 <translation id="306573536155379004">گیم شروع ہو گئی۔</translation>
@@ -661,6 +666,7 @@
 <translation id="3113284927548439113">تیسری شفٹ</translation>
 <translation id="3115874930288085374"><ph name="ENROLLMENT_DOMAIN" /> کا تقاضہ ہے کہ آپ اپنے ڈیٹا کا بیک اپ لیں اور اس <ph name="DEVICE_TYPE" /> کو واپس کریں۔</translation>
 <translation id="3116158981186517402">ورق چڑھائیں</translation>
+<translation id="311958134571892113">اس کے ساتھ لنک کیا گيا</translation>
 <translation id="3120730422813725195">ELO</translation>
 <translation id="31207688938192855"><ph name="BEGIN_LINK" />کنیکٹوٹی کی تشخیصات چلانے کی کوشش کریں<ph name="END_LINK" />۔</translation>
 <translation id="3121994479408824897"><ph name="DOMAIN" /> پر جائیں</translation>
@@ -686,6 +692,7 @@
 <translation id="3197136577151645743">آپ اپنے آلے کا فعال طور پر استعمال کب کر رہے ہیں یہ جاننے کیلئے سائٹ پوچھ سکتی ہے</translation>
 <translation id="3202497928925179914">‏<ph name="MANAGE_SYNC_FOCUSED_FRIENDLY_MATCH_TEXT" />، آپ Chrome کی ترتیبات میں کن معلومات کو مطابقت پذیر بناتے ہیں ان کا نظم کرنے کے لئے ٹیب پھر اینٹر دبائیں</translation>
 <translation id="320323717674993345">ادائیگی منسوخ کریں</translation>
+<translation id="3203366800380907218">ویب سے</translation>
 <translation id="3207960819495026254">بُک مارک بنایا ہوا</translation>
 <translation id="3209034400446768650">صفحہ پیسے چارج کر سکتا ہے</translation>
 <translation id="3212581601480735796"><ph name="HOSTNAME" /> پر آپ کی سرگرمی پر نظر رکھی جا رہی ہے</translation>
@@ -702,6 +709,7 @@
 <translation id="3234666976984236645">اس سائٹ پر اہم مواد کا ہمیشہ پتا لگائیں</translation>
 <translation id="3240683217920639535">‏<ph name="MANAGE_CHROME_THEMES_FOCUSED_FRIENDLY_MATCH_TEXT" />، اپنے براؤزر کی شکل کو حسب ضرورت بنانے کیلئے ٹیب پھر Enter دبائیں</translation>
 <translation id="3240791268468473923">ادائیگی کی اسناد محفوظ کریں کوئی مماثل اسناد نہیں کی شیٹ کھلی ہوئی ہے</translation>
+<translation id="324180406144491771">“<ph name="HOST_NAME" />” لنکس مسدود ہیں</translation>
 <translation id="3249845759089040423">دلکش</translation>
 <translation id="3252266817569339921">فرانسيسی</translation>
 <translation id="3257954757204451555">اس معلومات کے پیچھے کون ہے؟</translation>
@@ -732,12 +740,6 @@
 <translation id="3345782426586609320">آنکھیں</translation>
 <translation id="3355823806454867987">پراکسی ترتیبات تبدیل کریں…</translation>
 <translation id="3360103848165129075">ادائیگی ہینڈلر کی شیٹ</translation>
-<translation id="3361596688432910856">‏Chrome مندرجہ ذیل معلومات کو <ph name="BEGIN_EMPHASIS" />محفوظ نہیں کرے گا<ph name="END_EMPHASIS" />:
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />آپ کی براؤزنگ سرگزشت
-          <ph name="LIST_ITEM" />کوکیز اور سائٹ ڈیٹا
-          <ph name="LIST_ITEM" />فارمز میں درج کردہ معلومات
-        <ph name="END_LIST" /></translation>
 <translation id="3362968246557010467">یہ پالیسی خودکار طور پر فرسودہ <ph name="OLD_POLICY" /> پالیسی سے کاپی کی گئی تھی۔ اس کی بجائے، آپ کو اس کا پالیسی کا استعمال کرنا چاہیے۔</translation>
 <translation id="3364869320075768271"><ph name="URL" /> آپ کا ورچوئل ریئلٹی آلہ اور ڈیٹا استعمال کرنا چاہتا ہے</translation>
 <translation id="3366477098757335611">کارڈز دیکھیں</translation>
@@ -1218,12 +1220,7 @@
 <translation id="4819347708020428563">ڈیفالٹ منظر میں تشریحات میں ترمیم کریں؟</translation>
 <translation id="4825496307559726072">‏<ph name="CREATE_GOOGLE_SHEET_FOCUSED_FRIENDLY_MATCH_TEXT" />، تیزی سے ایک نئی Google Sheet تخلیق کرنے کیلئے Tab، پھر Enter دبائیں</translation>
 <translation id="4825507807291741242">طاقتور</translation>
-<translation id="4827402517081186284">پوشیدگی وضع آپ کو آن لائن غیر مرئی نہیں کرتی ہے:
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />سائٹس کو معلوم ہوتا ہے کہ آپ کب انہیں ملاحظہ کرتے ہیں<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />آجر یا اسکول براؤزنگ کی سرگرمی کو ٹریک کر سکتے ہیں<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />انٹرنیٹ سروس پرووائیڈرز ویب ٹریفک کو مانیٹر کر سکتے ہیں<ph name="END_LIST_ITEM" />
-        <ph name="END_LIST" /></translation>
+<translation id="4829962028570902310">نظر انداز کر دیا گیا کیونکہ پالیسی صرف کلاؤڈ صارف کی پالیسی کے ذریعے سیٹ کی جا سکتی ہے۔</translation>
 <translation id="483241715238664915">وارننگز کو آن کریں</translation>
 <translation id="4838327282952368871">خیالی</translation>
 <translation id="4840250757394056958">‏اپنے Chrome کی سرگزشت دیکھیں</translation>
@@ -1240,7 +1237,6 @@
 <translation id="4877083676943085827">{COUNT,plural, =0{کوئی نہیں}=1{<ph name="EXAMPLE_DOMAIN_1" />}=2{<ph name="EXAMPLE_DOMAIN_1" />، <ph name="EXAMPLE_DOMAIN_2" />}other{<ph name="EXAMPLE_DOMAIN_1" />، <ph name="EXAMPLE_DOMAIN_2" />، <ph name="AND_MORE" />}}</translation>
 <translation id="4877422487531841831"><ph name="TEXT" /> تلاش کریں</translation>
 <translation id="4879491255372875719">خودکار (ڈیفالٹ)</translation>
-<translation id="4879725228911483934">ونڈوز کھولیں اور اپنی اسکرینز پر رکھیں</translation>
 <translation id="4880827082731008257">تلاش کی سرگزشت</translation>
 <translation id="4881695831933465202">کھولیں</translation>
 <translation id="4885256590493466218">چیک آؤٹ کرنے پر <ph name="CARD_DETAIL" /> سے ادائیگی کریں۔</translation>
@@ -1328,6 +1324,7 @@
 <translation id="5138227688689900538">کم دکھائیں</translation>
 <translation id="5145883236150621069">خرابی کوڈ پالیسی جواب میں موجود ہے</translation>
 <translation id="5146995429444047494"><ph name="ORIGIN" /> کیلئے اطلاعات مسدود ہیں</translation>
+<translation id="514704532284964975">‏<ph name="URL" /> NFC آلات پر معلومات دیکھنا اور تبدیل کرنا چاہتا ہے جسے آپ اپنے فون سے تھپتھپاتے ہیں</translation>
 <translation id="5148809049217731050">سامنے</translation>
 <translation id="515292512908731282">C4 ‎(Envelope‎)‎</translation>
 <translation id="5158275234811857234">سر ورق</translation>
@@ -1373,7 +1370,6 @@
 <translation id="5283044957620376778">B1</translation>
 <translation id="5284295735376057059">دستاویز کی خصوصیات</translation>
 <translation id="528468243742722775">اختتام</translation>
-<translation id="5284909709419567258">نیٹ ورک کے پتے</translation>
 <translation id="5285570108065881030">سبھی محفوظ پاسورڈز دکھائيں</translation>
 <translation id="5287240709317226393">کوکیز دکھائیں</translation>
 <translation id="5287456746628258573">یہ سائٹ پرانی سیکیورٹی کنفیگریشن کو استعمال کر رہی ہے جو اس سائٹ پر بھیجے جانے پر آپ کی معلومات (مثلاً، پاس ورڈز یا کریڈٹ کارڈ نمبرز) کو ظاہر کر سکتی ہے۔</translation>
@@ -1630,7 +1626,6 @@
 <translation id="6169916984152623906">اب آپ نجی طور پر براؤز کر سکتے ہیں، اور اس آلے کا استعمال کرنے والے دوسرے لوگوں کو آپ کی سرگرمی نہیں دکھائی دے گی۔ تاہم، ڈاؤن لوڈز اور بک مارکس محفوظ ہو جائیں گے۔</translation>
 <translation id="6177128806592000436">اس سائٹ سے آپ کا کنکشن محفوظ نہیں ہے</translation>
 <translation id="6180316780098470077">دوبارہ کوشش کرنے کا وقفہ</translation>
-<translation id="619448280891863779">سائٹ آپ کی سکرینز پر ونڈوز کھولنے اور رکھنے کیلئے پوچھ سکتی ہے</translation>
 <translation id="6196640612572343990">فریق ثالث کوکیز کو مسدود کریں</translation>
 <translation id="6203231073485539293">اپنا انٹرنیٹ کنکشن چیک کریں</translation>
 <translation id="6218753634732582820">‏Chromium سے پتہ ہٹائیں؟</translation>
@@ -1795,7 +1790,6 @@
 <translation id="6757797048963528358">آپ کا آلہ سیلپ وضع میں چلا گیا۔</translation>
 <translation id="6767985426384634228">پتہ اپ ڈیٹ کریں؟</translation>
 <translation id="6768213884286397650">Hagaki ‎(Postcard)‎</translation>
-<translation id="6774185088257932239">پوشیدگی وضع کے بارے میں <ph name="BEGIN_LINK" />مزید جانیں<ph name="END_LINK" /></translation>
 <translation id="6775759552199460396">JIS B2</translation>
 <translation id="67862343314499040">وائلیٹ</translation>
 <translation id="6786747875388722282">توسیعات</translation>
@@ -1879,7 +1873,6 @@
 <translation id="706295145388601875">‏Chrome ترتیبات میں پتوں کو شامل کریں اور ان کا نظم کریں</translation>
 <translation id="7064851114919012435">رابطہ کی معلومات</translation>
 <translation id="7068733155164172741"><ph name="OTP_LENGTH" /> ہندسے والا کوڈ درج کریں</translation>
-<translation id="7070090581017165256">اس سائٹ کے بارے میں</translation>
 <translation id="70705239631109039">آپ کا کنکشن مکمل طور پر محفوظ نہیں ہے</translation>
 <translation id="7075452647191940183">درخواست کافی بڑی ہے</translation>
 <translation id="7079718277001814089">یہ سائٹ میلویئر پر مشتمل ہے</translation>
@@ -2127,7 +2120,6 @@
 <translation id="7813600968533626083">‏Chrome سے فارم کی تجویز ہٹائیں؟</translation>
 <translation id="781440967107097262">کلپ بورڈ کا اشتراک کریں؟</translation>
 <translation id="7815407501681723534">'<ph name="SEARCH_STRING" />' کیلئے <ph name="NUMBER_OF_RESULTS" /> <ph name="SEARCH_RESULTS" /> ملے۔</translation>
-<translation id="782125616001965242">اس سائٹ کے بارے میں معلومات دکھائیں</translation>
 <translation id="782886543891417279">‏آپ جو Wi-Fi استعمال کر رہے ہیں <ph name="WIFI_NAME" /> وہ آپ سے اپنا لاگ ان صفحہ ملاحظہ کرنے کا تقاضہ کر سکتا ہے۔</translation>
 <translation id="7836231406687464395">Postfix ‎(Envelope‎)‎</translation>
 <translation id="7844689747373518809">{COUNT,plural, =0{کوئی نہیں}=1{1 ایپ (<ph name="EXAMPLE_APP_1" />)}=2{2 ایپس (<ph name="EXAMPLE_APP_1" />, <ph name="EXAMPLE_APP_2" />)}other{# ایپس (<ph name="EXAMPLE_APP_1" />، <ph name="EXAMPLE_APP_2" />، <ph name="AND_MORE" />)}}</translation>
@@ -2277,12 +2269,6 @@
 <translation id="8317207217658302555">‏ARCore کو اپ ڈیٹ کریں؟</translation>
 <translation id="831997045666694187">شام</translation>
 <translation id="8321476692217554900">اطلاعات</translation>
-<translation id="8328484624016508118">‏تمام پوشیدگی ٹیبز کو بند کرنے کے بعد، Chrome درج ذیل صاف کرتا ہے:
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />اس آلہ سے آپ کی براؤزنگ کی سرگرمی<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />اس آلہ سے آپ کی تلاش کی سرگزشت<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />فارمز میں درج کردہ معلومات<ph name="END_LIST_ITEM" />
-        <ph name="END_LIST" /></translation>
 <translation id="8332188693563227489"><ph name="HOST_NAME" /> تک رسائی مسترد کر دی گئی</translation>
 <translation id="833262891116910667">ہائی لائٹ کریں</translation>
 <translation id="8339163506404995330"><ph name="LANGUAGE" /> کے صفحات کا ترجمہ نہیں کیا جائے گا</translation>
@@ -2363,8 +2349,10 @@
 <translation id="865032292777205197">موشن سینسرز</translation>
 <translation id="8663226718884576429">آرڈر کا خلاصہ، <ph name="TOTAL_LABEL" />، مزید تفصیلات</translation>
 <translation id="8666678546361132282">انگريزی</translation>
+<translation id="8669306706049782872">ونڈوز کھولنے اور رکھنے کے لیے اپنی اسکرینز کے بارے میں معلومات کا استعمال کریں</translation>
 <translation id="867224526087042813">دستخط</translation>
 <translation id="8676424191133491403">کوئی تاخیر نہیں</translation>
+<translation id="8679903780129190080">ہاں میں شامل ہوں</translation>
 <translation id="8680536109547170164"><ph name="QUERY" />، جواب، <ph name="ANSWER" /></translation>
 <translation id="8681531050781943054"><ph name="PAGE" /> پر موجود ویب صفحہ لوڈ نہیں ہو سکا کیوںکہ:</translation>
 <translation id="8685155993131031756">Prc-16K</translation>

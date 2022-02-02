@@ -296,6 +296,7 @@
 <translation id="3556731189587832921">енглески (САД) са интернационалном тастатуром за рачунар</translation>
 <translation id="3567221313191587603">Изаберите фајл и обележите <ph name="OFFLINE_CHECKBOX_NAME" /> да бисте активирали офлајн приступ фајловима.</translation>
 <translation id="357479282490346887">литвански</translation>
+<translation id="3587482841069643663">Све</translation>
 <translation id="3592251141500063301">Нисмо успели да учинимо фајл <ph name="FILE_NAME" /> доступним офлајн</translation>
 <translation id="3601151620448429694"><ph name="NETWORK_NAME" /> · <ph name="CARRIER_NAME" /></translation>
 <translation id="3603385196401704894">канадска француска</translation>
@@ -680,6 +681,7 @@
 <translation id="6935521024859866267">Наопачке</translation>
 <translation id="6943836128787782965">HTTP get није успео</translation>
 <translation id="6949408524333579394">транслитерација српског</translation>
+<translation id="6954309393500027528">Администратор је блокирао налепљивање овог фајла</translation>
 <translation id="6960565108681981554">Није активирано. Обратите се мобилном оператеру.</translation>
 <translation id="696203921837389374">Омогући синхронизацију преко мобилне везе за пренос података</translation>
 <translation id="6965382102122355670">Потврди</translation>

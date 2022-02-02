@@ -38,7 +38,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/base/window_state_type.h"
-#include "components/app_restore/features.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/layout_manager.h"
@@ -162,36 +161,6 @@ WMEventType WMEventTypeFromShowState(ui::WindowShowState requested_show_state) {
   return WM_EVENT_NORMAL;
 }
 
-WMEventType WMEventTypeFromWindowStateType(WindowStateType window_state_type) {
-  switch (window_state_type) {
-    case WindowStateType::kDefault:
-    case WindowStateType::kNormal:
-      return WM_EVENT_NORMAL;
-    case WindowStateType::kMinimized:
-      return WM_EVENT_MINIMIZE;
-    case WindowStateType::kMaximized:
-      return WM_EVENT_MAXIMIZE;
-    case WindowStateType::kInactive:
-      return WM_EVENT_SHOW_INACTIVE;
-    case WindowStateType::kFullscreen:
-      return WM_EVENT_FULLSCREEN;
-    case WindowStateType::kPrimarySnapped:
-      return WM_EVENT_SNAP_PRIMARY;
-    case WindowStateType::kSecondarySnapped:
-      return WM_EVENT_SNAP_SECONDARY;
-    case WindowStateType::kPinned:
-      return WM_EVENT_PIN;
-    case WindowStateType::kTrustedPinned:
-      return WM_EVENT_TRUSTED_PIN;
-    case WindowStateType::kPip:
-      return WM_EVENT_PIP;
-    case WindowStateType::kAutoPositioned:
-      NOTREACHED() << "No WMEvent defined for the window state type: "
-                   << window_state_type;
-  }
-  return WM_EVENT_NORMAL;
-}
-
 float GetCurrentSnapRatio(aura::Window* window) {
   gfx::Rect maximized_bounds =
       screen_util::GetMaximizedWindowBoundsInParent(window);
@@ -241,9 +210,6 @@ void ReportAshPipAndroidPipUseTime(base::TimeDelta duration) {
 
 // Notifies the window restore controller to write to file.
 void SaveWindowForWindowRestore(WindowState* window_state) {
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return;
-
   auto* controller = WindowRestoreController::Get();
   if (controller)
     controller->SaveWindow(window_state);
@@ -252,6 +218,16 @@ void SaveWindowForWindowRestore(WindowState* window_state) {
 }  // namespace
 
 constexpr base::TimeDelta WindowState::kBoundsChangeSlideDuration;
+
+#if DCHECK_IS_ON()
+void WindowState::State::CheckMaximizableCondition(
+    const WindowState* window_state) const {
+  const aura::Window* window = window_state->window();
+  const gfx::Size max_size = window->delegate()->GetMaximumSize();
+  DCHECK(max_size.IsEmpty() || max_size.width() > kAllowMaximizeThreshold ||
+         max_size.height() > kAllowMaximizeThreshold);
+}
+#endif  // DCHECK_IS_ON()
 
 WindowState::ScopedBoundsChangeAnimation::ScopedBoundsChangeAnimation(
     aura::Window* window,
@@ -361,11 +337,8 @@ bool WindowState::CanMaximize() const {
   bool can_maximize = (window_->GetProperty(aura::client::kResizeBehaviorKey) &
                        aura::client::kResizeBehaviorCanMaximize) != 0;
 #if DCHECK_IS_ON()
-  if (window_->delegate() && can_maximize) {
-    const gfx::Size max_size = window_->delegate()->GetMaximumSize();
-    DCHECK(max_size.IsEmpty() || max_size.width() > kAllowMaximizeThreshold ||
-           max_size.height() > kAllowMaximizeThreshold);
-  }
+  if (window_->delegate() && can_maximize)
+    current_state_->CheckMaximizableCondition(this);
 #endif
   return can_maximize;
 }
@@ -384,8 +357,14 @@ bool WindowState::CanActivate() const {
   return wm::CanActivateWindow(window_);
 }
 
-bool WindowState::CanSnap() const {
-  return !IsPip() && CanResize() && CanMaximize();
+bool WindowState::CanSnap() {
+  return CanSnapOnDisplay(GetDisplay());
+}
+
+bool WindowState::CanSnapOnDisplay(display::Display display) const {
+  const bool can_resizable_snap = !IsPip() && CanResize() && CanMaximize();
+  return can_resizable_snap ||
+         (!CanResize() && CanUnresizableSnapOnDisplay(display));
 }
 
 bool WindowState::HasRestoreBounds() const {
@@ -414,7 +393,7 @@ void WindowState::Deactivate() {
 }
 
 void WindowState::Restore() {
-  const WMEvent event(WMEventTypeFromWindowStateType(GetRestoreWindowState()));
+  const WMEvent event(WM_EVENT_RESTORE);
   OnWMEvent(&event);
 }
 
@@ -671,11 +650,22 @@ display::Display WindowState::GetDisplay() const {
 }
 
 WindowStateType WindowState::GetRestoreWindowState() const {
-  return window_state_restore_history_.empty() ||
-                 window_state_restore_history_.back() ==
-                     WindowStateType::kDefault
-             ? WindowStateType::kNormal
-             : window_state_restore_history_.back();
+  WindowStateType restore_state =
+      window_state_restore_history_.empty() ||
+              window_state_restore_history_.back() == WindowStateType::kDefault
+          ? WindowStateType::kNormal
+          : window_state_restore_history_.back();
+
+  // Different with the restore behaviors in clamshell mode, a window can not be
+  // restored to kNormal window state if it's a maximize-able window.
+  // We should still be able to restore a fullscreen/minimized/snapped window to
+  // kMaximized window state for a maximize-able window, and also should be able
+  // to support restoring a fullscreen/minimized/maximized window to snapped
+  // window states.
+  if (IsTabletModeEnabled() && restore_state == WindowStateType::kNormal)
+    restore_state = GetMaximizedOrCenteredWindowType();
+
+  return restore_state;
 }
 
 void WindowState::CreateDragDetails(const gfx::PointF& point_in_parent,
@@ -1027,6 +1017,13 @@ void WindowState::UpdateWindowStateRestoreHistoryStack(
   }
 }
 
+chromeos::WindowStateType WindowState::GetMaximizedOrCenteredWindowType()
+    const {
+  return CanMaximize() && ::wm::GetTransientParent(window_) == nullptr
+             ? WindowStateType::kMaximized
+             : WindowStateType::kNormal;
+}
+
 // static
 WindowState* WindowState::Get(aura::Window* window) {
   if (!window)
@@ -1158,6 +1155,38 @@ void WindowState::OnWindowBoundsChanged(aura::Window* window,
 
   if (reason != ui::PropertyChangeReason::FROM_ANIMATION && !is_dragged())
     SaveWindowForWindowRestore(this);
+}
+
+bool WindowState::CanUnresizableSnapOnDisplay(display::Display display) const {
+  DCHECK(!CanResize());
+
+  if (IsPip())
+    return false;
+
+  if (IsTabletModeEnabled())
+    return false;
+
+  const gfx::Size* preferred_size =
+      window_->GetProperty(kUnresizableSnappedSizeKey);
+  if (!preferred_size || preferred_size->IsZero())
+    return false;
+
+  const auto orientation = GetSnapDisplayOrientation(display);
+  const bool is_horizontal =
+      orientation == chromeos::OrientationType::kLandscapePrimary ||
+      orientation == chromeos::OrientationType::kLandscapeSecondary;
+
+  const gfx::Rect work_area = display.work_area();
+  if (is_horizontal && (preferred_size->width() == 0 ||
+                        work_area.width() < preferred_size->width())) {
+    return false;
+  }
+  if (!is_horizontal && (preferred_size->height() == 0 ||
+                         work_area.height() < preferred_size->height())) {
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace ash

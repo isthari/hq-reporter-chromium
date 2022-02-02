@@ -17,7 +17,7 @@
 #include "components/viz/test/buildflags.h"
 #include "components/viz/test/paths.h"
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 
 namespace cc {
 namespace {
@@ -591,4 +591,4 @@ INSTANTIATE_TEST_SUITE_P(All,
 }  // namespace
 }  // namespace cc
 
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)

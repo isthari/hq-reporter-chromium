@@ -41,7 +41,9 @@ inline const std::string& GetLocale() {
 
 // static
 void ProjectorClientImpl::InitForProjectorAnnotator(views::WebView* web_view) {
-  web_view->LoadInitialURL(GURL(ash::kChromeUITrustedAnnotatorUrl));
+  if (!ash::features::IsProjectorAnnotatorEnabled())
+    return;
+  web_view->LoadInitialURL(GURL(ash::kChromeUIAnnotatorUrl));
 
   content::WebContents* web_contents = web_view->GetWebContents();
   content::WebUI* web_ui = web_contents->GetWebUI();
@@ -74,8 +76,7 @@ void ProjectorClientImpl::StartSpeechRecognition() {
 }
 
 void ProjectorClientImpl::StopSpeechRecognition() {
-  speech_recognizer_.reset();
-  recognizer_status_ = SPEECH_RECOGNIZER_OFF;
+  speech_recognizer_->Stop();
 }
 
 void ProjectorClientImpl::ShowSelfieCam() {
@@ -115,6 +116,12 @@ void ProjectorClientImpl::OnSpeechRecognitionStateChanged(
   }
 
   recognizer_status_ = new_state;
+}
+
+void ProjectorClientImpl::OnSpeechRecognitionStopped() {
+  speech_recognizer_.reset();
+  recognizer_status_ = SPEECH_RECOGNIZER_OFF;
+  controller_->OnSpeechRecognitionStopped();
 }
 
 bool ProjectorClientImpl::GetDriveFsMountPointPath(

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "v8_platform_page_allocator.h"
+
 #include "base/allocator/partition_allocator/address_space_randomization.h"
 #include "base/allocator/partition_allocator/page_allocator_constants.h"
 #include "base/allocator/partition_allocator/random.h"
@@ -58,11 +59,11 @@ size_t PageAllocator::CommitPageSize() {
 }
 
 void PageAllocator::SetRandomMmapSeed(int64_t seed) {
-  base::SetMmapSeedForTesting(seed);
+  ::partition_alloc::SetMmapSeedForTesting(seed);
 }
 
 void* PageAllocator::GetRandomMmapAddr() {
-  return base::GetRandomPageBase();
+  return reinterpret_cast<void*>(::partition_alloc::GetRandomPageBase());
 }
 
 void* PageAllocator::AllocatePages(void* address,

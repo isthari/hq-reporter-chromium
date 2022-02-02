@@ -15,6 +15,7 @@
 #include "remoting/host/base/screen_controls.h"
 #include "remoting/host/client_session_control.h"
 #include "remoting/host/desktop_capturer_proxy.h"
+#include "remoting/host/desktop_display_info_monitor.h"
 #include "remoting/host/file_transfer/local_file_operations.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/host/keyboard_layout_monitor.h"
@@ -25,7 +26,7 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "remoting/host/win/evaluate_d3d.h"
 #endif
 
@@ -135,7 +136,7 @@ uint32_t BasicDesktopEnvironment::GetDesktopSessionId() const {
 
 std::unique_ptr<DesktopAndCursorConditionalComposer>
 BasicDesktopEnvironment::CreateComposingVideoCapturer() {
-#if defined(OS_APPLE)
+#if BUILDFLAG(IS_APPLE)
   // Mac includes the mouse cursor in the captured image in curtain mode.
   if (options_.enable_curtaining())
     return nullptr;
@@ -148,8 +149,11 @@ std::unique_ptr<webrtc::DesktopCapturer>
 BasicDesktopEnvironment::CreateVideoCapturer() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  std::unique_ptr<DesktopCapturerProxy> result(new DesktopCapturerProxy(
-      video_capture_task_runner_, ui_task_runner_, client_session_control_));
+  auto result = std::make_unique<DesktopCapturerProxy>(
+      video_capture_task_runner_, ui_task_runner_);
+  result->set_desktop_display_info_monitor(
+      std::make_unique<DesktopDisplayInfoMonitor>(ui_task_runner_,
+                                                  client_session_control_));
   result->CreateCapturer(desktop_capture_options());
   return std::move(result);
 }
@@ -176,7 +180,7 @@ BasicDesktopEnvironment::BasicDesktopEnvironment(
   watchdog.Arm();
   desktop_capture_options().x_display()->IgnoreXServerGrabs();
   watchdog.Disarm();
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   options_.desktop_capture_options()->set_allow_directx_capturer(
       IsD3DAvailable());
 #endif

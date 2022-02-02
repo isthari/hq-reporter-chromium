@@ -13,6 +13,7 @@ namespace arc {
 
 // Please keep alphabetized.
 extern const base::Feature kBootCompletedBroadcastFeature;
+extern const base::Feature kCompatSnapFeature;
 extern const base::Feature kCustomTabsExperimentFeature;
 extern const base::Feature kDocumentsProviderUnknownSizeFeature;
 extern const base::Feature kEnableArcNearbyShare;
@@ -22,6 +23,7 @@ extern const base::Feature kEnableUnifiedAudioFocusFeature;
 extern const base::Feature kEnableUnmanagedToManagedTransitionFeature;
 extern const base::Feature kEnableUsap;
 extern const base::Feature kFilePickerExperimentFeature;
+extern const base::Feature kGmsCoreLowMemoryKillerProtection;
 extern const base::Feature kGuestZram;
 extern const base::FeatureParam<int> kGuestZramSize;
 extern const base::Feature kLogdConfig;

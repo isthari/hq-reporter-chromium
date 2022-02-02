@@ -53,8 +53,8 @@
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 #include "chrome/browser/ash/login/session/user_session_manager_test_api.h"
 #include "chrome/browser/ash/login/signin_specifics.h"
+#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
-#include "chrome/browser/ash/login/test/local_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/login_or_lock_screen_visible_waiter.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
@@ -75,7 +75,6 @@
 #include "chrome/browser/ash/policy/core/device_local_account_policy_service.h"
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/ash/policy/external_data/cloud_external_data_manager_base_test_util.h"
-#include "chrome/browser/ash/policy/networking/device_network_configuration_updater.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/system/timezone_util.h"
 #include "chrome/browser/browser_process.h"
@@ -90,6 +89,7 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_test_utils.h"
+#include "chrome/browser/policy/networking/device_network_configuration_updater_ash.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -411,9 +411,9 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DevicePolicyCrosBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(chromeos::switches::kLoginManager);
-    command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
-    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
+    command_line->AppendSwitch(ash::switches::kLoginManager);
+    command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
+    command_line->AppendSwitchASCII(ash::switches::kLoginProfile, "user");
   }
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -502,9 +502,9 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
 
   void UploadDeviceLocalAccountPolicy() {
     BuildDeviceLocalAccountPolicy();
-    ASSERT_TRUE(local_policy_mixin_.server()->UpdatePolicy(
+    policy_test_server_mixin_.UpdatePolicy(
         dm_protocol::kChromePublicAccountPolicyType, kAccountId1,
-        device_local_account_policy_.payload().SerializeAsString()));
+        device_local_account_policy_.payload().SerializeAsString());
   }
 
   void UploadAndInstallDeviceLocalAccountPolicy() {
@@ -545,7 +545,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
     em::ChromeDeviceSettingsProto& proto(device_policy()->payload());
     DeviceLocalAccountTestHelper::AddPublicSession(&proto, username);
     RefreshDevicePolicy();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 
   void SetManagedSessionsEnabled(bool managed_sessions_enabled) {
@@ -562,7 +562,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
     device_local_accounts->set_auto_login_id(kAccountId1);
     device_local_accounts->set_auto_login_delay(0);
     RefreshDevicePolicy();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 
   void CheckPublicSessionPresent(const AccountId& account_id) {
@@ -583,13 +583,13 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
     LocalStateValueWaiter(prefs::kSystemTimezoneAutomaticDetectionPolicy,
                           base::Value(policy))
         .Wait();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 
   base::FilePath GetExtensionCacheDirectoryForAccountID(
       const std::string& account_id) {
     base::FilePath extension_cache_root_dir;
-    if (!base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
+    if (!base::PathService::Get(ash::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
                                 &extension_cache_root_dir)) {
       ADD_FAILURE();
     }
@@ -739,7 +739,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
   std::unique_ptr<base::RunLoop> local_state_changed_run_loop_;
 
   UserPolicyBuilder device_local_account_policy_;
-  ash::LocalPolicyTestServerMixin local_policy_mixin_{&mixin_host_};
+  ash::EmbeddedPolicyTestServerMixin policy_test_server_mixin_{&mixin_host_};
 
   content::WebContents* contents_;
 
@@ -797,7 +797,7 @@ class ExtensionInstallObserver : public ProfileManagerObserver,
   // ProfileManagerObserver:
   void OnProfileAdded(Profile* profile) override {
     // Ignore lock screen apps profile.
-    if (chromeos::ProfileHelper::IsLockScreenAppProfile(profile))
+    if (ash::ProfileHelper::IsLockScreenAppProfile(profile))
       return;
     registry_ = extensions::ExtensionRegistry::Get(profile);
     profile_manager_observer_.Reset();
@@ -834,12 +834,11 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, PRE_DataIsRemoved) {
   // Shortcut that here.
   DictionaryPrefUpdate given_name_update(g_browser_process->local_state(),
                                          "UserGivenName");
-  given_name_update->SetKey(account_id_1_.GetUserEmail(),
-                            base::Value("Elaine"));
+  given_name_update->SetStringKey(account_id_1_.GetUserEmail(), "Elaine");
 
   // Add some arbitrary data to make sure the "UserGivenName" dictionary isn't
   // cleaning up itself.
-  given_name_update->SetKey("sanity.check@example.com", base::Value("Anne"));
+  given_name_update->SetStringKey("sanity.check@example.com", "Anne");
 }
 
 // Disabled on ASan and LSAn builds due to a consistent failure. See
@@ -964,7 +963,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, AccountListChange) {
   account1->set_type(
       em::DeviceLocalAccountInfoProto::ACCOUNT_TYPE_PUBLIC_SESSION);
 
-  local_policy_mixin_.UpdateDevicePolicy(policy);
+  policy_test_server_mixin_.UpdateDevicePolicy(policy);
   g_browser_process->policy_service()->RefreshPolicies(base::OnceClosure());
 
   // Make sure the second device-local account disappears.
@@ -2128,13 +2127,13 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, PolicyForExtensions) {
   // Note that the policy for the device-local account will be fetched before
   // the session is started, so the policy for the app must be installed before
   // the first device policy fetch.
-  ASSERT_TRUE(local_policy_mixin_.server()->UpdatePolicyData(
+  policy_test_server_mixin_.UpdateExternalPolicy(
       dm_protocol::kChromeExtensionPolicyType, kShowManagedStorageID,
       "{"
       "  \"string\": {"
       "    \"Value\": \"policy test value one\""
       "  }"
-      "}"));
+      "}");
 
   // Install and refresh the device policy now. This will also fetch the initial
   // user policy for the device-local account now.
@@ -2177,13 +2176,13 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, PolicyForExtensions) {
             *policy_service->GetPolicies(ns).GetValue("string"));
 
   // Now update the policy at the server.
-  ASSERT_TRUE(local_policy_mixin_.server()->UpdatePolicyData(
+  policy_test_server_mixin_.UpdateExternalPolicy(
       dm_protocol::kChromeExtensionPolicyType, kShowManagedStorageID,
       "{"
       "  \"string\": {"
       "    \"Value\": \"policy test value two\""
       "  }"
-      "}"));
+      "}");
 
   // And issue a policy refresh.
   {
@@ -2229,7 +2228,7 @@ class DeviceLocalAccountWarnings : public DeviceLocalAccountTest {
         proto.mutable_managed_guest_session_privacy_warnings();
     managed_sessions_warnings->set_enabled(false);
     RefreshDevicePolicy();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 };
 
@@ -2317,7 +2316,7 @@ class ManagedSessionsTest : public DeviceLocalAccountTest {
   }
 
   void WaitForCertificateUpdate() {
-    policy::DeviceNetworkConfigurationUpdater* updater =
+    policy::DeviceNetworkConfigurationUpdaterAsh* updater =
         g_browser_process->platform_part()
             ->browser_policy_connector_ash()
             ->GetDeviceNetworkConfigurationUpdater();

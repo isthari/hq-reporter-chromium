@@ -624,9 +624,11 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   PhysicalRect PhysicalVisualOverflowRectAllowingUnset() const;
 #else
   ALWAYS_INLINE LayoutRect VisualOverflowRectAllowingUnset() const {
+    NOT_DESTROYED();
     return VisualOverflowRect();
   }
   ALWAYS_INLINE PhysicalRect PhysicalVisualOverflowRectAllowingUnset() const {
+    NOT_DESTROYED();
     return PhysicalVisualOverflowRect();
   }
 #endif
@@ -1206,6 +1208,15 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
       scoped_refptr<const NGLayoutResult> layout_result);
   void ClearLayoutResults();
 
+  // Call when NG fragment count or size changed. Only call if the fragment
+  // count is or was larger than 1.
+  void FragmentCountOrSizeDidChange() {
+    NOT_DESTROYED();
+    // The fragment count may change, even if the total block-size remains the
+    // same (if the fragmentainer block-size has changed, for instance).
+    SetShouldDoFullPaintInvalidation();
+  }
+
   const NGLayoutResult* GetCachedLayoutResult() const;
   const NGLayoutResult* GetCachedMeasureResult() const;
 
@@ -1732,9 +1743,9 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   LayoutUnit OffsetLeft(const Element*) const final;
   LayoutUnit OffsetTop(const Element*) const final;
 
-  WARN_UNUSED_RESULT LayoutUnit
-  FlipForWritingMode(LayoutUnit position,
-                     LayoutUnit width = LayoutUnit()) const {
+  [[nodiscard]] LayoutUnit FlipForWritingMode(
+      LayoutUnit position,
+      LayoutUnit width = LayoutUnit()) const {
     NOT_DESTROYED();
     // The offset is in the block direction (y for horizontal writing modes, x
     // for vertical writing modes).
@@ -1746,8 +1757,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   // Inherit other flipping methods from LayoutObject.
   using LayoutObject::FlipForWritingMode;
 
-  WARN_UNUSED_RESULT LayoutPoint
-  DeprecatedFlipForWritingMode(const LayoutPoint& position) const {
+  [[nodiscard]] LayoutPoint DeprecatedFlipForWritingMode(
+      const LayoutPoint& position) const {
     NOT_DESTROYED();
     return LayoutPoint(FlipForWritingMode(position.X()), position.Y());
   }
@@ -1925,12 +1936,9 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
       const HitTestLocation&,
       const PhysicalOffset& border_box_location) const;
 
-  virtual bool HitTestOverflowControl(HitTestResult&,
-                                      const HitTestLocation&,
-                                      const PhysicalOffset&) const {
-    NOT_DESTROYED();
-    return false;
-  }
+  bool HitTestOverflowControl(HitTestResult&,
+                              const HitTestLocation&,
+                              const PhysicalOffset&) const;
 
   // Returns true if the box intersects the viewport visible to the user.
   bool IntersectsVisibleViewport() const;
@@ -2210,7 +2218,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 #if DCHECK_IS_ON()
   void CheckIsVisualOverflowComputed() const;
 #else
-  ALWAYS_INLINE void CheckIsVisualOverflowComputed() const {}
+  ALWAYS_INLINE void CheckIsVisualOverflowComputed() const { NOT_DESTROYED(); }
 #endif
   inline bool VisualOverflowIsSet() const {
     NOT_DESTROYED();

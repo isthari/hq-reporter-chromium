@@ -16,7 +16,7 @@
 #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/code_cache_host.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
@@ -160,6 +160,10 @@ class CORE_EXPORT WorkletGlobalScope
                      LocalFrame*,
                      WorkerThread*,
                      bool create_microtask_queue);
+
+  // Returns a destination used for fetching worklet scripts.
+  // https://html.spec.whatwg.org/C/#worklet-destination-type
+  virtual network::mojom::RequestDestination GetDestination() const = 0;
 
   EventTarget* ErrorEventTarget() final { return nullptr; }
 

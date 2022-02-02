@@ -4,6 +4,10 @@
 
 import './firmware_shared_css.js';
 import './firmware_shared_fonts.js';
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
+import 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-lite.js';
+import 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-lite.js';
+import '/file_path.mojom-lite.js';
 import './mojom/firmware_update.mojom-lite.js';
 import './update_card.js';
 
@@ -30,6 +34,12 @@ export class PeripheralUpdateListElement extends PolymerElement {
       firmwareUpdates_: {
         type: Array,
         value: () => [],
+      },
+
+      /** @protected */
+      hasCheckedInitialInflightProgress_: {
+        type: Boolean,
+        value: false,
       },
     };
   }
@@ -63,6 +73,19 @@ export class PeripheralUpdateListElement extends PolymerElement {
    */
   onUpdateListChanged(firmwareUpdates) {
     this.firmwareUpdates_ = firmwareUpdates;
+
+    if (!this.hasCheckedInitialInflightProgress_) {
+      this.updateProvider_.fetchInProgressUpdate().then(result => {
+        if (result.update) {
+          this.dispatchEvent(new CustomEvent('open-update-dialog', {
+            bubbles: true,
+            composed: true,
+            detail: {update: result.update, inflight: true}
+          }));
+        }
+        this.hasCheckedInitialInflightProgress_ = true;
+      });
+    }
   }
 
   /**

@@ -19,8 +19,8 @@
 #include "base/callback.h"
 #include "base/check.h"
 #include "base/feature_list.h"
-#include "base/ignore_result.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -71,12 +71,11 @@ constexpr const char* MutatorIdToTracingString(
 class StatsReporterImpl final : public StatsReporter {
  public:
   void ReportTraceEvent(internal::StatsCollector::ScannerId id,
-                        const PlatformThreadId tid,
+                        [[maybe_unused]] const PlatformThreadId tid,
                         TimeTicks start_time,
                         TimeTicks end_time) override {
     // TRACE_EVENT_* macros below drop most parameters when tracing is
     // disabled at compile time.
-    ignore_result(tid);
     const char* tracing_id = ScannerIdToTracingString(id);
     TRACE_EVENT_BEGIN(kTraceCategory, perfetto::StaticString(tracing_id),
                       perfetto::ThreadTrack::ForThread(tid), start_time);
@@ -85,12 +84,11 @@ class StatsReporterImpl final : public StatsReporter {
   }
 
   void ReportTraceEvent(internal::StatsCollector::MutatorId id,
-                        const PlatformThreadId tid,
+                        [[maybe_unused]] const PlatformThreadId tid,
                         TimeTicks start_time,
                         TimeTicks end_time) override {
     // TRACE_EVENT_* macros below drop most parameters when tracing is
     // disabled at compile time.
-    ignore_result(tid);
     const char* tracing_id = MutatorIdToTracingString(id);
     TRACE_EVENT_BEGIN(kTraceCategory, perfetto::StaticString(tracing_id),
                       perfetto::ThreadTrack::ForThread(tid), start_time);
@@ -137,43 +135,51 @@ void RegisterPCScanStatsReporter() {
 
 namespace {
 
-bool g_memory_reclaimer_running = false;
-
-void DelayedPurgeActionForThreadCache(OnceClosure task, base::TimeDelta delay) {
+void RunThreadCachePeriodicPurge() {
+  TRACE_EVENT0("memory", "PeriodicPurge");
+  auto& instance = internal::ThreadCacheRegistry::Instance();
+  instance.RunPeriodicPurge();
+  TimeDelta delay =
+      Microseconds(instance.GetPeriodicPurgeNextIntervalInMicroseconds());
   ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE,
-      BindOnce(
-          [](OnceClosure task) {
-            TRACE_EVENT0("memory", "PeriodicPurge");
-            std::move(task).Run();
-          },
-          std::move(task)),
-      delay);
+      FROM_HERE, BindOnce(RunThreadCachePeriodicPurge), delay);
 }
 
-base::RepeatingTimer& GetTimer() {
-  static base::NoDestructor<base::RepeatingTimer> timer;
-  return *timer.get();
-}
-
-void ReclaimPeriodically() {
+void RunPartitionAllocMemoryReclaimer(
+    scoped_refptr<SequencedTaskRunner> task_runner) {
   TRACE_EVENT0("base", "PartitionAllocMemoryReclaimer::Reclaim()");
-  PartitionAllocMemoryReclaimer::Instance()->ReclaimNormal();
+  auto* instance = PartitionAllocMemoryReclaimer::Instance();
+
+  {
+    // Micros, since memory reclaiming should typically take at most a few ms.
+    SCOPED_UMA_HISTOGRAM_TIMER_MICROS("Memory.PartitionAlloc.MemoryReclaim");
+    instance->ReclaimNormal();
+  }
+
+  TimeDelta delay =
+      Microseconds(instance->GetRecommendedReclaimIntervalInMicroseconds());
+  task_runner->PostDelayedTask(
+      FROM_HERE, BindOnce(RunPartitionAllocMemoryReclaimer, task_runner),
+      delay);
 }
 
 }  // namespace
 
 void StartThreadCachePeriodicPurge() {
-  internal::ThreadCacheRegistry::Instance().StartPeriodicPurge(
-      DelayedPurgeActionForThreadCache);
+  auto& instance = internal::ThreadCacheRegistry::Instance();
+  TimeDelta delay =
+      Microseconds(instance.GetPeriodicPurgeNextIntervalInMicroseconds());
+  ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, BindOnce(RunThreadCachePeriodicPurge), delay);
 }
 
 void StartMemoryReclaimer(scoped_refptr<SequencedTaskRunner> task_runner) {
   // Can be called several times.
-  if (g_memory_reclaimer_running)
+  static bool is_memory_reclaimer_running = false;
+  if (is_memory_reclaimer_running)
     return;
+  is_memory_reclaimer_running = true;
 
-  g_memory_reclaimer_running = true;
   // The caller of the API fully controls where running the reclaim.
   // However there are a few reasons to recommend that the caller runs
   // it on the main thread:
@@ -189,11 +195,12 @@ void StartMemoryReclaimer(scoped_refptr<SequencedTaskRunner> task_runner) {
   // seconds is useful. Since this is meant to run during idle time only, it is
   // a reasonable starting point balancing effectivenes vs cost. See
   // crbug.com/942512 for details and experimental results.
-  GetTimer().SetTaskRunner(task_runner);
-  GetTimer().Start(FROM_HERE,
-                   PartitionAllocMemoryReclaimer::Instance()
-                       ->GetRecommendedReclaimInterval(),
-                   BindRepeating(&ReclaimPeriodically));
+  auto* instance = PartitionAllocMemoryReclaimer::Instance();
+  TimeDelta delay =
+      Microseconds(instance->GetRecommendedReclaimIntervalInMicroseconds());
+  task_runner->PostDelayedTask(
+      FROM_HERE, BindOnce(RunPartitionAllocMemoryReclaimer, task_runner),
+      delay);
 }
 
 std::map<std::string, std::string> ProposeSyntheticFinchTrials(
@@ -217,19 +224,16 @@ std::map<std::string, std::string> ProposeSyntheticFinchTrials(
 
   // Whether PartitionAllocBackupRefPtr is enabled (as determined by
   // FeatureList::IsEnabled).
-  bool brp_finch_enabled = false;
-  ALLOW_UNUSED_LOCAL(brp_finch_enabled);
+  [[maybe_unused]] bool brp_finch_enabled = false;
   // Whether PartitionAllocBackupRefPtr is set up for the default behavior. The
   // default behavior is when either the Finch flag is disabled, or is enabled
   // in brp-mode=disabled (these two options are equivalent).
-  bool brp_nondefault_behavior = false;
-  ALLOW_UNUSED_LOCAL(brp_nondefault_behavior);
+  [[maybe_unused]] bool brp_nondefault_behavior = false;
   // Whether PartitionAllocBackupRefPtr is set up to enable BRP protection. It
   // requires the Finch flag to be enabled and brp-mode!=disabled*. Some modes,
   // e.g. disabled-but-3-way-split, do something (hence can't be considered the
   // default behavior), but don't enable BRP protection.
-  bool brp_truly_enabled = false;
-  ALLOW_UNUSED_LOCAL(brp_truly_enabled);
+  [[maybe_unused]] bool brp_truly_enabled = false;
 #if BUILDFLAG(USE_BACKUP_REF_PTR)
   if (FeatureList::IsEnabled(features::kPartitionAllocBackupRefPtr))
     brp_finch_enabled = true;
@@ -240,13 +244,12 @@ std::map<std::string, std::string> ProposeSyntheticFinchTrials(
                                features::BackupRefPtrMode::kEnabled)
     brp_truly_enabled = true;
 #endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
-  bool pcscan_enabled =
+  [[maybe_unused]] bool pcscan_enabled =
 #if defined(PA_ALLOW_PCSCAN)
       FeatureList::IsEnabled(features::kPartitionAllocPCScanBrowserOnly);
 #else
       false;
 #endif
-  ALLOW_UNUSED_LOCAL(pcscan_enabled);
 
   std::string brp_group_name = "Unavailable";
 #if BUILDFLAG(USE_BACKUP_REF_PTR)

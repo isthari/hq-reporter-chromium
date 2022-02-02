@@ -318,9 +318,8 @@ void PolicyUITest::VerifyPolicies(
   std::string json;
   ASSERT_TRUE(
       content::ExecuteScriptAndExtractString(contents, javascript, &json));
-  std::unique_ptr<base::Value> value_ptr =
-      base::JSONReader::ReadDeprecated(json);
-  ASSERT_TRUE(value_ptr.get());
+  absl::optional<base::Value> value_ptr = base::JSONReader::Read(json);
+  ASSERT_TRUE(value_ptr);
   ASSERT_TRUE(value_ptr->is_list());
   base::Value::ConstListView actual_policies = value_ptr->GetList();
 
@@ -364,11 +363,10 @@ void PolicyUITest::VerifyExportingPolicies(
   EXPECT_TRUE(
       base::ReadFileToString(export_policies_test_file_path, &file_contents));
 
-  std::unique_ptr<base::Value> value_ptr =
-      base::JSONReader::ReadDeprecated(file_contents);
+  absl::optional<base::Value> value_ptr = base::JSONReader::Read(file_contents);
 
   // Check that the file contains a valid dictionary.
-  EXPECT_TRUE(value_ptr.get());
+  EXPECT_TRUE(value_ptr);
   EXPECT_TRUE(value_ptr->is_dict());
 
   // Since Chrome Metadata has a lot of variations based on platform, OS,
@@ -514,13 +512,13 @@ IN_PROC_BROWSER_TEST_F(PolicyUITest, SendPolicyNames) {
         it.key(), std::string(), std::string(), nullptr, false));
   }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // Add policies found in the Policy Precedence table.
   for (auto* policy : policy::metapolicy::kPrecedence) {
     expected_policies.push_back(PopulateExpectedPolicy(
         policy, std::string(), std::string(), nullptr, false));
   }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
   // Retrieve the contents of the policy table from the UI and verify that it
   // matches the expectation.
@@ -603,20 +601,20 @@ IN_PROC_BROWSER_TEST_F(PolicyUITest, SendPolicyValues) {
           kUnknownPolicyWithDots, expected_values[kUnknownPolicyWithDots],
           "Platform", values.Get(kUnknownPolicyWithDots), true));
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // Add policies found in the Policy Precedence table.
   for (auto* policy : policy::metapolicy::kPrecedence) {
     expected_policies.push_back(PopulateExpectedPolicy(
         policy, std::string(), std::string(), values.Get(policy), false));
   }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
   // Retrieve the contents of the policy table from the UI and verify that it
   // matches the expectation.
   VerifyPolicies(expected_policies);
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 class PolicyPrecedenceUITest
     : public PolicyUITest,
       public ::testing::WithParamInterface<std::tuple<
@@ -703,7 +701,7 @@ INSTANTIATE_TEST_SUITE_P(PolicyPrecedenceUITestInstance,
                          testing::Combine(testing::Values(false, true),
                                           testing::Values(false, true),
                                           testing::Values(false, true)));
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 // TODO(https://crbug.com/1027135) Add tests to verify extension policies are
 // exported correctly.
@@ -717,7 +715,7 @@ class ExtensionPolicyUITest : public PolicyUITest,
   Profile* extension_profile() const {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     if (UseSigninProfile()) {
-      return chromeos::ProfileHelper::GetSigninProfile();
+      return ash::ProfileHelper::GetSigninProfile();
     }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     return browser()->profile();
@@ -837,13 +835,13 @@ IN_PROC_BROWSER_TEST_P(ExtensionPolicyUITest,
         it.key(), std::string(), std::string(), nullptr, false));
   }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // Add policies found in the precedence policy table.
   for (auto* policy : policy::metapolicy::kPrecedence) {
     expected_chrome_policies.push_back(PopulateExpectedPolicy(
         policy, std::string(), std::string(), nullptr, false));
   }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
   // Add extension policy to expected policy list.
   std::vector<std::vector<std::string>> expected_policies =

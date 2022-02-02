@@ -545,6 +545,8 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   FRIEND_TEST_ALL_PREFIXES(NetworkStateHandlerTest, SyncStubCellularNetworks);
   FRIEND_TEST_ALL_PREFIXES(NetworkStateHandlerTest,
                            GetNetworkListAfterUpdateManagedList);
+  FRIEND_TEST_ALL_PREFIXES(NetworkStateHandlerTest,
+                           UpdateBlockedCellularNetworkAfterUpdateManagedList);
 
   // Implementation for GetNetworkListByType and GetActiveNetworkListByType.
   void GetNetworkListByTypeImpl(const NetworkTypePattern& type,
@@ -693,6 +695,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // |UpdateBlockedNetworksInternal(NetworkTypePattern::Wifi())| if the
   // availability changed.
   void UpdateManagedWifiNetworkAvailable();
+
+  // Check if the cellular device has received update and calls
+  // |UpdateBlockedNetworksInternal(NetworkTypePattern::Cellular())|
+  void UpdateBlockedCellularNetworks();
 
   // Calls |UpdateBlockedByPolicy()| for each given |network_type| network.
   void UpdateBlockedNetworksInternal(const NetworkTypePattern& network_type);

@@ -5,6 +5,7 @@
 serves content from a base_path.
 """
 
+import os
 try:
   # Python 2
   from SimpleHTTPServer import SimpleHTTPRequestHandler
@@ -30,6 +31,7 @@ class HTTPServer(BaseHTTPServer):
     self.stop = False
     BaseHTTPServer.__init__(self, server_address, RequestHandlerClass)
 
+  #pylint: disable=unused-argument
   def serve_forever(self, poll_interval=0.1):
     self.stop = False
     while not self.stop:

@@ -394,10 +394,6 @@ void FrameTreeNode::SetCurrentURL(const GURL& url) {
   blame_context_.TakeSnapshot();
 }
 
-void FrameTreeNode::DidCommitNonInitialEmptyDocument() {
-  is_on_initial_empty_document_ = false;
-}
-
 void FrameTreeNode::SetCollapsed(bool collapsed) {
   DCHECK(!IsMainFrame());
   if (is_collapsed_ == collapsed)
@@ -499,38 +495,6 @@ bool FrameTreeNode::HasPendingCrossDocumentNavigation() const {
 
   return render_manager_.current_frame_host()
       ->HasPendingCommitForCrossDocumentNavigation();
-}
-
-bool FrameTreeNode::CommitFramePolicy(
-    const blink::FramePolicy& new_frame_policy) {
-  // Documents create iframes, iframes host new documents. Both are associated
-  // with sandbox flags. They are required to be stricter or equal to their
-  // owner when they change, as we go down.
-  // TODO(https://crbug.com/1262061). Enforce the invariant mentioned above,
-  // once the interactions with FencedIframe has been tested and clarified.
-
-  const blink::mojom::FrameReplicationState& replication_state =
-      render_manager_.current_replication_state();
-
-  bool did_change_flags = new_frame_policy.sandbox_flags !=
-                          replication_state.frame_policy.sandbox_flags;
-  bool did_change_container_policy =
-      new_frame_policy.container_policy !=
-      replication_state.frame_policy.container_policy;
-  bool did_change_required_document_policy =
-      pending_frame_policy_.required_document_policy !=
-      replication_state.frame_policy.required_document_policy;
-  DCHECK_EQ(new_frame_policy.is_fenced,
-            replication_state.frame_policy.is_fenced);
-
-  render_manager_.browsing_context_state()->UpdateFramePolicy(
-      new_frame_policy, did_change_flags, did_change_container_policy,
-      did_change_required_document_policy);
-
-  UpdateFramePolicyHeaders(new_frame_policy.sandbox_flags,
-                           replication_state.permissions_policy_header);
-  return did_change_flags || did_change_container_policy ||
-         did_change_required_document_policy;
 }
 
 void FrameTreeNode::TransferNavigationRequestOwnership(
@@ -678,6 +642,10 @@ bool FrameTreeNode::NotifyUserActivation(
   // https://html.spec.whatwg.org/multipage/interaction.html#tracking-user-activation.
   for (RenderFrameHostImpl* rfh = current_frame_host(); rfh;
        rfh = rfh->GetParent()) {
+    // The use of GetParent above is acceptable with fenced frames, as
+    // the caller to this function will eventually reach
+    // RenderFrameHostManager::UpdateUserActivationState, which in turn will
+    // lead to the propagation of the user activation to all ancestors.
     rfh->DidReceiveUserActivation();
     rfh->frame_tree_node()->user_activation_state_.Activate(notification_type);
   }
@@ -687,7 +655,8 @@ bool FrameTreeNode::NotifyUserActivation(
   // See the "Same-origin Visibility" section in |UserActivationState| class
   // doc.
   if (base::FeatureList::IsEnabled(
-          features::kUserActivationSameOriginVisibility)) {
+          features::kUserActivationSameOriginVisibility) &&
+      frame_tree()->type() != FrameTree::Type::kFencedFrame) {
     const url::Origin& current_origin =
         this->current_frame_host()->GetLastCommittedOrigin();
     for (FrameTreeNode* node : frame_tree()->Nodes()) {
@@ -764,32 +733,6 @@ bool FrameTreeNode::UpdateUserActivationState(
   }
   render_manager_.UpdateUserActivationState(update_type, notification_type);
   return update_result;
-}
-
-bool FrameTreeNode::UpdateFramePolicyHeaders(
-    network::mojom::WebSandboxFlags sandbox_flags,
-    const blink::ParsedPermissionsPolicy& parsed_header) {
-  bool changed = false;
-  if (render_manager_.current_replication_state().permissions_policy_header !=
-      parsed_header) {
-    render_manager_.browsing_context_state()->set_permissions_policy_header(
-        parsed_header);
-    changed = true;
-  }
-  // TODO(iclelland): Kill the renderer if sandbox flags is not a subset of the
-  // currently effective sandbox flags from the frame. https://crbug.com/740556
-  network::mojom::WebSandboxFlags updated_flags =
-      sandbox_flags | effective_frame_policy().sandbox_flags;
-  if (render_manager_.current_replication_state().active_sandbox_flags !=
-      updated_flags) {
-    render_manager_.browsing_context_state()->set_active_sandbox_flags(
-        updated_flags);
-    changed = true;
-  }
-  // Notify any proxies if the policies have been changed.
-  if (changed)
-    render_manager()->OnDidSetFramePolicyHeaders();
-  return changed;
 }
 
 void FrameTreeNode::PruneChildFrameNavigationEntries(
@@ -913,6 +856,10 @@ bool FrameTreeNode::IsErrorPageIsolationEnabled() const {
   // isolation is supported for subframes in crbug.com/1092524.
   return SiteIsolationPolicy::IsErrorPageIsolationEnabled(IsMainFrame() ||
                                                           IsFencedFrameRoot());
+}
+
+void FrameTreeNode::SetSrcdocValue(const std::string& srcdoc_value) {
+  srcdoc_value_ = srcdoc_value;
 }
 
 }  // namespace content

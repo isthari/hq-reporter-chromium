@@ -249,7 +249,7 @@ class GuestOsSharePathTest : public testing::Test {
     ASSERT_TRUE(base::CreateDirectory(shared_path_));
     DictionaryPrefUpdate update(profile()->GetPrefs(),
                                 prefs::kGuestOSPathsSharedToVms);
-    base::DictionaryValue* shared_paths = update.Get();
+    base::Value* shared_paths = update.Get();
     base::Value termina(base::Value::Type::LIST);
     termina.Append(base::Value(crostini::kCrostiniDefaultVmName));
     shared_paths->SetKey(shared_path_.value(), std::move(termina));
@@ -788,7 +788,7 @@ TEST_F(GuestOsSharePathTest, UnsharePathSuccess) {
   SetUpVolume();
   DictionaryPrefUpdate update(profile()->GetPrefs(),
                               prefs::kGuestOSPathsSharedToVms);
-  base::DictionaryValue* shared_paths = update.Get();
+  base::Value* shared_paths = update.Get();
   base::Value vms(base::Value::Type::LIST);
   vms.Append(base::Value("vm-running"));
   shared_paths->SetKey(shared_path_.value(), std::move(vms));
@@ -815,7 +815,7 @@ TEST_F(GuestOsSharePathTest, UnsharePathVmNotRunning) {
   SetUpVolume();
   DictionaryPrefUpdate update(profile()->GetPrefs(),
                               prefs::kGuestOSPathsSharedToVms);
-  base::DictionaryValue* shared_paths = update.Get();
+  base::Value* shared_paths = update.Get();
   base::Value vms(base::Value::Type::LIST);
   vms.Append(base::Value("vm-not-running"));
   shared_paths->SetKey(shared_path_.value(), std::move(vms));
@@ -832,7 +832,7 @@ TEST_F(GuestOsSharePathTest, UnsharePathPluginVmNotRunning) {
   SetUpVolume();
   DictionaryPrefUpdate update(profile()->GetPrefs(),
                               prefs::kGuestOSPathsSharedToVms);
-  base::DictionaryValue* shared_paths = update.Get();
+  base::Value* shared_paths = update.Get();
   base::Value vms(base::Value::Type::LIST);
   vms.Append(base::Value("PvmDefault"));
   shared_paths->SetKey(shared_path_.value(), std::move(vms));
@@ -850,7 +850,7 @@ TEST_F(GuestOsSharePathTest, UnsharePathArcvmNotRunning) {
   SetUpVolume();
   DictionaryPrefUpdate update(profile()->GetPrefs(),
                               prefs::kGuestOSPathsSharedToVms);
-  base::DictionaryValue* shared_paths = update.Get();
+  base::Value* shared_paths = update.Get();
   base::Value vms(base::Value::Type::LIST);
   vms.Append(base::Value(arc::kArcVmName));
   shared_paths->SetKey(shared_path_.value(), std::move(vms));

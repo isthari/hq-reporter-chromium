@@ -863,12 +863,12 @@ class AutofillInteractiveTestWithHistogramTester
   std::unique_ptr<URLLoaderInterceptor> url_loader_interceptor_;
 };
 
-// Test is flaky on Linux TSAN, see http://crbug.com/1045709.
-#if defined(THREAD_SANITIZER)
+// Test is flaky on Linux TSAN and Mac, see http://crbug.com/1045709.
+#if defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_BasicFormFill DISABLED_BasicFormFill
 #else
 #define MAYBE_BasicFormFill BasicFormFill
-#endif  // THREAD_SANITIZER
+#endif  // defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 // Test that basic form fill is working.
 IN_PROC_BROWSER_TEST_F(AutofillInteractiveTestWithHistogramTester,
                        MAYBE_BasicFormFill) {
@@ -2162,7 +2162,7 @@ IN_PROC_BROWSER_TEST_F(AutofillCompanyInteractiveTest,
 
 // Test that Autofill does not fill in Company Name if disabled
 // TODO(crbug.com/1279102): Flaky on Win and Mac.
-#if defined(OS_WIN) || defined(OS_MAC)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
 #define MAYBE_NoAutofillSugggestionForCompanyName \
   DISABLED_NoAutofillSugggestionForCompanyName
 #else
@@ -2766,7 +2766,7 @@ class AutofillInteractiveIsolationTest : public AutofillInteractiveTestBase {
 };
 
 // Flaky on ChromeOS http://crbug.com/1175735
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_SimpleCrossSiteFill DISABLED_SimpleCrossSiteFill
 #else
 #define MAYBE_SimpleCrossSiteFill SimpleCrossSiteFill
@@ -2858,14 +2858,9 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, CrossSitePaymentForms) {
                        {ObservedUiEvents::kSuggestionShown});
 }
 
-// Flaky on ChromeOS http://crbug.com/1175735
-#if defined(OS_CHROMEOS)
-#define MAYBE_DeletingFrameUnderSuggestion DISABLED_DeletingFrameUnderSuggestion
-#else
-#define MAYBE_DeletingFrameUnderSuggestion DeletingFrameUnderSuggestion
-#endif
+// Flaky on multiple platforms http://crbug.com/1175735
 IN_PROC_BROWSER_TEST_F(AutofillInteractiveIsolationTest,
-                       MAYBE_DeletingFrameUnderSuggestion) {
+                       DISABLED_DeletingFrameUnderSuggestion) {
   // TODO(crbug.com/1240482): the test expectations fail if the window gets CSD
   // and becomes smaller because of that.  Investigate this and remove the line
   // below if possible.
@@ -3047,9 +3042,17 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormReplacementInteractiveTest,
   ExpectFieldValue("phone_form2", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_SecondChange \
+  DISABLED_DynamicChangingFormFill_SecondChange
+#else
+#define MAYBE_DynamicChangingFormFill_SecondChange \
+  DynamicChangingFormFill_SecondChange
+#endif  // BUILDFLAG(IS_MAC)
 // Test that forms that dynamically change a second time do not get filled.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormReplacementInteractiveTest,
-                       DynamicChangingFormFill_SecondChange) {
+                       MAYBE_DynamicChangingFormFill_SecondChange) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3103,9 +3106,17 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone_form1", "");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_AddsNewFieldTypeGroups \
+  DISABLED_DynamicChangingFormFill_AddsNewFieldTypeGroups
+#else
+#define MAYBE_DynamicChangingFormFill_AddsNewFieldTypeGroups \
+  DynamicChangingFormFill_AddsNewFieldTypeGroups
+#endif  // BUILDFLAG(IS_MAC)
 // Test that only field of a type group that was filled initially get refilled.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormReplacementInteractiveTest,
-                       DynamicChangingFormFill_AddsNewFieldTypeGroups) {
+                       MAYBE_DynamicChangingFormFill_AddsNewFieldTypeGroups) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3164,10 +3175,17 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicFormFill_VisibilitySwitch \
+  DISABLED_DynamicFormFill_VisibilitySwitch
+#else
+#define MAYBE_DynamicFormFill_VisibilitySwitch DynamicFormFill_VisibilitySwitch
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can autofill forms that dynamically change the visibility of a
 // field after it's autofilled.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicFormFill_VisibilitySwitch) {
+                       MAYBE_DynamicFormFill_VisibilitySwitch) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3220,10 +3238,18 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicFormFill_FirstElementDisappearsNoNameForm \
+  DISABLED_DynamicFormFill_FirstElementDisappearsNoNameForm
+#else
+#define MAYBE_DynamicFormFill_FirstElementDisappearsNoNameForm \
+  DynamicFormFill_FirstElementDisappearsNoNameForm
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can autofill forms that dynamically change the element that
 // has been clicked on, even though the form has no name.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicFormFill_FirstElementDisappearsNoNameForm) {
+                       MAYBE_DynamicFormFill_FirstElementDisappearsNoNameForm) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3281,11 +3307,20 @@ IN_PROC_BROWSER_TEST_P(
   ExpectFieldValue("country_8", "US");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicFormFill_FirstElementDisappearsBadnameUnowned \
+  DISABLED_DynamicFormFill_FirstElementDisappearsBadnameUnowned
+#else
+#define MAYBE_DynamicFormFill_FirstElementDisappearsBadnameUnowned \
+  DynamicFormFill_FirstElementDisappearsBadnameUnowned
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can autofill forms that dynamically change the element that
 // has been clicked on, even though there are multiple forms with identical
 // names.
-IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicFormFill_FirstElementDisappearsBadnameUnowned) {
+IN_PROC_BROWSER_TEST_P(
+    AutofillDynamicFormInteractiveTest,
+    MAYBE_DynamicFormFill_FirstElementDisappearsBadnameUnowned) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3313,11 +3348,19 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("country_8", "US");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicFormFill_FirstElementDisappearsMultipleNoNameForms \
+  DISABLED_DynamicFormFill_FirstElementDisappearsMultipleNoNameForms
+#else
+#define MAYBE_DynamicFormFill_FirstElementDisappearsMultipleNoNameForms \
+  DynamicFormFill_FirstElementDisappearsMultipleNoNameForms
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can autofill forms that dynamically change the element that
 // has been clicked on, even though there are multiple forms with no name.
 IN_PROC_BROWSER_TEST_P(
     AutofillDynamicFormInteractiveTest,
-    DynamicFormFill_FirstElementDisappearsMultipleNoNameForms) {
+    MAYBE_DynamicFormFill_FirstElementDisappearsMultipleNoNameForms) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3406,10 +3449,18 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormReplacementInteractiveTest,
   ExpectFieldValue("cc-csc", "");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_SelectUpdated \
+  DISABLED_DynamicChangingFormFill_SelectUpdated
+#else
+#define MAYBE_DynamicChangingFormFill_SelectUpdated \
+  DynamicChangingFormFill_SelectUpdated
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can Autofill dynamically changing selects that have options
 // added and removed.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicChangingFormFill_SelectUpdated) {
+                       MAYBE_DynamicChangingFormFill_SelectUpdated) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3435,10 +3486,18 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_DoubleSelectUpdated \
+  DISABLED_DynamicChangingFormFill_DoubleSelectUpdated
+#else
+#define MAYBE_DynamicChangingFormFill_DoubleSelectUpdated \
+  DynamicChangingFormFill_DoubleSelectUpdated
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can Autofill dynamically changing selects that have options
 // added and removed only once.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicChangingFormFill_DoubleSelectUpdated) {
+                       MAYBE_DynamicChangingFormFill_DoubleSelectUpdated) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3493,11 +3552,20 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormReplacementInteractiveTest,
   ExpectFieldValue("phone_form1", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_SelectUpdated_FormWithoutName \
+  DISABLED_DynamicChangingFormFill_SelectUpdated_FormWithoutName
+#else
+#define MAYBE_DynamicChangingFormFill_SelectUpdated_FormWithoutName \
+  DynamicChangingFormFill_SelectUpdated_FormWithoutName
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can Autofill dynamically changing selects that have options
 // added and removed for forms with no names if the NameForAutofill of the first
 // field matches.
-IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicChangingFormFill_SelectUpdated_FormWithoutName) {
+IN_PROC_BROWSER_TEST_P(
+    AutofillDynamicFormInteractiveTest,
+    MAYBE_DynamicChangingFormFill_SelectUpdated_FormWithoutName) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(
@@ -3524,10 +3592,18 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone", "15125551234");
 }
 
+// Test is flaky on Mac, see http://crbug.com/1290277.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_DynamicChangingFormFill_SyntheticForm \
+  DISABLED_DynamicChangingFormFill_SyntheticForm
+#else
+#define MAYBE_DynamicChangingFormFill_SyntheticForm \
+  DynamicChangingFormFill_SyntheticForm
+#endif  // BUILDFLAG(IS_MAC)
 // Test that we can Autofill dynamically generated synthetic forms if the
 // NameForAutofill of the first field matches.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicChangingFormFill_SyntheticForm) {
+                       MAYBE_DynamicChangingFormFill_SyntheticForm) {
   CreateTestProfile();
 
   GURL url = embedded_test_server()->GetURL(

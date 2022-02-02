@@ -6,6 +6,7 @@
     <output filename="grit/chromeos_strings.h" type="rc_header">
       <emit emit_type='prepend'></emit>
     </output>
+    <output filename="chromeos_strings_af.pak" type="data_package" lang="af" />
     <output filename="chromeos_strings_am.pak" type="data_package" lang="am" />
     <output filename="chromeos_strings_ar.pak" type="data_package" lang="ar" />
     <output filename="chromeos_strings_bg.pak" type="data_package" lang="bg" />
@@ -62,6 +63,7 @@
     <output filename="chromeos_strings_vi.pak" type="data_package" lang="vi" />
     <output filename="chromeos_strings_zh-CN.pak" type="data_package" lang="zh-CN" />
     <output filename="chromeos_strings_zh-TW.pak" type="data_package" lang="zh-TW" />
+    <output filename="chromeos_strings_zu.pak" type="data_package" lang="zu" />
 
     <!-- Pseudolocales -->
     <output filename="chromeos_strings_ar-XB.pak" type="data_package" lang="ar-XB" />
@@ -173,6 +175,14 @@ Try tapping the mic to ask me anything.
       <!-- Managed user session warning -->
       <message name="IDS_ASH_LOGIN_MANAGED_SESSION_MONITORING_USER_WARNING" desc="Text shown in the user pod in case the user is managed. MANAGER can be a domain or an email address.">
         <ph name="MANAGER">$1<ex>example.com</ex></ph> manages this user and may remotely manage settings and monitor user activity.
+      </message>
+
+      <!-- Time out sign-in with camera screen -->
+      <message name="IDS_ASH_LOGIN_CAMERA_TIME_OUT_TITLE" desc="Text shown on camera usage timeout after the third-party SAML dialog is dismissed.">
+        Sign in to your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>
+      </message>
+      <message name="IDS_ASH_LOGIN_CAMERA_TIME_OUT_SUBTITLE" desc="Description shown above the button that leads to login dialog. Shown on camera usage timeout after the third-party SAML dialog is dismissed.">
+        Enter your username and password or scan your QR code
       </message>
 
       <!-- Pop-up enterprise management. -->
@@ -1197,8 +1207,8 @@ Try tapping the mic to ask me anything.
       <message name="IDS_NETWORK_TYPE_VPN" desc="Label for VPN networks.">
         VPN
       </message>
-      <message name="IDS_NETWORK_TYPE_VPN_BUILTIN" desc="The built-in VPN types (Open VPN and L2TP/IPSec).">
-        OpenVPN / L2TP
+      <message name="IDS_NETWORK_TYPE_VPN_BUILTIN" desc="Label for the built-in VPN types.">
+        Built-in VPN
       </message>
       <message name="IDS_NETWORK_TYPE_WIRELESS" desc="Label for wireless networks (Cellular, Tether, and WiFi.).">
         Wireless
@@ -1871,7 +1881,10 @@ Try tapping the mic to ask me anything.
       </message>
 
       <!-- Personalization App -->
-      <message name="IDS_PERSONALIZATION_APP_TITLE" desc="Name of the system web app for personalizing ChromeOS.">
+      <message name="IDS_PERSONALIZATION_APP_PERSONALIZATION_HUB_TITLE" desc="Name of the system web app for personalizing ChromeOS.">
+        Personalization
+      </message>
+      <message name="IDS_PERSONALIZATION_APP_WALLPAPER_LABEL" desc="Label for wallpaper element in personalization hub">
         Wallpaper
       </message>
       <message name="IDS_PERSONALIZATION_APP_BACK_BUTTON" desc="Aria label for the back button to return to a prior page">
@@ -1968,6 +1981,12 @@ Try tapping the mic to ask me anything.
       <message name="IDS_PERSONALIZATION_APP_THEME_LIGHT_COLOR_MODE" desc="Label for light color mode setting">
         Light
       </message>
+      <message name="IDS_PERSONALIZATION_APP_AVATAR_LABEL" desc="Label for the Avatar page in Personalization app.">
+        Avatar
+      </message>
+      <message name="IDS_PERSONALIZATION_APP_SCREENSAVER_LABEL" desc="Label for the Screensaver page in Personalization app.">
+        Screensaver
+      </message>
 
       <!-- Traffic Counters UI -->
       <message name="IDS_TRAFFIC_COUNTERS_UNKNOWN" desc="Traffic counters related to an unknown source">
@@ -2025,6 +2044,61 @@ Try tapping the mic to ask me anything.
       </message>
       <message name="IDS_BLUETOOTH_DEVICE_LIST_NO_CONNECTED_DEVICES" desc="Text displayed indicating there are currently no paired Bluetooth devices.">
         No device connected
+      </message>
+      <!-- Connection statuses -->
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_CONNECTION_STATE_CONNECTED" desc="Accessibility text for the connection status of a device that is connected.">
+        Device is connected.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_CONNECTION_STATE_CONNECTING" desc="Accessibility text for the connection status of a device that is connecting.">
+        Device is connecting.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_CONNECTION_STATE_NOT_CONNECTED" desc="Accessibility text for the connection status of a device that is not connected.">
+        Device is not connected.
+      </message>
+      <!-- Device types -->
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_UNKNOWN" desc="Accessibility text for the type of a device whose type is unknown.">
+        Device type is unknown.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_COMPUTER" desc="Accessibility text for the type of a device that is a computer.">
+        Device is a computer.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_PHONE" desc="Accessibility text for the type of a device that is a phone.">
+        Device is a phone.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_HEADSET" desc="Accessibility text for the type of a device that is an audio device.">
+        Device is an audio device.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_VIDEO_CAMERA" desc="Accessibility text for the type of a device that is a video camera.">
+        Device is a video camera.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_GAME_CONTROLLER" desc="Accessibility text for the type of a device that is a game controller.">
+        Device is a game controller.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_KEYBOARD" desc="Accessibility text for the type of a device that is a keyboard.">
+        Device is a keyboard.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_MOUSE" desc="Accessibility text for the type of a device that is a mouse.">
+        Device is a mouse.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_TYPE_TABLET" desc="Accessibility text for the type of a device that is a tablet.">
+        Device is a tablet.
+      </message>
+      <!-- Battery information -->
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_BATTERY_INFO" desc="Accessibility text for the battery of a device.">
+        Device has <ph name="BATTERY_PERCENTAGE">$1<ex>100</ex></ph>% battery.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_LEFT_BUD" desc="Accessibility text for the left bud battery of a true wireless device.">
+        Device has <ph name="BATTERY_PERCENTAGE">$1<ex>100</ex></ph>% left bud battery.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_CASE" desc="Accessibility text for the case battery of a true wireless device.">
+        Device has <ph name="BATTERY_PERCENTAGE">$1<ex>100</ex></ph>% case battery.
+      </message>
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_RIGHT_BUD" desc="Accessibility text for the right bud battery of a true wireless device.">
+        Device has <ph name="BATTERY_PERCENTAGE">$1<ex>100</ex></ph>% right bud battery.
+      </message>
+      <!-- Formattable strings -->
+      <message name="IDS_BLUETOOTH_A11Y_DEVICE_NAME" desc="Label to display the name of a device item within a device list.">
+        Device <ph name="INDEX">$1<ex>1</ex></ph> of <ph name="COUNT">$2<ex>15</ex></ph> named <ph name="NAME">$3<ex>Beats</ex></ph>.
       </message>
 
       <!-- Shimless RMA -->
@@ -2115,6 +2189,9 @@ Try tapping the mic to ask me anything.
       <message name="IDS_SHIMLESS_RMA_SKIP_BUTTON" desc="Default text for the button used to skip to the next step of RMA finalization.">
         Skip
       </message>
+      <message name="IDS_SHIMLESS_RMA_OK_BUTTON" desc="Default text for OK button used to acknowledge and close dialogs.">
+        OK
+      </message>
       <!-- Landing page -->
       <message name="IDS_SHIMLESS_RMA_LANDING_PAGE_TITLE" translateable="false" desc="Title for the landing page at the start of RMA.">
         Chromebook repair
@@ -2129,10 +2206,13 @@ Try tapping the mic to ask me anything.
         Components are installed correctly.
       </message>
       <message name="IDS_SHIMLESS_RMA_VALIDATED_COMPONENTS_FAIL" translateable="false" desc="Validation check found that device components are NOT approved for this device.">
-        Components could not be validated. If you are certain you are using qualified components updating Chrome OS may resolve this issue.
+        <ph name="LINK_BEGIN">&lt;a id="unqualifiedComponentsLink"&gt;</ph>Unqualified components<ph name="LINK_END">&lt;/a&gt;</ph> found. To make sure all qualified components are identified, update your ChromeOS to the latest version.
       </message>
       <message name="IDS_SHIMLESS_RMA_GET_STARTED_BUTTON_LABEL" desc="The label for the button to start the RMA process.">
         Get started
+      </message>
+      <message name="IDS_SHIMLESS_RMA_UNQUALIFIED_COMPONENTS_TITLE" desc="The title for the dialog showing the list of components unqualfiied by Chrome OS.">
+        Unqualified components
       </message>
       <!-- Network connect page -->
       <message name="IDS_SHIMLESS_RMA_CONNECT_PAGE_TITLE" desc="Title for the connect to wifi page.">
@@ -2342,8 +2422,11 @@ Try tapping the mic to ask me anything.
       <message name="IDS_SHIMLESS_RMA_UPDATE_OS_PAGE_TITLE" translateable="false" desc="Title of Chrome OS update page.">
         Make sure Chrome OS is up to date
       </message>
-      <message name="IDS_SHIMLESS_RMA_UPDATE_OS_INVALID_COMPONENTS" translateable="false" desc="Description when components could not be validated.">
-        An unrecognized component has been found. Unrecognized devices will not be configured correctly and may be unusable. Updating to the latest version of Chrome OS may resolve this issue.
+      <message name="IDS_SHIMLESS_RMA_UPDATE_OS_UNQUALIFIED_COMPONENTS_TOP" translateable="false" desc="Description when components not qualified for Chrome OS are detected.">
+        <ph name="LINK_BEGIN">&lt;a id="unqualifiedComponentsLink"&gt;</ph>Unqualified components<ph name="LINK_END">&lt;/a&gt;</ph> found. To make sure all qualified componets are identified, update your Chrome OS to the latest version.
+      </message>
+      <message name="IDS_SHIMLESS_RMA_UPDATE_OS_UNQUALIFIED_COMPONENTS_BOTTOM" translateable="false" desc="Description when components not qualified for Chrome OS are detected.">
+        If you still see the issue after the update, it's possible the component is newly qualified and hasn't made it to the database yet.
       </message>
       <message name="IDS_SHIMLESS_RMA_UPDATE_OS_VERY_OUT_OF_DATE" translateable="false" desc="Description when the installed OS is too many versions behind the update.">
         Chrome OS needs an additional update to get fully up to date
@@ -2538,7 +2621,7 @@ Try tapping the mic to ask me anything.
         Firmware <ph name="DEVICE_NAME">$1<ex>Logitech keyboard</ex></ph> has been updated to version <ph name="VERSION">$2<ex>2.0.12</ex></ph>
       </message>
       <message name="IDS_FIRMWARE_UPDATING_INFO_TEXT" desc="Label for communicating information about what actions a user can take during an update.">
-        While updating, you can minimize window but do not unplug your device. This may take a few minutes and your device might not work during this update
+        While the firmware is updating, do not unplug this external device or shut down your computer. You can minimize this window. This update may take a few minutes and your external device may not work during this time.
       </message>
       <message name="IDS_FIRMWARE_INSTALLING_TEXT" desc="Label that displays what percentage of the update has been installed.">
         Installing - <ph name="PERCENTAGE_VALUE">$1<ex>94</ex></ph>%
@@ -2548,6 +2631,25 @@ Try tapping the mic to ask me anything.
       </message>
       <message name="IDS_FIRMWARE_VERSION_TEXT" desc="Label for the update's version.">
         Version <ph name="VERSION">$1<ex>3.0.2</ex></ph>
+      </message>
+      <!-- TODO(michaelcheco): Update strings after UX review. -->
+      <message translateable="false" name="IDS_FIRMWARE_RESTARTING_TITLE_TEXT" desc="Label for showing that a device is being restarted.">
+        Restarting <ph name="DEVICE_NAME">$1<ex>Logitech keyboard</ex></ph>
+      </message>
+      <message translateable="false" name="IDS_FIRMWARE_RESTARTING_BODY_TEXT" desc="Label for communicating information about what actions a user can take during a device restart.">
+        Your device is restarting, you can minimize window but do not unplug your device. This may take a few minutes.
+      </message>
+      <message translateable="false" name="IDS_FIRMWARE_RESTARTING_FOOTER_TEXT" desc="Label shown when a device is being restarted.">
+        Restarting ...
+      </message>
+      <message translateable="false" name="IDS_FIRMWARE_UPDATE_FAILED_TITLE_TEXT" desc="Label shown when an update fails.">
+        Failed to update <ph name="DEVICE_NAME">$1<ex>Logitech keyboard</ex></ph>
+      </message>
+      <message translateable="false" name="IDS_FIRMWARE_UPDATE_FAILED_BODY_TEXT" desc="Label for communicating information about why an update failed.">
+        Update failed
+      </message>
+      <message name="IDS_CONFIRMATION_TITLE_TEXT" desc="Label for the confirmation dialog title.">
+        Update firmware on <ph name="DEVICE_NAME">$1<ex>Logitech keyboard</ex></ph>
       </message>
 
       <!-- Quick Answers -->

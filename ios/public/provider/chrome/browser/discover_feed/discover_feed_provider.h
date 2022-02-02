@@ -11,6 +11,7 @@
 class Browser;
 @class DiscoverFeedConfiguration;
 @class DiscoverFeedViewControllerConfiguration;
+@class FeedMetricsRecorder;
 
 // DiscoverFeedProvider allows embedders to provide functionality for a Discover
 // Feed.
@@ -35,13 +36,24 @@ class DiscoverFeedProvider {
   DiscoverFeedProvider(const DiscoverFeedProvider&) = delete;
   DiscoverFeedProvider& operator=(const DiscoverFeedProvider&) = delete;
 
-  // Starts the Feed using |discover_config| which contains various configs for
-  // the Feed.
+  // Starts the Feed service using |discover_config| which contains various
+  // configs for the Feed.
+  virtual void StartFeedService(DiscoverFeedConfiguration* discover_config);
+  // Stops the Feed, which will disconnect all of its services and clear the
+  // models.
+  virtual void StopFeedService();
+  // TODO(crbug.com/1277504): Remove when cleaned out of downstream.
   virtual void StartFeed(DiscoverFeedConfiguration* discover_config);
-  // Stops the Feed, which will disconnect all of its services.
   virtual void StopFeed();
+  // Creates models for all enabled feed types.
+  virtual void CreateFeedModels();
+  // Clears all existing feed models.
+  virtual void ClearFeedModels();
   // Returns true if the Discover Feed is enabled.
   virtual bool IsDiscoverFeedEnabled();
+  // Returns the FeedMetricsRecorder to be used by the feed. There only exists a
+  // single instance of the metrics recorder per browser state.
+  virtual FeedMetricsRecorder* GetFeedMetricsRecorder();
   // Returns the Discover Feed ViewController with a custom
   // DiscoverFeedViewControllerConfiguration.
   virtual UIViewController* NewDiscoverFeedViewControllerWithConfiguration(
@@ -63,12 +75,6 @@ class DiscoverFeedProvider {
   // Methods to register or remove observers.
   virtual void AddObserver(Observer* observer);
   virtual void RemoveObserver(Observer* observer);
-  // Loads and appends the next set of articles in the feed.
-  virtual void LoadMoreFeedArticles();
-  // Called by the embedder whenever the Feed has been shown.
-  // TODO(crbug.com/1126940): The Feed should have a callback for this, remove
-  // when its available.
-  virtual void FeedWasShown();
 };
 
 #endif  // IOS_PUBLIC_PROVIDER_CHROME_BROWSER_DISCOVER_FEED_DISCOVER_FEED_PROVIDER_H_

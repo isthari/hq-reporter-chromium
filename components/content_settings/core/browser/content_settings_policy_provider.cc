@@ -88,6 +88,10 @@ constexpr PrefsForManagedContentSettingsMapEntry
          ContentSettingsType::JAVASCRIPT_JIT, CONTENT_SETTING_ALLOW},
         {prefs::kManagedJavaScriptJitBlockedForSites,
          ContentSettingsType::JAVASCRIPT_JIT, CONTENT_SETTING_BLOCK},
+        {prefs::kManagedWebHidAskForUrls, ContentSettingsType::HID_GUARD,
+         CONTENT_SETTING_ASK},
+        {prefs::kManagedWebHidBlockedForUrls, ContentSettingsType::HID_GUARD,
+         CONTENT_SETTING_BLOCK},
 };
 
 constexpr const char* kManagedPrefs[] = {
@@ -122,6 +126,8 @@ constexpr const char* kManagedPrefs[] = {
     prefs::kManagedWebUsbBlockedForUrls,
     prefs::kManagedJavaScriptJitAllowedForSites,
     prefs::kManagedJavaScriptJitBlockedForSites,
+    prefs::kManagedWebHidAskForUrls,
+    prefs::kManagedWebHidBlockedForUrls,
 };
 
 // The following preferences are only used to indicate if a default content
@@ -149,6 +155,7 @@ constexpr const char* kManagedDefaultPrefs[] = {
     prefs::kManagedDefaultWebBluetoothGuardSetting,
     prefs::kManagedDefaultWebUsbGuardSetting,
     prefs::kManagedDefaultJavaScriptJitSetting,
+    prefs::kManagedDefaultWebHidGuardSetting,
 };
 
 }  // namespace
@@ -196,6 +203,8 @@ const PolicyProvider::PrefsForManagedDefaultMapEntry
          prefs::kManagedDefaultInsecurePrivateNetworkSetting},
         {ContentSettingsType::JAVASCRIPT_JIT,
          prefs::kManagedDefaultJavaScriptJitSetting},
+        {ContentSettingsType::HID_GUARD,
+         prefs::kManagedDefaultWebHidGuardSetting},
 };
 
 // static
@@ -361,7 +370,8 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
 
     const std::string& pattern_str = pattern->GetString();
     if (filters_map.find(pattern_str) == filters_map.end())
-      filters_map[pattern_str].SetKey("filters", base::ListValue());
+      filters_map[pattern_str].SetKey("filters",
+                                      base::Value(base::Value::Type::LIST));
 
     // Don't pass removed values from `pattern_filter`, because base::Values
     // read with JSONReader use a shared string buffer. Instead, Clone() here.
@@ -370,7 +380,7 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
 
   for (const auto& it : filters_map) {
     const std::string& pattern_str = it.first;
-    const base::DictionaryValue& setting = it.second;
+    const base::Value& setting = it.second;
 
     ContentSettingsPattern pattern =
         ContentSettingsPattern::FromString(pattern_str);

@@ -69,16 +69,6 @@ void WebRuntimeFeatures::EnableWebBluetoothGetDevices(bool enable) {
   RuntimeEnabledFeatures::SetWebBluetoothGetDevicesEnabled(enable);
 }
 
-void WebRuntimeFeatures::EnableWebBluetoothManufacturerDataFilter(bool enable) {
-  RuntimeEnabledFeatures::SetWebBluetoothManufacturerDataFilterEnabled(enable);
-}
-
-void WebRuntimeFeatures::EnableWebBluetoothRemoteCharacteristicNewWriteValue(
-    bool enable) {
-  RuntimeEnabledFeatures::
-      SetWebBluetoothRemoteCharacteristicNewWriteValueEnabled(enable);
-}
-
 void WebRuntimeFeatures::EnableWebBluetoothWatchAdvertisements(bool enable) {
   RuntimeEnabledFeatures::SetWebBluetoothWatchAdvertisementsEnabled(enable);
 }
@@ -524,12 +514,6 @@ void WebRuntimeFeatures::EnableSharedArrayBufferOnDesktop(bool enable) {
 void WebRuntimeFeatures::EnableSharedArrayBufferUnrestrictedAccessAllowed(
     bool enable) {
   RuntimeEnabledFeatures::SetSharedArrayBufferUnrestrictedAccessAllowedEnabled(
-      enable);
-}
-
-void WebRuntimeFeatures::EnableCrossOriginWebAssemblyModuleSharingAllowed(
-    bool enable) {
-  RuntimeEnabledFeatures::SetCrossOriginWebAssemblyModuleSharingAllowedEnabled(
       enable);
 }
 

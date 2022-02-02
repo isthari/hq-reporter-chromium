@@ -19,6 +19,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/isolation_prefs_utils.h"
 #include "chrome/browser/web_applications/manifest_update_task.h"
@@ -27,6 +28,8 @@
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_icon_generator.h"
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
+#include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
 #include "chrome/browser/web_applications/web_app_installation_utils.h"
 #include "chrome/browser/web_applications/web_app_prefs_utils.h"
@@ -38,7 +41,6 @@
 #include "chrome/browser/web_applications/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/web_app_uninstall_job.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "content/public/browser/browser_thread.h"
@@ -126,7 +128,7 @@ WebAppInstallFinalizer::WebAppInstallFinalizer(
 WebAppInstallFinalizer::~WebAppInstallFinalizer() = default;
 
 void WebAppInstallFinalizer::FinalizeInstall(
-    const WebApplicationInfo& web_app_info,
+    const WebAppInstallInfo& web_app_info,
     const FinalizeOptions& options,
     InstallFinalizedCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -343,7 +345,7 @@ void WebAppInstallFinalizer::UninstallWithoutRegistryUpdateFromSync(
     }
     auto uninstall_task = std::make_unique<WebAppUninstallJob>(
         os_integration_manager_, sync_bridge_, icon_manager_, registrar_,
-        profile_->GetPrefs());
+        install_manager_, profile_->GetPrefs());
     uninstall_task->Start(
         app_id,
         url::Origin::Create(registrar_->GetAppById(app_id)->start_url()),
@@ -364,7 +366,7 @@ void WebAppInstallFinalizer::RetryIncompleteUninstalls(
       continue;
     auto uninstall_task = std::make_unique<WebAppUninstallJob>(
         os_integration_manager_, sync_bridge_, icon_manager_, registrar_,
-        profile_->GetPrefs());
+        install_manager_, profile_->GetPrefs());
     uninstall_task->Start(
         app_id,
         url::Origin::Create(registrar_->GetAppById(app_id)->start_url()),
@@ -404,7 +406,7 @@ void WebAppInstallFinalizer::ReparentTab(const AppId& app_id,
 }
 
 void WebAppInstallFinalizer::FinalizeUpdate(
-    const WebApplicationInfo& web_app_info,
+    const WebAppInstallInfo& web_app_info,
     InstallFinalizedCallback callback) {
   CHECK(started_);
 
@@ -451,10 +453,12 @@ void WebAppInstallFinalizer::SetRemoveSourceCallbackForTesting(
 }
 
 void WebAppInstallFinalizer::SetSubsystems(
+    WebAppInstallManager* install_manager,
     WebAppRegistrar* registrar,
     WebAppUiManager* ui_manager,
     WebAppSyncBridge* sync_bridge,
     OsIntegrationManager* os_integration_manager) {
+  install_manager_ = install_manager;
   registrar_ = registrar;
   ui_manager_ = ui_manager;
   sync_bridge_ = sync_bridge;
@@ -472,7 +476,7 @@ void WebAppInstallFinalizer::UninstallWebAppInternal(
   }
   auto uninstall_task = std::make_unique<WebAppUninstallJob>(
       os_integration_manager_, sync_bridge_, icon_manager_, registrar_,
-      profile_->GetPrefs());
+      install_manager_, profile_->GetPrefs());
   uninstall_task->Start(
       app_id, url::Origin::Create(registrar_->GetAppById(app_id)->start_url()),
       uninstall_source, WebAppUninstallJob::ModifyAppRegistry::kYes,
@@ -541,7 +545,7 @@ void WebAppInstallFinalizer::OnMaybeRegisterOsUninstall(
 }
 
 void WebAppInstallFinalizer::SetWebAppManifestFieldsAndWriteData(
-    const WebApplicationInfo& web_app_info,
+    const WebAppInstallInfo& web_app_info,
     std::unique_ptr<WebApp> web_app,
     CommitCallback commit_callback) {
   SetWebAppManifestFields(web_app_info, *web_app);
@@ -593,19 +597,22 @@ void WebAppInstallFinalizer::OnDatabaseCommitCompletedForInstall(
     return;
   }
 
+  // TODO(crbug/1275945): remove in phase 3 of resolving crbug/1275945.
   registrar_->NotifyWebAppInstalled(app_id);
+
+  install_manager_->NotifyWebAppInstalled(app_id);
   std::move(callback).Run(app_id, InstallResultCode::kSuccessNewInstall);
 }
 
 bool WebAppInstallFinalizer::ShouldUpdateOsHooks(const AppId& app_id) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
   // OS integration should always be enabled on ChromeOS.
   return true;
 #else
   // If the app being updated was installed by default and not also manually
   // installed by the user or an enterprise policy, disable os integration.
   return !GetWebAppRegistrar().WasInstalledByDefaultOnly(app_id);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 }
 
 void WebAppInstallFinalizer::OnDatabaseCommitCompletedForUpdate(
@@ -614,7 +621,7 @@ void WebAppInstallFinalizer::OnDatabaseCommitCompletedForUpdate(
     std::string old_name,
     bool should_update_os_hooks,
     FileHandlerUpdateAction file_handlers_need_os_update,
-    const WebApplicationInfo& web_app_info,
+    const WebAppInstallInfo& web_app_info,
     bool success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!success) {
@@ -639,7 +646,10 @@ void WebAppInstallFinalizer::OnUpdateHooksFinished(
     AppId app_id,
     std::string old_name,
     web_app::OsHooksErrors os_hooks_errors) {
+  // TODO(crbug/1275945): remove in phase 3 of resolving crbug/1275945.
   registrar_->NotifyWebAppManifestUpdated(app_id, old_name);
+
+  install_manager_->NotifyWebAppManifestUpdated(app_id, old_name);
 
   std::move(callback).Run(app_id,
                           os_hooks_errors.any()
@@ -653,7 +663,7 @@ const WebAppRegistrar& WebAppInstallFinalizer::GetWebAppRegistrar() const {
 
 FileHandlerUpdateAction WebAppInstallFinalizer::GetFileHandlerUpdateAction(
     const AppId& app_id,
-    const WebApplicationInfo& new_web_app_info) {
+    const WebAppInstallInfo& new_web_app_info) {
   if (!os_integration_manager_->IsFileHandlingAPIAvailable(app_id))
     return FileHandlerUpdateAction::kNoUpdate;
 

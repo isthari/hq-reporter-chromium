@@ -10,6 +10,7 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -20,7 +21,7 @@
 #include "chrome/browser/ash/login/existing_user_controller.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/startup_utils.h"
-#include "chrome/browser/ash/login/test/local_policy_test_server_mixin.h"
+#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/login_or_lock_screen_visible_waiter.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
@@ -31,12 +32,12 @@
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/ash/policy/login/login_policy_test_base.h"
 #include "chrome/browser/ash/policy/login/signin_profile_extensions_policy_test_base.h"
-#include "chrome/browser/ash/policy/networking/user_network_configuration_updater.h"
-#include "chrome/browser/ash/policy/networking/user_network_configuration_updater_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
+#include "chrome/browser/policy/networking/user_network_configuration_updater_ash.h"
+#include "chrome/browser/policy/networking/user_network_configuration_updater_factory.h"
 #include "chrome/browser/policy/profile_policy_connector_builder.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -58,6 +59,7 @@
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/policy_constants.h"
+#include "components/policy/proto/cloud_policy.pb.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -275,7 +277,7 @@ class UserPolicyCertsHelper {
   void SetONCUserPolicy(Profile* profile,
                         MockConfigurationPolicyProvider* mock_policy_provider,
                         const std::string& onc_policy_data) {
-    UserNetworkConfigurationUpdater* user_network_configuration_updater =
+    NetworkConfigurationUpdater* user_network_configuration_updater =
         UserNetworkConfigurationUpdaterFactory::GetForBrowserContext(profile);
 
     WebTrustedCertsChangedObserver trust_roots_changed_observer;
@@ -322,7 +324,7 @@ class MultiProfilePolicyProviderHelper {
 
   void SetUpCommandLine(base::CommandLine* command_line) {
     command_line->AppendSwitch(
-        chromeos::switches::kIgnoreUserProfileMappingForTests);
+        ash::switches::kIgnoreUserProfileMappingForTests);
   }
 
   // The test should call this before the initial profile is created by chrome.
@@ -697,13 +699,13 @@ class PolicyProvidedCertsDeviceLocalAccountTest
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DevicePolicyCrosBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(chromeos::switches::kLoginManager);
-    command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
-    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
-    command_line->AppendSwitch(chromeos::switches::kOobeSkipPostLogin);
+    command_line->AppendSwitch(ash::switches::kLoginManager);
+    command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
+    command_line->AppendSwitchASCII(ash::switches::kLoginProfile, "user");
+    command_line->AppendSwitch(ash::switches::kOobeSkipPostLogin);
   }
 
-  ash::LocalPolicyTestServerMixin local_policy_mixin_{&mixin_host_};
+  ash::EmbeddedPolicyTestServerMixin policy_test_server_mixin_{&mixin_host_};
 
   const AccountId device_local_account_id_ =
       AccountId::FromUserEmail(GenerateDeviceLocalAccountUserId(
@@ -731,9 +733,11 @@ class PolicyProvidedCertsPublicSessionTest
     account->set_type(
         em::DeviceLocalAccountInfoProto::ACCOUNT_TYPE_PUBLIC_SESSION);
     RefreshDevicePolicy();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 
+  // TODO(crbug/874831): Consider migrating to LoggedInMixin and deprecating
+  // this function.
   void StartLogin() {
     ash::WizardController::SkipPostLoginScreensForTesting();
     auto* const wizard_controller = ash::WizardController::default_controller();
@@ -780,17 +784,16 @@ class PolicyProvidedCertsOnUserSessionInitTest : public LoginPolicyTestBase {
  protected:
   PolicyProvidedCertsOnUserSessionInitTest() {}
 
-  void GetMandatoryPoliciesValue(base::DictionaryValue* policy) const override {
+  void GetPolicySettings(
+      enterprise_management::CloudPolicySettings* policy) const override {
     std::string user_policy_blob = GetTestCertsFileContents(kRootCaCertOnc);
-    policy->SetKey(key::kOpenNetworkConfiguration,
-                   base::Value(user_policy_blob));
+    policy->mutable_opennetworkconfiguration()->set_value(user_policy_blob);
   }
 
   Profile* active_user_profile() {
     const user_manager::User* const user =
         user_manager::UserManager::Get()->GetActiveUser();
-    Profile* const profile =
-        chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+    Profile* const profile = ash::ProfileHelper::Get()->GetProfileByUser(user);
     return profile;
   }
 };
@@ -919,7 +922,7 @@ class PolicyProvidedCertsForSigninExtensionTest
     SigninProfileExtensionsPolicyTestBase::SetUpOnMainThread();
 
     signin_profile_ = GetInitialProfile();
-    ASSERT_TRUE(chromeos::ProfileHelper::IsSigninProfile(signin_profile_));
+    ASSERT_TRUE(ash::ProfileHelper::IsSigninProfile(signin_profile_));
 
     extensions::ExtensionHostTestHelper extension_1_observer(
         signin_profile_, kSigninScreenExtension1);

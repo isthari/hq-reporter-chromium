@@ -20,6 +20,7 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/site_engagement/content/site_engagement_service.h"
+#include "skia/ext/skia_utils_base.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -58,7 +59,7 @@ bool AreWebAppsEnabled(const Profile* profile) {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Web Apps should not be installed to the ChromeOS system profiles.
-  if (!chromeos::ProfileHelper::IsRegularProfile(original_profile)) {
+  if (!ash::ProfileHelper::IsRegularProfile(original_profile)) {
     return false;
   }
   // Disable Web Apps if running any kiosk app.
@@ -115,6 +116,42 @@ content::BrowserContext* GetBrowserContextForWebAppMetrics(
   return is_web_app_metrics_enabled ? original_profile : nullptr;
 }
 
+content::mojom::AlternativeErrorPageOverrideInfoPtr GetAppManifestInfo(
+    const GURL& url,
+    content::BrowserContext* browser_context) {
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  web_app::WebAppProvider* web_app_provider =
+      web_app::WebAppProvider::GetForWebApps(profile);
+  if (web_app_provider == nullptr) {
+    return nullptr;
+  }
+
+  web_app::WebAppRegistrar& web_app_registrar = web_app_provider->registrar();
+  const absl::optional<web_app::AppId> app_id =
+      web_app_registrar.FindAppWithUrlInScope(url);
+  if (!app_id.has_value()) {
+    return nullptr;
+  }
+
+  auto alternative_error_page_info =
+      content::mojom::AlternativeErrorPageOverrideInfo::New();
+  // TODO(crbug.com/1285128): Ensure sufficient contrast.
+  base::Value dict(base::Value::Type::DICTIONARY);
+  dict.SetKey(content::mojom::kThemeColor,
+              base::Value(skia::SkColorToHexString(
+                  web_app_registrar.GetAppThemeColor(*app_id).value_or(
+                      SK_ColorBLACK))));
+  dict.SetKey(content::mojom::kBackgroundColor,
+              base::Value(skia::SkColorToHexString(
+                  web_app_registrar.GetAppBackgroundColor(*app_id).value_or(
+                      SK_ColorWHITE))));
+  dict.SetKey(content::mojom::kAppShortName,
+              base::Value(web_app_registrar.GetAppShortName(*app_id)));
+  alternative_error_page_info->alternative_error_page_params = std::move(dict);
+
+  return alternative_error_page_info;
+}
+
 base::FilePath GetWebAppsRootDirectory(Profile* profile) {
   return profile->GetPath().Append(chrome::kWebAppDirname);
 }
@@ -142,13 +179,13 @@ base::FilePath GetWebAppsTempDirectory(
 
 std::string GetProfileCategoryForLogging(Profile* profile) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (!chromeos::ProfileHelper::IsRegularProfile(profile)) {
+  if (!ash::ProfileHelper::IsRegularProfile(profile)) {
     return "SigninOrLockScreen";
   } else if (user_manager::UserManager::Get()->IsLoggedInAsAnyKioskApp()) {
     return "Kiosk";
-  } else if (chromeos::ProfileHelper::IsEphemeralUserProfile(profile)) {
+  } else if (ash::ProfileHelper::IsEphemeralUserProfile(profile)) {
     return "Ephemeral";
-  } else if (chromeos::ProfileHelper::IsPrimaryProfile(profile)) {
+  } else if (ash::ProfileHelper::IsPrimaryProfile(profile)) {
     return "Primary";
   } else {
     return "Other";
@@ -161,7 +198,7 @@ std::string GetProfileCategoryForLogging(Profile* profile) {
 }
 
 bool IsChromeOsDataMandatory() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
   return true;
 #else
   return false;
@@ -301,13 +338,51 @@ void PersistFileHandlersUserChoice(Profile* profile,
       app_id,
       allowed ? ApiApprovalState::kAllowed : ApiApprovalState::kDisallowed);
 
-  if (allowed) {
+  UpdateFileHandlerOsIntegration(provider, app_id,
+                                 std::move(update_finished_callback));
+}
+
+void UpdateFileHandlerOsIntegration(
+    WebAppProvider* provider,
+    const AppId& app_id,
+    base::OnceClosure update_finished_callback) {
+  bool enabled =
+      provider->os_integration_manager().IsFileHandlingAPIAvailable(app_id) &&
+      !provider->registrar().IsAppFileHandlerPermissionBlocked(app_id);
+
+  if (enabled ==
+      provider->registrar().ExpectThatFileHandlersAreRegisteredWithOs(app_id)) {
     std::move(update_finished_callback).Run();
-  } else {
-    provider->os_integration_manager().UpdateFileHandlers(
-        app_id, FileHandlerUpdateAction::kRemove,
-        std::move(update_finished_callback));
+    return;
   }
+
+  FileHandlerUpdateAction action = enabled ? FileHandlerUpdateAction::kUpdate
+                                           : FileHandlerUpdateAction::kRemove;
+
+#if BUILDFLAG(IS_MAC)
+  // On Mac, the file handlers are encoded in the app shortcut. First
+  // unregister the file handlers (verifying that it finishes synchronously),
+  // then update the shortcut.
+  Result unregister_file_handlers_result = Result::kError;
+  provider->os_integration_manager().UpdateFileHandlers(
+      app_id, action,
+      base::BindOnce([](Result* result_out,
+                        Result actual_result) { *result_out = actual_result; },
+                     &unregister_file_handlers_result));
+  DCHECK_EQ(Result::kOk, unregister_file_handlers_result);
+  provider->os_integration_manager().UpdateShortcuts(
+      app_id, /*old_name=*/{}, std::move(update_finished_callback));
+#else
+  provider->os_integration_manager().UpdateFileHandlers(
+      app_id, action,
+      base::BindOnce([](base::OnceClosure closure,
+                        Result ignored) { std::move(closure).Run(); },
+                     std::move(update_finished_callback)));
+#endif
+
+  DCHECK_EQ(
+      enabled,
+      provider->registrar().ExpectThatFileHandlersAreRegisteredWithOs(app_id));
 }
 
 bool HasAnySpecifiedSourcesAndNoOtherSources(WebAppSources sources,
@@ -324,6 +399,24 @@ bool CanUserUninstallWebApp(WebAppSources sources) {
   specified_sources[Source::kWebAppStore] = true;
   specified_sources[Source::kSubApp] = true;
   return HasAnySpecifiedSourcesAndNoOtherSources(sources, specified_sources);
+}
+
+void RegisterFileHandlersWithOs(WebAppProvider* provider,
+                                const AppId& app_id,
+                                absl::optional<ApiApprovalState> approval_state,
+                                base::OnceClosure finished_closure) {}
+
+bool HasAppSettingsPage(Profile* profile, const GURL& url) {
+  // App Settings page is served under chrome://app-settings/<app-id>.
+  // url.path() returns "/<app-id>" with a leading slash.
+  std::string path = url.path();
+  if (path.size() <= 1)
+    return false;
+  WebAppProvider* provider = WebAppProvider::GetForWebApps(profile);
+  if (!provider)
+    return false;
+  const AppId app_id = path.substr(1);
+  return provider->registrar().IsLocallyInstalled(app_id);
 }
 
 }  // namespace web_app

@@ -32,6 +32,7 @@ import "chromeos/crosapi/mojom/identity_manager.mojom";
 import "chromeos/crosapi/mojom/idle_service.mojom";
 import "chromeos/crosapi/mojom/image_writer.mojom";
 import "chromeos/crosapi/mojom/keystore_service.mojom";
+import "chromeos/crosapi/mojom/launcher_search.mojom";
 import "chromeos/crosapi/mojom/local_printer.mojom";
 import "chromeos/crosapi/mojom/login_state.mojom";
 import "chromeos/crosapi/mojom/policy_service.mojom";
@@ -50,6 +51,7 @@ import "chromeos/crosapi/mojom/structured_metrics_service.mojom";
 import "chromeos/crosapi/mojom/system_display.mojom";
 import "chromeos/crosapi/mojom/task_manager.mojom";
 import "chromeos/crosapi/mojom/test_controller.mojom";
+import "chromeos/crosapi/mojom/timezone.mojom";
 import "chromeos/crosapi/mojom/tts.mojom";
 import "chromeos/crosapi/mojom/url_handler.mojom";
 import "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom";
@@ -92,8 +94,8 @@ struct BrowserInfo {
 // please note the milestone when you added it, to help us reason about
 // compatibility between the client applications and older ash-chrome binaries.
 //
-// Next version: 61
-// Next method id: 65
+// Next version: 63
+// Next method id: 67
 [Stable, Uuid="8b79c34f-2bf8-4499-979a-b17cac522c1e",
  RenamedFrom="crosapi.mojom.AshChromeService"]
 interface Crosapi {
@@ -384,6 +386,11 @@ interface Crosapi {
   [MinVersion=36] BindResourceManager@41(
       pending_receiver<ResourceManager> receiver);
 
+  // Binds the search controller which send queries from ash to lacros.
+  // Added in M99.
+  [MinVersion=62] BindSearchControllerRegistry@66(
+      pending_receiver<SearchControllerRegistry> receiver);
+
   // Binds the System Display interface for querying display info.
   // Added in M92.
   [MinVersion=24] BindSystemDisplay@29(
@@ -398,6 +405,11 @@ interface Crosapi {
   // is not available on production devices.
   [MinVersion=9] BindTestController@14(
       pending_receiver<TestController> receiver);
+
+  // Binds the TimeZoneService which notifies system timezone change.
+  // Added in M99.
+  [MinVersion=61] BindTimeZoneService@65(
+      pending_receiver<TimeZoneService> receiver);
 
   // Binds the Tts service which process speech synthesis requests.
   [MinVersion=54] BindTts@58(pending_receiver<Tts> receiver);
@@ -473,32 +485,38 @@ enum MetricsReportingManaged {
   kManaged = 2,
 };
 
-// Default directories on the system.
+// Default directories on the system. We send the full path for each value for
+// future compatibility, to avoid assumptions about where on disk the directory
+// is located.
 [Stable]
 struct DefaultPaths {
   // The default (non-configurable) directory for documents. For example,
-  // /home/chronos/u-<hash>/MyFiles. We send the full path for future
-  // compatibility, to avoid assumptions about where on disk the directory is
-  // located.
+  // /home/chronos/u-<hash>/MyFiles.
   mojo_base.mojom.FilePath documents@0;
 
   // The default (non-configurable) directory for downloads. For example,
-  // /home/chronos/u-<hash>/MyFiles/Downloads.  We send the full path for future
-  // compatibility, to avoid assumptions about where on disk the directory is
-  // located.
+  // /home/chronos/u-<hash>/MyFiles/Downloads.
   mojo_base.mojom.FilePath downloads@1;
 
   // The (non-configurable) path of the mount point for drive in ChromeOS. For
-  // example, /media/fuse/drivefs-<hash>. We send the full path for future
-  // compatibility, to avoid assumptions about where on disk the directory is
-  // located.
+  // example, /media/fuse/drivefs-<hash>.
   [MinVersion=23] mojo_base.mojom.FilePath? drivefs@2;
 
   // The (non-configurable) path of the software user NSS database. For
-  // example, /home/chronos/u-<hash>/.pki/nssdb. We send the full path for
-  // future compatibility, to avoid assumptions about where on disk the
-  // directory is located.
+  // example, /home/chronos/u-<hash>/.pki/nssdb.
   [MinVersion=30] mojo_base.mojom.FilePath? user_nss_database@3;
+
+  // The (non-configurable) path at which removable media is mounted. For
+  // example, /media/removable.
+  [MinVersion=31] mojo_base.mojom.FilePath? removable_media@4;
+
+  // The (non-configurable) path at which ARC's storage is located (shown as
+  // "Play Files" in Files app). For example, /run/arc/sdcard/write/emulated/0.
+  [MinVersion=31] mojo_base.mojom.FilePath? android_files@5;
+
+  // The (non-configurable) path at which Crostini's home directory is
+  // mounted. For example, /media/fuse/crostini_<hash>_termina_penguin.
+  [MinVersion=31] mojo_base.mojom.FilePath? linux_files@6;
 };
 
 // The device specific data needed in Lacros.
@@ -842,6 +860,29 @@ struct BrowserInitParams {
   bool is_device_enterprised_managed@35;
 };
 
+// Parameters to specify OpenUrl behavior.
+[Stable]
+struct OpenUrlParams {
+  // Decides the disposition of the opening page.
+  [Stable, Extensible]
+  enum WindowOpenDisposition {
+    // DEPRECATED. OpenUrl used to check the URL to decide the disposition
+    // of the page. This is kept just for the compatibility. New callers
+    // should not use this value.
+    [Default] kLegacyAutoDetection = 0,
+
+    // Opens a new tab and navigate to the given URL.
+    kNewForegroundTab = 1,
+
+    // If there's an existing tab showing the given URL, activate it.
+    // If not, if the tab is NTP and does not have history, navigate it
+    // to the given URL. Otherwise, opens a new tab and navigate it to
+    // the given URL.
+    kSwitchToTab = 2,
+  };
+  WindowOpenDisposition disposition@0;
+};
+
 // BrowserService defines the APIs that live in a browser (such as
 // lacros-chrome) and are accessed from ash-chrome.
 // IMPORTANT NOTE: If you are exposing a new capability from Lacros to Ash,
@@ -849,7 +890,7 @@ struct BrowserInitParams {
 // has accidentally become a kitchen sink for different features. This was not
 // intentional.
 //
-// Next MinVersion: 62.
+// Next MinVersion: 63.
 // Next ID: 14
 //
 [Stable, Uuid="4e04dc16-b34c-40fd-9e3f-3c55c2c6cf91",
@@ -903,7 +944,8 @@ interface BrowserService {
   // such as web-page opening request from ash features, or Crostini/ARC apps.
   // Added in M96.
   [MinVersion=12]
-  OpenUrl@10(url.mojom.Url url) => ();
+  OpenUrl@10(url.mojom.Url url,
+             [MinVersion=62] OpenUrlParams? params) => ();
 
   // Restores a tab (or a window) recently closed in the browser with,
   // currently, the last used profile. Please see also RestoreTab command

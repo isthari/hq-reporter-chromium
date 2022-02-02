@@ -53,6 +53,10 @@ Başlamak için şunları deneyebilirsin.</translation>
 <translation id="1247519845643687288">Son uygulamalar</translation>
 <translation id="1252999807265626933"><ph name="POWER_SOURCE" /> güç kaynağından şarj ediliyor</translation>
 <translation id="1255033239764210633">Hava nasıl?</translation>
+<translation id="1262870540683925850"><ph name="START_TIME" /> - 
+        <ph name="END_TIME" />, 
+        <ph name="TIME_ZONE" />, 
+        <ph name="EVENT_SUMMARY" />. Google Takvim'de ayrıntılarını görmek için etkinliği seçin.</translation>
 <translation id="1266097335951928626">Selfie kamerasını başlat</translation>
 <translation id="1267032506238418139">Kısayol değişikliği</translation>
 <translation id="1269405891096105529">Çevre birimi, Misafir modunda desteklenmiyor</translation>
@@ -78,6 +82,7 @@ Başlamak için şunları deneyebilirsin.</translation>
 <translation id="1346748346194534595">Sağa</translation>
 <translation id="1351937230027495976">Menüyü daralt</translation>
 <translation id="1364382257761975320">Chromebook'unuzun kilidini açmak için parmak izinizi kullanın</translation>
+<translation id="1364618750746929654">Metne dönüştürme işlemi gerçekleştirilemiyor</translation>
 <translation id="1383597849754832576">Canlı Altyazı dosyaları indirilemiyor. Daha sonra tekrar deneyin.</translation>
 <translation id="1383876407941801731">Ara</translation>
 <translation id="1391102559483454063">Açık</translation>
@@ -405,7 +410,6 @@ Başlamak için şunları deneyebilirsin.</translation>
 <translation id="3640092422335864171"><ph name="NAME" /> cihazını kaydet</translation>
 <translation id="3649505501900178324">Güncelleme zamanı geçti</translation>
 <translation id="366222428570480733"><ph name="USER_EMAIL_ADDRESS" /> Yönetilen kullanıcı</translation>
-<translation id="3665889125180354336">Mikrofon kaydı</translation>
 <translation id="3680908746918359504">Tüm işaretçileri temizle</translation>
 <translation id="36813544980941320">Kablosuz ağlar; telefonunuz ve <ph name="DEVICE_NAME" /> arasında paylaşılacak</translation>
 <translation id="3694122362646626770">Web siteleri</translation>
@@ -574,6 +578,7 @@ Başlamak için şunları deneyebilirsin.</translation>
 <translation id="4733161265940833579">%<ph name="BATTERY_PERCENTAGE" /> (Sol)</translation>
 <translation id="4734965478015604180">Yatay</translation>
 <translation id="4735498845456076464"><ph name="LAUNCHER_KEY_NAME" /> + Sayı klavye kısayolu değişti. İşlev tuşlarını kullanmak için <ph name="LAUNCHER_KEY_NAME" /> tuşu + üst sıradaki tuşlardan birine basın.</translation>
+<translation id="473775607612524610">Güncelle</translation>
 <translation id="4759238208242260848">İndirilenler</translation>
 <translation id="4774338217796918551">Saat <ph name="COME_BACK_TIME" /> olduğunda geri gelin.</translation>
 <translation id="4776917500594043016"><ph name="USER_EMAIL_ADDRESS" /> için şifre</translation>
@@ -675,6 +680,7 @@ Başlamak için şunları deneyebilirsin.</translation>
 <translation id="54609108002486618">Yönetilen</translation>
 <translation id="5465662442746197494">Yardıma mı ihtiyacınız var?</translation>
 <translation id="547979256943495781">Raf, ekranın sağ tarafında</translation>
+<translation id="5491186829646618080">Donanım yazılımı güncellemeleri mevcut</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">Yöneticiniz tüm eSIM profillerini kaldırdı. Daha fazla bilgi için yöneticinizle iletişime geçin.</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> bağlanıyor.</translation>
@@ -967,6 +973,7 @@ Yeni yüklenmiş</translation>
 <translation id="7514365320538308">İndir</translation>
 <translation id="7526573455193969409">Ağ trafiği izleniyor olabilir</translation>
 <translation id="7536035074519304529">IP adresi: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">Klavye arka ışığı açık</translation>
 <translation id="7548434653388805669">Uyku vakti geldi</translation>
 <translation id="7551643184018910560">Rafa sabitle</translation>
 <translation id="7561982940498449837">Menüyü kapat</translation>
@@ -997,6 +1004,8 @@ Yeni yüklenmiş</translation>
 <translation id="7720410380936703141">TEKRAR DENE</translation>
 <translation id="7723389094756330927">{NUM_NOTIFICATIONS,plural, =1{1 bildirim}other{# bildirim}}</translation>
 <translation id="7724603315864178912">Kes</translation>
+<translation id="7734209118399753735"><ph name="EVENT_SUMMARY" />, 
+        <ph name="TIME_RANGE" /></translation>
 <translation id="7745560842763881396">Raftaki uygulamaları göster</translation>
 <translation id="7749443890790263709">Maksimum masa sayısına ulaşıldı.</translation>
 <translation id="7749640678855296659">Mikrofonunuz şu anda kapalı</translation>
@@ -1049,6 +1058,7 @@ Yeni yüklenmiş</translation>
 <translation id="8036504271468642248">Önceki cümle</translation>
 <translation id="8042893070933512245">Erişilebilirlik ayarları menüsünü aç</translation>
 <translation id="8042925093898452104">Ayrıntılı bilgiyi kapat</translation>
+<translation id="8044457332620420407">Klavye arka ışığı kapalı</translation>
 <translation id="8048123526339889627">Bluetooth Ayarları</translation>
 <translation id="8051716679295756675"><ph name="DESK_TEMPLATE_NAME" /> adlı şablon zaten var</translation>
 <translation id="8052898407431791827">Panoya kopyalandı</translation>
@@ -1169,6 +1179,7 @@ Yeni yüklenmiş</translation>
 <translation id="8876661425082386199">Bağlantınızı denetleyin</translation>
 <translation id="8877788021141246043">Hatırlatıcı oluştur</translation>
 <translation id="8878886163241303700">Genişletilmiş ekran</translation>
+<translation id="888982883502837004">Donanım yazılımı güncellemeleri cihazınızda kullanılabilir. İnceleyip güncellemek için tıklayın.</translation>
 <translation id="8896630965521842259"><ph name="DESK_TEMPLATE_NAME" /> kalıcı olarak silinecek</translation>
 <translation id="890616557918890486">Kaynağı değiştir</translation>
 <translation id="8909138438987180327">Pil yüzde <ph name="PERCENTAGE" /> dolu.</translation>

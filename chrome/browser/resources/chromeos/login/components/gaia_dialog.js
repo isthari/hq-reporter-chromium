@@ -13,7 +13,6 @@
  * @constructor
  * @extends {PolymerElement}
  * @implements {OobeI18nBehaviorInterface}
- * @implements {OobeDialogHostBehaviorInterface}
  */
 const GaiaDialogBase = Polymer.mixinBehaviors(
     [OobeI18nBehavior, OobeDialogHostBehavior], Polymer.Element);
@@ -51,9 +50,25 @@ class GaiaDialog extends GaiaDialogBase {
       },
 
       /**
+       * Whether the dialog can be closed.
+       */
+      isClosable: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
        * Whether SAML IdP page is shown
        */
       isSamlSsoVisible: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * Whether default SAML IdP is shown.
+       */
+      isDefaultSsoProvider: {
         type: Boolean,
         value: false,
       },
@@ -70,9 +85,10 @@ class GaiaDialog extends GaiaDialogBase {
        * Used to display SAML notice.
        * @private
        */
-      authDomain_: {
+      authDomain: {
         type: String,
         value: '',
+        notify: true,
       },
 
       /**
@@ -154,6 +170,22 @@ class GaiaDialog extends GaiaDialogBase {
         type: Boolean,
         computed: 'showOverlay_(navigationEnabled, isSamlSsoVisible)'
       },
+
+      /**
+       * Whether the redirect to default IdP without interstitial step is
+       * enabled.
+       * @private {boolean}
+       */
+      flagRedirectToDefaultIdPEnabled_: {
+        type: Boolean,
+        value: loadTimeData.getBoolean('isRedirectToDefaultIdPEnabled'),
+      },
+
+      isSamlBackButtonHidden_: {
+        type: Boolean,
+        computed: 'isSamlBackButtonHidden(isDefaultSsoProvider, isClosable,' +
+            'flagRedirectToDefaultIdPEnabled_)',
+      }
     };
   }
 
@@ -187,7 +219,7 @@ class GaiaDialog extends GaiaDialogBase {
   /** @override */
   ready() {
     super.ready();
-    const webview = this.$['signin-frame'];
+    const webview = /** @type {!WebView} */ (this.$['signin-frame']);
     this.authenticator_ = new cr.login.Authenticator(webview);
     /**
      * Event listeners for the events triggered by the authenticator.
@@ -248,7 +280,7 @@ class GaiaDialog extends GaiaDialogBase {
         this.authFlow = e.newValue;
       },
       'authDomainChange': (e) => {
-        this.authDomain_ = e.newValue;
+        this.authDomain = e.newValue;
       },
       'dialogShown': (e) => {
         this.navigationEnabled = false;
@@ -347,6 +379,12 @@ class GaiaDialog extends GaiaDialogBase {
   }
 
   /* @private */
+  onChangeSigninProviderClicked_() {
+    this.dispatchEvent(new CustomEvent(
+        'changesigninprovider', {bubbles: true, composed: true}));
+  }
+
+  /* @private */
   onBackButtonClicked_() {
     if (this.canGoBack) {
       this.getFrame().back();
@@ -391,6 +429,20 @@ class GaiaDialog extends GaiaDialogBase {
    */
   isBackButtonHidden(hideBackButtonIfCantGoBack, canGoBack) {
     return hideBackButtonIfCantGoBack && !canGoBack;
+  }
+
+  /**
+   * Whether the back button on SAML screen is hidden.
+   * @param {boolean} isDefaultSsoProvider - whether it is default SAML page.
+   * @param {boolean} isClosable - whether the form can be closed.
+   * @param {boolean} flagRedirectToDefaultIdPEnabled - whether redirect to
+   *     default IdP is enabled.
+   * @private
+   */
+  isSamlBackButtonHidden(
+      isDefaultSsoProvider, isClosable, flagRedirectToDefaultIdPEnabled) {
+    return !flagRedirectToDefaultIdPEnabled ||
+        isDefaultSsoProvider && !isClosable;
   }
 
   /**

@@ -47,7 +47,7 @@
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/storage/blink_storage_key.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
@@ -68,6 +68,7 @@ class DOMVisualViewport;
 class Element;
 class ExceptionState;
 class External;
+class Fence;
 class FrameConsole;
 class History;
 class IdleRequestOptions;
@@ -118,7 +119,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   static LocalDOMWindow* From(const ScriptState*);
 
-  LocalDOMWindow(LocalFrame&, WindowAgent*);
+  LocalDOMWindow(LocalFrame&, WindowAgent*, bool anonymous);
   ~LocalDOMWindow() override;
 
   // Returns the token identifying the frame that this ExecutionContext was
@@ -269,7 +270,6 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   DOMSelection* getSelection();
 
-  void blur() override;
   void print(ScriptState*);
   void stop();
 
@@ -460,6 +460,11 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // destroyed in this ExecutionContext.
   void RemoveDedicatedWorker(DedicatedWorker* dedicated_worker);
 
+  // Whether the window is anonymous or not.
+  bool anonymous() const { return anonymous_; }
+
+  Fence* fence();
+
  protected:
   // EventTarget overrides.
   void AddedEventListener(const AtomicString& event_type,
@@ -584,6 +589,14 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   // The set of DedicatedWorkers that are created in this ExecutionContext.
   HeapHashSet<Member<DedicatedWorker>> dedicated_workers_;
+
+  // Anonymous Iframe:
+  // https://github.com/camillelamy/explainers/blob/main/anonymous_iframes.md
+  const bool anonymous_;
+
+  // Collection of fenced frame APIs.
+  // https://github.com/shivanigithub/fenced-frame/issues/14
+  Member<Fence> fence_;
 };
 
 template <>

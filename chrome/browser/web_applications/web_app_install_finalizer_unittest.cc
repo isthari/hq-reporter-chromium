@@ -19,9 +19,11 @@
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
+#include "chrome/browser/web_applications/web_app_install_manager.h"
+#include "chrome/browser/web_applications/web_app_install_manager_observer.h"
 #include "chrome/browser/web_applications/web_app_prefs_utils.h"
 #include "chrome/browser/web_applications/web_app_sync_bridge.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
@@ -37,6 +39,28 @@ struct FinalizeInstallResult {
 
 }  // namespace
 
+class TestInstallManagerObserver : public WebAppInstallManagerObserver {
+ public:
+  explicit TestInstallManagerObserver(WebAppInstallManager* install_manager) {
+    install_manager_observation_.Observe(install_manager);
+  }
+
+  void OnWebAppManifestUpdated(const AppId& app_id,
+                               base::StringPiece old_name) override {
+    web_app_manifest_updated_called_ = true;
+  }
+
+  bool web_app_manifest_updated_called() const {
+    return web_app_manifest_updated_called_;
+  }
+
+ private:
+  bool web_app_manifest_updated_called_ = false;
+  base::ScopedObservation<web_app::WebAppInstallManager,
+                          web_app::WebAppInstallManagerObserver>
+      install_manager_observation_{this};
+};
+
 class WebAppInstallFinalizerUnitTest : public WebAppTest {
  public:
   WebAppInstallFinalizerUnitTest() = default;
@@ -51,6 +75,9 @@ class WebAppInstallFinalizerUnitTest : public WebAppTest {
 
     fake_registry_controller_ =
         std::make_unique<FakeWebAppRegistryController>();
+    install_manager_ = std::make_unique<WebAppInstallManager>(profile());
+    install_manager_observer_ =
+        std::make_unique<TestInstallManagerObserver>(install_manager_.get());
     fake_registry_controller_->SetUp(profile());
     icon_manager_ = std::make_unique<WebAppIconManager>(
         profile(), registrar(), base::MakeRefCounted<FileUtilsWrapper>());
@@ -60,7 +87,7 @@ class WebAppInstallFinalizerUnitTest : public WebAppTest {
         profile(), icon_manager_.get(), policy_manager_.get());
 
     finalizer_->SetSubsystems(
-        &registrar(), ui_manager_.get(),
+        &install_manager(), &registrar(), ui_manager_.get(),
         &fake_registry_controller_->sync_bridge(),
         &fake_registry_controller_->os_integration_manager());
     fake_registry_controller_->Init();
@@ -68,6 +95,7 @@ class WebAppInstallFinalizerUnitTest : public WebAppTest {
   }
 
   void TearDown() override {
+    install_manager_observer_.reset();
     finalizer_.reset();
     ui_manager_.reset();
     policy_manager_.reset();
@@ -78,7 +106,7 @@ class WebAppInstallFinalizerUnitTest : public WebAppTest {
 
   // Synchronous version of FinalizeInstall.
   FinalizeInstallResult AwaitFinalizeInstall(
-      WebApplicationInfo info,
+      WebAppInstallInfo info,
       WebAppInstallFinalizer::FinalizeOptions options) {
     FinalizeInstallResult result{};
     base::RunLoop run_loop;
@@ -98,17 +126,22 @@ class WebAppInstallFinalizerUnitTest : public WebAppTest {
   WebAppRegistrar& registrar() {
     return fake_registry_controller_->registrar();
   }
+  WebAppInstallManager& install_manager() const { return *install_manager_; }
+
+ protected:
+  std::unique_ptr<WebAppInstallFinalizer> finalizer_;
+  std::unique_ptr<TestInstallManagerObserver> install_manager_observer_;
 
  private:
+  std::unique_ptr<WebAppInstallManager> install_manager_;
   std::unique_ptr<FakeWebAppRegistryController> fake_registry_controller_;
   std::unique_ptr<WebAppIconManager> icon_manager_;
   std::unique_ptr<WebAppPolicyManager> policy_manager_;
   std::unique_ptr<WebAppUiManager> ui_manager_;
-  std::unique_ptr<WebAppInstallFinalizer> finalizer_;
 };
 
 TEST_F(WebAppInstallFinalizerUnitTest, BasicInstallSucceeds) {
-  auto info = std::make_unique<WebApplicationInfo>();
+  auto info = std::make_unique<WebAppInstallInfo>();
   info->start_url = GURL("https://foo.example");
   info->title = u"Foo Title";
   WebAppInstallFinalizer::FinalizeOptions options;
@@ -122,11 +155,11 @@ TEST_F(WebAppInstallFinalizerUnitTest, BasicInstallSucceeds) {
 }
 
 TEST_F(WebAppInstallFinalizerUnitTest, ConcurrentInstallSucceeds) {
-  auto info1 = std::make_unique<WebApplicationInfo>();
+  auto info1 = std::make_unique<WebAppInstallInfo>();
   info1->start_url = GURL("https://foo1.example");
   info1->title = u"Foo1 Title";
 
-  auto info2 = std::make_unique<WebApplicationInfo>();
+  auto info2 = std::make_unique<WebAppInstallInfo>();
   info2->start_url = GURL("https://foo2.example");
   info2->title = u"Foo2 Title";
 
@@ -176,7 +209,7 @@ TEST_F(WebAppInstallFinalizerUnitTest, ConcurrentInstallSucceeds) {
 }
 
 TEST_F(WebAppInstallFinalizerUnitTest, InstallStoresLatestWebAppInstallSource) {
-  auto info = std::make_unique<WebApplicationInfo>();
+  auto info = std::make_unique<WebAppInstallInfo>();
   info->start_url = GURL("https://foo.example");
   info->title = u"Foo Title";
   WebAppInstallFinalizer::FinalizeOptions options;
@@ -189,6 +222,23 @@ TEST_F(WebAppInstallFinalizerUnitTest, InstallStoresLatestWebAppInstallSource) {
   EXPECT_TRUE(install_source.has_value());
   EXPECT_EQ(static_cast<webapps::WebappInstallSource>(*install_source),
             webapps::WebappInstallSource::INTERNAL_DEFAULT);
+}
+
+TEST_F(WebAppInstallFinalizerUnitTest, OnWebAppManifestUpdatedTriggered) {
+  auto info = std::make_unique<WebAppInstallInfo>();
+  info->start_url = GURL("https://foo.example");
+  info->title = u"Foo Title";
+  WebAppInstallFinalizer::FinalizeOptions options;
+  options.install_source = webapps::WebappInstallSource::EXTERNAL_POLICY;
+
+  FinalizeInstallResult result = AwaitFinalizeInstall(*info, options);
+  base::RunLoop runloop;
+  finalizer_->FinalizeUpdate(
+      *info, base::BindLambdaForTesting(
+                 [&](const web_app::AppId& app_id,
+                     web_app::InstallResultCode code) { runloop.Quit(); }));
+  runloop.Run();
+  EXPECT_TRUE(install_manager_observer_->web_app_manifest_updated_called());
 }
 
 }  // namespace web_app

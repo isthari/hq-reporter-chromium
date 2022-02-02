@@ -90,7 +90,9 @@ class CONTENT_EXPORT FederatedAuthRequestImpl {
       IdpNetworkRequestManager::FetchStatus status,
       IdpNetworkRequestManager::AccountList accounts,
       IdentityProviderMetadata idp_metadata);
-  void OnAccountSelected(const std::string& account_id);
+  void OnAccountSelected(const std::string& account_id, bool is_sign_in);
+  void CompleteIdTokenRequest(IdpNetworkRequestManager::FetchStatus status,
+                              const std::string& id_token);
   void OnTokenResponseReceived(IdpNetworkRequestManager::FetchStatus status,
                                const std::string& id_token);
   void DispatchOneLogout();
@@ -104,6 +106,8 @@ class CONTENT_EXPORT FederatedAuthRequestImpl {
   void OnRevokeResponse(IdpNetworkRequestManager::RevokeResponse response);
   void CompleteRevokeRequest(blink::mojom::RevokeStatus status);
 
+  void CleanUp();
+
   std::unique_ptr<IdpNetworkRequestManager> CreateNetworkManager(
       const GURL& provider);
   std::unique_ptr<IdentityRequestDialogController> CreateDialogController();
@@ -114,6 +118,10 @@ class CONTENT_EXPORT FederatedAuthRequestImpl {
   GetRequestPermissionContext();
   FederatedIdentitySharingPermissionContextDelegate*
   GetSharingPermissionContext();
+
+  // Creates an inspector issue related to a federated authentication request to
+  // the Issues panel in DevTools.
+  void AddInspectorIssue(blink::mojom::RequestIdTokenStatus status);
 
   const raw_ptr<RenderFrameHost> render_frame_host_ = nullptr;
   const url::Origin origin_;
@@ -168,6 +176,10 @@ class CONTENT_EXPORT FederatedAuthRequestImpl {
   // mediation flow.
   std::string account_id_;
   std::string id_token_;
+  base::TimeTicks start_time_;
+  base::TimeTicks show_accounts_dialog_time_;
+  base::TimeTicks select_account_time_;
+  base::TimeTicks id_token_response_time_;
   blink::mojom::FederatedAuthRequest::RequestIdTokenCallback
       auth_request_callback_;
 

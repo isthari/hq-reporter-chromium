@@ -16,7 +16,6 @@ import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkUtils;
 import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
-import org.chromium.chrome.browser.datareduction.DataReductionSavingsMilestonePromo;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitor;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitorDelegate;
@@ -25,7 +24,6 @@ import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
-import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.CurrentTabObserver;
@@ -99,21 +97,6 @@ public class ToolbarButtonInProductHelpController
         mLifecycleDispatcher.register(this);
         mCurrentTabSupplier = tabSupplier;
         mPageLoadObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
-            /**
-             * Stores total data saved at the start of a page load. Used to calculate delta at the
-             * end of page load, which is just an estimate of the data saved for the current page
-             * load since there may be multiple pages loading at the same time. This estimate is
-             * used to get an idea of how widely used the data saver feature is for a particular
-             * user at a time (i.e. not since the user started using Chrome).
-             */
-            private long mDataSavedOnStartPageLoad;
-
-            @Override
-            public void onPageLoadStarted(Tab tab, GURL url) {
-                mDataSavedOnStartPageLoad = DataReductionProxySettings.getInstance()
-                                                    .getContentLengthSavedInHistorySummary();
-            }
-
             @Override
             public void onPageLoadFinished(Tab tab, GURL url) {
                 if (tab.isShowingErrorPage()) {
@@ -125,18 +108,6 @@ public class ToolbarButtonInProductHelpController
             }
 
             private void handleIPHForSuccessfulPageLoad(final Tab tab) {
-                long dataSaved = DataReductionProxySettings.getInstance()
-                                         .getContentLengthSavedInHistorySummary()
-                        - mDataSavedOnStartPageLoad;
-                Tracker tracker = TrackerFactory.getTrackerForProfile(
-                        Profile.fromWebContents(tab.getWebContents()));
-                if (dataSaved > 0L) tracker.notifyEvent(EventConstants.DATA_SAVED_ON_PAGE_LOAD);
-
-                if (tab.isUserInteractable()) {
-                    showDataSaverDetail();
-                    if (dataSaved > 0L) showDataSaverMilestonePromo();
-                }
-
                 showDownloadPageTextBubble(tab, FeatureConstants.DOWNLOAD_PAGE_FEATURE);
                 showTranslateMenuButtonTextBubble(tab);
                 showPriceTrackingIPH(tab);
@@ -248,45 +219,6 @@ public class ToolbarButtonInProductHelpController
     // Private methods.
     private static int getDataReductionMenuItemHighlight() {
         return R.id.app_menu_footer;
-    }
-
-    // Attempts to show an IPH text bubble for data saver detail.
-    private void showDataSaverDetail() {
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(mActivity.getResources(),
-                        FeatureConstants.DATA_SAVER_DETAIL_FEATURE,
-                        R.string.iph_data_saver_detail_text,
-                        R.string.iph_data_saver_detail_accessibility_text)
-                        .setAnchorView(mMenuButtonAnchorView)
-                        .setOnShowCallback(()
-                                                   -> turnOnHighlightForMenuItem(
-                                                           getDataReductionMenuItemHighlight()))
-                        .setOnDismissCallback(this::turnOffHighlightForMenuItem)
-                        .build());
-    }
-
-    // Attempts to show an IPH text bubble for data saver milestone promo.
-    private void showDataSaverMilestonePromo() {
-        final DataReductionSavingsMilestonePromo promo =
-                new DataReductionSavingsMilestonePromo(mActivity,
-                        DataReductionProxySettings.getInstance().getTotalHttpContentLengthSaved());
-        if (!promo.shouldShowPromo()) return;
-
-        final Runnable dismissCallback = () -> {
-            promo.onPromoTextSeen();
-            turnOffHighlightForMenuItem();
-        };
-
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(mActivity.getResources(),
-                        FeatureConstants.DATA_SAVER_MILESTONE_PROMO_FEATURE, promo.getPromoText(),
-                        promo.getPromoText())
-                        .setAnchorView(mMenuButtonAnchorView)
-                        .setOnShowCallback(()
-                                                   -> turnOnHighlightForMenuItem(
-                                                           getDataReductionMenuItemHighlight()))
-                        .setOnDismissCallback(dismissCallback)
-                        .build());
     }
 
     private void showDownloadHomeIPH() {

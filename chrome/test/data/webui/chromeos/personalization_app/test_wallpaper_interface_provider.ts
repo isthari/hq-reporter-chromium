@@ -2,24 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CurrentWallpaper, OnlineImageType, WallpaperCollection, WallpaperImage, WallpaperLayout, WallpaperObserverInterface, WallpaperObserverRemote, WallpaperProviderInterface, WallpaperType} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
+import {CurrentWallpaper, FetchGooglePhotosAlbumsResponse, FetchGooglePhotosPhotosResponse, GooglePhotosAlbum, OnlineImageType, WallpaperCollection, WallpaperImage, WallpaperLayout, WallpaperObserverInterface, WallpaperObserverRemote, WallpaperProviderInterface, WallpaperType} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {FilePath} from 'chrome://resources/mojo/mojo/public/mojom/base/file_path.mojom-webui.js';
 import {assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
-/**
- * @implements {WallpaperProviderInterface}
- * @extends {TestBrowserProxy}
- */
-export class TestWallpaperProvider extends TestBrowserProxy implements
-    WallpaperProviderInterface {
+export class TestWallpaperProvider extends
+    TestBrowserProxy<WallpaperProviderInterface> implements
+        WallpaperProviderInterface {
   constructor() {
     super([
       'makeTransparent',
       'fetchCollections',
       'fetchImagesForCollection',
+      'fetchGooglePhotosAlbums',
       'fetchGooglePhotosCount',
+      'fetchGooglePhotosPhotos',
       'getLocalImages',
       'getLocalImageThumbnail',
       'setWallpaperObserver',
@@ -95,6 +94,8 @@ export class TestWallpaperProvider extends TestBrowserProxy implements
 
   private collections_: WallpaperCollection[]|null;
   private images_: WallpaperImage[]|null;
+  private googlePhotosAlbums_: GooglePhotosAlbum[]|undefined = [];
+  private googlePhotosCount_: number = 0;
   localImages: FilePath[]|null;
   localImageData: Record<string, string>;
   currentWallpaper: CurrentWallpaper;
@@ -132,11 +133,34 @@ export class TestWallpaperProvider extends TestBrowserProxy implements
     return Promise.resolve({images: this.images_});
   }
 
+  fetchGooglePhotosAlbums() {
+    this.methodCalled('fetchGooglePhotosAlbums');
+    const response = new FetchGooglePhotosAlbumsResponse();
+    response.albums =
+        loadTimeData.getBoolean('isGooglePhotosIntegrationEnabled') ?
+        this.googlePhotosAlbums_ :
+        undefined;
+    response.resumeToken = undefined;
+    return Promise.resolve({response});
+  }
+
   fetchGooglePhotosCount() {
     this.methodCalled('fetchGooglePhotosCount');
-    const count =
-        loadTimeData.getBoolean('isGooglePhotosIntegrationEnabled') ? 0 : -1;
-    return Promise.resolve({count: count});
+    const count = loadTimeData.getBoolean('isGooglePhotosIntegrationEnabled') ?
+        this.googlePhotosCount_ :
+        -1;
+    return Promise.resolve({count});
+  }
+
+  fetchGooglePhotosPhotos() {
+    this.methodCalled('fetchGooglePhotosPhotos');
+    const response = new FetchGooglePhotosPhotosResponse();
+    // TODO(b/216528919): Wire up with mojo API.
+    response.photos =
+        loadTimeData.getBoolean('isGooglePhotosIntegrationEnabled') ? [] :
+                                                                      undefined;
+    response.resumeToken = undefined;
+    return Promise.resolve({response});
   }
 
   getLocalImages() {
@@ -205,6 +229,14 @@ export class TestWallpaperProvider extends TestBrowserProxy implements
 
   setCollectionsToFail() {
     this.collections_ = null;
+  }
+
+  setGooglePhotosAlbums(googlePhotosAlbums: GooglePhotosAlbum[]|undefined) {
+    this.googlePhotosAlbums_ = googlePhotosAlbums;
+  }
+
+  setGooglePhotosCount(googlePhotosCount: number) {
+    this.googlePhotosCount_ = googlePhotosCount;
   }
 
   setImages(images: WallpaperImage[]) {

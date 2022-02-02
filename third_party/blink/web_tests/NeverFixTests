@@ -20,7 +20,7 @@
 #   6. Tests that fail due to Debug rendering variations from Release behavior.
 #   7. Tests that are not meant to be run automatically (manual tests).
 #   8. Tests that are automatically imported but not intended to be run.
-# https://chromium.googlesource.com/chromium/src/+/master/docs/testing/web_test_expectations.md
+# https://chromium.googlesource.com/chromium/src/+/main/docs/testing/web_test_expectations.md
 
 # Perf tests are really slow in debug builds and there are few benefits in running them.
 [ Debug ] http/tests/perf/* [ Skip ]
@@ -68,6 +68,7 @@ fast/harness/results.html [ Skip ]
 [ Mac ] fast/forms/select/menulist-onchange-fired-with-key-up-down.html [ Skip ]
 [ Mac ] fast/forms/select/popup-with-display-none-optgroup.html [ Skip ]
 [ Mac ] fast/forms/select-popup/* [ Skip ]
+[ Mac ] dark-mode/colors/select-popup.html [ Skip ]
 
 # These tests are specific to Windows and Linux.
 [ Mac ] fast/forms/calendar-picker/date-open-picker-with-f4-key.html [ Skip ]
@@ -210,7 +211,6 @@ external/wpt/css/CSS2/text/text-align-white-space-003.xht [ Skip ]
 external/wpt/css/CSS2/text/text-align-white-space-007.xht [ Skip ]
 
 # CSS2 tests that require files in different directories.
-external/wpt/css/CSS2/linebox/inline-formatting-context-012.xht [ Skip ]
 external/wpt/css/CSS2/normal-flow/blocks-017.xht [ Skip ]
 
 # CSS2 tests that have 1px diff due to font hinting.
@@ -1689,8 +1689,6 @@ virtual/not-site-per-process/external/wpt/app-history/navigate-event/cross-windo
 virtual/not-site-per-process/external/wpt/app-history/navigate-event/cross-window/open-samedocument-crossorigin-sameorigindomain.sub.html [ Pass ]
 virtual/not-site-per-process/external/wpt/app-history/navigate-event/cross-window/submit-crossdocument-crossorigin-sameorigindomain.sub.html [ Pass ]
 virtual/not-site-per-process/external/wpt/app-history/navigate-event/cross-window/submit-samedocument-crossorigin-sameorigindomain.sub.html [ Pass ]
-virtual/wasm-module-sharing-enabled-not-site-per-process/external/wpt/wasm/serialization/module/window-similar-but-cross-origin-success.sub.html [ Pass ]
-virtual/wasm-module-sharing-enabled-not-site-per-process/external/wpt/wasm/serialization/module/window-domain-success.sub.html [ Pass ]
 # ----------------------- origin-keyed agent clusters --------------------
 # Origin-keyed agent clusters web platform tests are for the feature at
 # https://html.spec.whatwg.org/#origin-keyed-agent-clusters. It doesn't make
@@ -1820,7 +1818,9 @@ virtual/passive-fingerprinting/http/tests/navigation/frozen-useragent.html [ Pas
 crbug.com/1018640 external/wpt/web-bundle/wbn-from-network/* [ Skip ]
 virtual/wbn-from-network/external/wpt/web-bundle/wbn-from-network/* [ Pass ]
 crbug.com/1119600 external/wpt/direct-sockets/* [ Skip ]
+crbug.com/1119600 wpt_internal/direct-sockets/* [ Skip ]
 virtual/direct-sockets/external/wpt/direct-sockets/* [ Pass ]
+virtual/direct-sockets/wpt_internal/direct-sockets/* [ Pass ]
 crbug.com/1082020 http/tests/loading/wbn/origin-trial/* [ Skip ]
 virtual/subresource-web-bundles-disabled/http/tests/loading/wbn/origin-trial/* [ Pass ]
 
@@ -1836,8 +1836,12 @@ wpt_internal/hid/hidDevice_collections-manual.https.html [ Skip ]
 external/wpt/serial/serialPort_loopback-manual.https.html [ Skip ]
 external/wpt/serial/serialPort_loopback_BreakError-manual.https.html [ Skip ]
 external/wpt/serial/serialPort_loopback_BufferOverrunError-manual.https.html [ Skip ]
+external/wpt/serial/serialPort_loopback_flowControl-manual.https.html [ Skip ]
 external/wpt/serial/serialPort_disconnect-manual.https.html [ Skip ]
 external/wpt/serial/serialPort_readable-manual.https.html [ Skip ]
+
+# Content-shell doesn't support plugins
+fast/dom/HTMLObjectElement/object-param-url-usecounter-manual.html [ Skip ]
 
 # CPU test is enough for this one as there are gradient issues on the GPU
 crbug.com/626703 [ Linux ] external/wpt/html/webappapis/system-state-and-capabilities/the-navigator-object/protocol-handler-query-nosw-manual.https.html [ Skip ]
@@ -1862,16 +1866,7 @@ crbug.com/626703 [ Win ] external/wpt/html/editing/dnd/events/historical-manual.
 # Remove from virtual tests when FontAccess is turned on by default.
 external/wpt/font-access/font_access-blob.tentative.https.window.html [ Skip ]
 external/wpt/font-access/font_access-enumeration.tentative.https.window.html [ Skip ]
-external/wpt/font-access/font_access-chooser.tentative.manual.https.html [ Skip ]
-external/wpt/font-access/font_access-chooser-multiple.tentative.manual.https.html [ Skip ]
-external/wpt/font-access/font_access-chooser-selection.tentative.manual.https.html [ Skip ]
 external/wpt/font-access/font_metadata.tentative.https.window.html [ Skip ]
-virtual/font-access-persistent/external/wpt/font-access/font_access-blob.tentative.https.window.html [ Pass ]
-virtual/font-access-persistent/external/wpt/font-access/font_access-chooser.tentative.manual.https.html [ Skip ]
-virtual/font-access-persistent/external/wpt/font-access/font_access-chooser-multiple.tentative.manual.https.html [ Skip ]
-virtual/font-access-persistent/external/wpt/font-access/font_access-chooser-selection.tentative.manual.https.html [ Skip ]
-virtual/font-access-persistent/external/wpt/font-access/font_access-enumeration.tentative.https.window.html [ Pass ]
-virtual/font-access-persistent/external/wpt/font-access/font_metadata.tentative.https.window.html [ Pass ]
 
 # Remove from virtual tests when ComputePressure is turned on by default.
 crbug.com/1196419 external/wpt/compute-pressure/compute_pressure_arguments.tentative.https.window.html [ Skip ]
@@ -2015,3 +2010,9 @@ crbug.com/509989 [ Android ] virtual/text-antialias/font-synthesis-style-local-w
 crbug.com/626703 [ Mac10.15 ] external/wpt/appmanifest/icons-member/icons-member-cors-fail-manual.sub.html [ Skip ]
 crbug.com/626703 [ Mac10.15 ] external/wpt/appmanifest/start_url-member/start_url-member-pass-manual.html [ Skip ]
 crbug.com/626703 [ Mac11 ] virtual/fsa-incognito/external/wpt/file-system-access/local_FileSystemBaseHandle-postMessage-windows-manual.https.html [ Skip ]
+
+# The following tests never pass in the default Blink test runner due to forced
+# frame updates, but still pass in the full browser. They are only run in the
+# no-forced-frame-updates virtual test suite.
+external/wpt/html/dom/render-blocking-mechanism/* [ Skip ]
+virtual/no-forced-frame-updates/external/wpt/html/dom/render-blocking-mechanism/* [ Pass ]

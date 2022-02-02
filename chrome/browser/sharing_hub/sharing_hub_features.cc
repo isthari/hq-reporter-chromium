@@ -18,7 +18,7 @@ namespace {
 
 // Whether the sharing hub feature should be disabled by policy.
 bool SharingHubDisabledByPolicy(content::BrowserContext* context) {
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   const PrefService* prefs = Profile::FromBrowserContext(context)->GetPrefs();
   return !prefs->GetBoolean(prefs::kDesktopSharingHubEnabled);
 #else
@@ -37,7 +37,12 @@ bool ScreenshotsDisabledByPolicy(content::BrowserContext* context) {
 }  // namespace
 
 bool SharingHubOmniboxEnabled(content::BrowserContext* context) {
-  return !SharingHubDisabledByPolicy(context);
+  Profile* profile = Profile::FromBrowserContext(context);
+  if (!profile)
+    return false;
+
+  return !SharingHubDisabledByPolicy(context) &&
+         !profile->IsIncognitoProfile() && !profile->IsGuestSession();
 }
 
 bool DesktopScreenshotsFeatureEnabled(content::BrowserContext* context) {
@@ -49,7 +54,7 @@ bool DesktopScreenshotsFeatureEnabled(content::BrowserContext* context) {
 const base::Feature kDesktopScreenshots{"DesktopScreenshots",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kDesktopSharingHubEnabled, true);
 }

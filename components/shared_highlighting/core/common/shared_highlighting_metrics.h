@@ -86,6 +86,21 @@ enum class TextFragmentLinkOpenSource {
   kMaxValue = kSearchEngine,
 };
 
+// These values are persisted in histograms. Entries should not be renumbered
+// and numeric values should never be reused. The status of link to text reshare
+// attempt. Update corresponding |LinkToTextReshareStatus| in enums.xml.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.share.link_to_text
+enum class LinkToTextReshareStatus {
+  kSuccess = 0,
+  kNoRemoteConnection = 1,
+  kTabHidden = 2,
+  kOmniboxNavigation = 3,
+  kTabCrash = 4,
+  kTimeout = 5,
+
+  kMaxValue = kTimeout,
+};
+
 // Records the type of link generation that was copied on desktop.
 void LogDesktopLinkGenerationCopiedLinkType(LinkGenerationCopiedLinkType type);
 
@@ -103,10 +118,11 @@ void LogLinkRequestedStatus(LinkGenerationStatus status);
 
 // Records metrics when successfully generated link to text was available for
 // the user.
-void LogRequestedSuccessMetrics();
+void LogRequestedSuccessMetrics(ukm::SourceId source_id);
 
 // Records metrics when link to text was not available for the user.
-void LogRequestedFailureMetrics(LinkGenerationError error);
+void LogRequestedFailureMetrics(ukm::SourceId source_id,
+                                LinkGenerationError error);
 
 // Records whether an individual text fragment could not be scrolled to because
 // there was an |ambiguous_match| (generally because more than one matching
@@ -129,6 +145,9 @@ void LogGenerateSuccessLatency(base::TimeDelta latency);
 
 // Records the latency for failing to generate a link.
 void LogGenerateErrorLatency(base::TimeDelta latency);
+
+// Records the outcome of link to text reshare attempt.
+void LogLinkToTextReshareStatus(LinkToTextReshareStatus status);
 
 // Records a UKM event for opening a link with text fragments. |source_id|
 // refers to the navigation action's ID, |referrer| will be used to record the
@@ -180,6 +199,20 @@ void LogLinkGeneratedErrorUkmEvent(ukm::SourceId source_id,
 void LogLinkGeneratedErrorUkmEvent(ukm::UkmRecorder* recorder,
                                    ukm::SourceId source_id,
                                    LinkGenerationError reason);
+
+// Records a UKM event when link with text fragments was available for the user.
+// |source_id| refers to the current frame, and this function will record using
+// the static Recorder. This API can only be used when calling from the browser
+// process, otherwise no event will be recorded.
+void LogLinkGeneratedRequestedSuccessUkmEvent(ukm::SourceId source_id);
+
+// Records a UKM event when link with text fragments was not available for the
+// user. |source_id| refers to the current frame and |reason| highlights the
+// cause of the failure. This function will record using the static Recorder.
+// This API can only be used when calling from the browser process, otherwise no
+// event will be recorded.
+void LogLinkGeneratedRequestedErrorUkmEvent(ukm::SourceId source_id,
+                                            LinkGenerationError reason);
 
 // Records whether link to text was requested before or after link generation
 // was complete with corresponding success status.

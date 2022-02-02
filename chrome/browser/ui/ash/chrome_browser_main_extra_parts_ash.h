@@ -12,7 +12,8 @@
 
 namespace ash {
 class NewWindowDelegateProvider;
-}
+class NightLightClient;
+}  // namespace ash
 
 namespace chromeos {
 class NetworkPortalNotificationController;
@@ -37,6 +38,9 @@ class MicrophoneMuteNotificationDelegateImpl;
 class MobileDataNotifications;
 class NetworkConnectDelegateChromeOS;
 class NightLightClient;
+class ProjectorAppClientImpl;
+class ProjectorClientImpl;
+class QuickAnswersController;
 class ScreenOrientationDelegateChromeos;
 class SessionControllerClientImpl;
 class SystemTrayClientImpl;
@@ -44,8 +48,6 @@ class TabClusterUIClient;
 class TabletModePageBehavior;
 class VpnListForwarder;
 class WallpaperControllerClientImpl;
-class ProjectorAppClientImpl;
-class ProjectorClientImpl;
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
 class ExoParts;
@@ -71,7 +73,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   // Overridden from ChromeBrowserMainExtraParts:
   void PreCreateMainMessageLoop() override;
   void PreProfileInit() override;
-  void PostProfileInit() override;
+  void PostProfileInit(Profile* profile, bool is_initial_profile) override;
   void PostBrowserStart() override;
   void PostMainMessageLoopRun() override;
 
@@ -105,6 +107,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<WallpaperControllerClientImpl> wallpaper_controller_client_;
   std::unique_ptr<ProjectorAppClientImpl> projector_app_client_;
   std::unique_ptr<ProjectorClientImpl> projector_client_;
+  std::unique_ptr<QuickAnswersController> quick_answers_controller_;
   // TODO(stevenjb): Move NetworkPortalNotificationController to c/b/ui/ash and
   // elim chromeos:: namespace. https://crbug.com/798569.
   std::unique_ptr<chromeos::NetworkPortalNotificationController>
@@ -128,7 +131,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
 
   // Initialized in PostBrowserStart in all configs:
   std::unique_ptr<MobileDataNotifications> mobile_data_notifications_;
-  std::unique_ptr<NightLightClient> night_light_client_;
+  std::unique_ptr<ash::NightLightClient> night_light_client_;
   std::unique_ptr<AmbientClientImpl> ambient_client_;
 };
 

@@ -64,6 +64,7 @@
 #include "third_party/blink/renderer/modules/credentialmanager/password_credential.h"
 #include "third_party/blink/renderer/modules/credentialmanager/public_key_credential.h"
 #include "third_party/blink/renderer/modules/credentialmanager/scoped_promise_resolver.h"
+#include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -74,7 +75,7 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "third_party/blink/renderer/bindings/modules/v8/v8_public_key_credential_rp_entity.h"
 #endif
 
@@ -88,6 +89,7 @@ using mojom::blink::CredentialInfoPtr;
 using mojom::blink::CredentialManagerError;
 using mojom::blink::CredentialMediationRequirement;
 using mojom::blink::PaymentCredentialInstrument;
+using mojom::blink::WebAuthnDOMExceptionDetailsPtr;
 using MojoPublicKeyCredentialCreationOptions =
     mojom::blink::PublicKeyCredentialCreationOptions;
 using mojom::blink::MakeCredentialAuthenticatorResponsePtr;
@@ -185,6 +187,13 @@ bool CheckSecurityRequirementsBeforeRequest(
 
   // The API is not exposed in non-secure context.
   SECURITY_CHECK(resolver->GetExecutionContext()->IsSecureContext());
+
+  if (resolver->DomWindow()->GetFrame()->IsInFencedFrameTree()) {
+    resolver->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kNotAllowedError,
+        "The credential operation is not allowed in a fenced frame tree."));
+    return false;
+  }
 
   switch (required_origin_type) {
     case RequiredOriginType::kSecure:
@@ -344,119 +353,137 @@ DOMException* CredentialManagerErrorToDOMException(
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kInvalidStateError,
           "A request is already pending.");
-    case CredentialManagerError::PENDING_REQUEST_WEBAUTHN:
-      // WebAuthn's PENDING_REQUEST is mapped to a different
-      // |CredentialManagerError| because WebAuthn wants kInvalidStateError to
-      // be distinctive so that sites can recognise it as
-      // |CREDENTIAL_EXCLUDED|.
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kOperationError, "A request is already pending.");
     case CredentialManagerError::PASSWORD_STORE_UNAVAILABLE:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError,
           "The password store is unavailable.");
-    case CredentialManagerError::NOT_ALLOWED:
+    case CredentialManagerError::UNKNOWN:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotReadableError,
+          "An unknown error occurred while talking "
+          "to the credential manager.");
+    case CredentialManagerError::SUCCESS:
+      NOTREACHED();
+      break;
+  }
+  return nullptr;
+}
+
+DOMException* AuthenticatorStatusToDOMException(
+    AuthenticatorStatus status,
+    const WebAuthnDOMExceptionDetailsPtr& dom_exception_details) {
+  DCHECK_EQ(status != AuthenticatorStatus::ERROR_WITH_DOM_EXCEPTION_DETAILS,
+            dom_exception_details.is_null());
+  switch (status) {
+    case AuthenticatorStatus::SUCCESS:
+      NOTREACHED();
+      break;
+    case AuthenticatorStatus::PENDING_REQUEST:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kOperationError, "A request is already pending.");
+    case AuthenticatorStatus::NOT_ALLOWED_ERROR:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotAllowedError,
           "The operation either timed out or was not allowed. See: "
           "https://www.w3.org/TR/webauthn-2/"
           "#sctn-privacy-considerations-client.");
-    case CredentialManagerError::INVALID_DOMAIN:
+    case AuthenticatorStatus::INVALID_DOMAIN:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kSecurityError, "This is an invalid domain.");
-    case CredentialManagerError::INVALID_ICON_URL:
+    case AuthenticatorStatus::INVALID_ICON_URL:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kSecurityError, "The icon should be a secure URL");
-    case CredentialManagerError::CREDENTIAL_EXCLUDED:
+    case AuthenticatorStatus::CREDENTIAL_EXCLUDED:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kInvalidStateError,
           "The user attempted to register an authenticator that contains one "
           "of the credentials already registered with the relying party.");
-    case CredentialManagerError::NOT_IMPLEMENTED:
+    case AuthenticatorStatus::NOT_IMPLEMENTED:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError, "Not implemented");
-    case CredentialManagerError::NOT_FOCUSED:
+    case AuthenticatorStatus::NOT_FOCUSED:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotAllowedError,
           "The operation is not allowed at this time "
           "because the page does not have focus.");
-    case CredentialManagerError::RESIDENT_CREDENTIALS_UNSUPPORTED:
+    case AuthenticatorStatus::RESIDENT_CREDENTIALS_UNSUPPORTED:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError,
           "Resident credentials or empty "
           "'allowCredentials' lists are not supported "
           "at this time.");
-    case CredentialManagerError::PROTECTION_POLICY_INCONSISTENT:
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotSupportedError,
-          "Requested protection policy is inconsistent or incongruent with "
-          "other requested parameters.");
-    case CredentialManagerError::ANDROID_ALGORITHM_UNSUPPORTED:
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotSupportedError,
-          "None of the algorithms specified in "
-          "`pubKeyCredParams` are supported by "
-          "this device.");
-    case CredentialManagerError::ANDROID_EMPTY_ALLOW_CREDENTIALS:
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotSupportedError,
-          "Use of an empty `allowCredentials` list is "
-          "not supported on this device.");
-    case CredentialManagerError::ANDROID_NOT_SUPPORTED_ERROR:
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotSupportedError,
-          "Either the device has received unexpected "
-          "request parameters, or the device "
-          "cannot support this request.");
-    case CredentialManagerError::ANDROID_USER_VERIFICATION_UNSUPPORTED:
+    case AuthenticatorStatus::USER_VERIFICATION_UNSUPPORTED:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError,
           "The specified `userVerification` "
           "requirement cannot be fulfilled by "
           "this device unless the device is secured "
           "with a screen lock.");
-    case CredentialManagerError::ABORT:
+    case AuthenticatorStatus::ALGORITHM_UNSUPPORTED:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotSupportedError,
+          "None of the algorithms specified in "
+          "`pubKeyCredParams` are supported by "
+          "this device.");
+    case AuthenticatorStatus::EMPTY_ALLOW_CREDENTIALS:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotSupportedError,
+          "Use of an empty `allowCredentials` list is "
+          "not supported on this device.");
+    case AuthenticatorStatus::ANDROID_NOT_SUPPORTED_ERROR:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotSupportedError,
+          "Either the device has received unexpected "
+          "request parameters, or the device "
+          "cannot support this request.");
+    case AuthenticatorStatus::PROTECTION_POLICY_INCONSISTENT:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotSupportedError,
+          "Requested protection policy is inconsistent or incongruent with "
+          "other requested parameters.");
+    case AuthenticatorStatus::ABORT_ERROR:
       return MakeGarbageCollected<DOMException>(DOMExceptionCode::kAbortError,
                                                 "Request has been aborted.");
-    case CredentialManagerError::OPAQUE_DOMAIN:
+    case AuthenticatorStatus::OPAQUE_DOMAIN:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotAllowedError,
           "The current origin is an opaque origin and hence not allowed to "
           "access 'PublicKeyCredential' objects.");
-    case CredentialManagerError::INVALID_PROTOCOL:
+    case AuthenticatorStatus::INVALID_PROTOCOL:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kSecurityError,
           "Public-key credentials are only available to HTTPS origin or HTTP "
           "origins that fall under 'localhost'. See https://crbug.com/824383");
-    case CredentialManagerError::BAD_RELYING_PARTY_ID:
+    case AuthenticatorStatus::BAD_RELYING_PARTY_ID:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kSecurityError,
           "The relying party ID is not a registrable domain suffix of, nor "
           "equal to the current domain.");
-    case CredentialManagerError::CANNOT_READ_AND_WRITE_LARGE_BLOB:
+    case AuthenticatorStatus::CANNOT_READ_AND_WRITE_LARGE_BLOB:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError,
           "Only one of the 'largeBlob' extension's 'read' and 'write' "
           "parameters is allowed at a time");
-    case CredentialManagerError::INVALID_ALLOW_CREDENTIALS_FOR_LARGE_BLOB:
+    case AuthenticatorStatus::INVALID_ALLOW_CREDENTIALS_FOR_LARGE_BLOB:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotSupportedError,
           "The 'largeBlob' extension's 'write' parameter can only be used "
           "with a single credential present on 'allowCredentials'");
-    case CredentialManagerError::UNKNOWN:
-      return MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotReadableError,
-          "An unknown error occurred while talking "
-          "to the credential manager.");
-    case CredentialManagerError::
+    case AuthenticatorStatus::
         FAILED_TO_SAVE_CREDENTIAL_ID_FOR_PAYMENT_EXTENSION:
       return MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotReadableError,
           "Failed to save the credential identifier for the 'payment' "
           "extension.");
-    case CredentialManagerError::SUCCESS:
-      NOTREACHED();
-      break;
+    case AuthenticatorStatus::ERROR_WITH_DOM_EXCEPTION_DETAILS:
+      return DOMException::Create(
+          /*message=*/dom_exception_details->message,
+          /*name=*/dom_exception_details->name);
+    case AuthenticatorStatus::UNKNOWN_ERROR:
+      return MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotReadableError,
+          "An unknown error occurred while talking "
+          "to the credential manager.");
   }
   return nullptr;
 }
@@ -530,7 +557,7 @@ DOMArrayBuffer* VectorToDOMArrayBuffer(const Vector<uint8_t> buffer) {
                                 buffer.size());
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 Vector<Vector<uint32_t>> UvmEntryToArray(
     const Vector<mojom::blink::UvmEntryPtr>& user_verification_methods) {
   Vector<Vector<uint32_t>> uvm_array;
@@ -548,13 +575,14 @@ void OnMakePublicKeyCredentialComplete(
     std::unique_ptr<ScopedPromiseResolver> scoped_resolver,
     RequiredOriginType required_origin_type,
     AuthenticatorStatus status,
-    MakeCredentialAuthenticatorResponsePtr credential) {
+    MakeCredentialAuthenticatorResponsePtr credential,
+    WebAuthnDOMExceptionDetailsPtr dom_exception_details) {
   auto* resolver = scoped_resolver->Release();
   AssertSecurityRequirementsBeforeResponse(resolver, required_origin_type);
   if (status != AuthenticatorStatus::SUCCESS) {
     DCHECK(!credential);
-    resolver->Reject(CredentialManagerErrorToDOMException(
-        mojo::ConvertTo<CredentialManagerError>(status)));
+    resolver->Reject(
+        AuthenticatorStatusToDOMException(status, dom_exception_details));
     return;
   }
   DCHECK(credential);
@@ -633,7 +661,7 @@ void OnSaveCredentialIdForPaymentExtension(
   OnMakePublicKeyCredentialComplete(
       std::move(scoped_resolver),
       RequiredOriginType::kSecureWithPaymentPermissionPolicy, status,
-      std::move(credential));
+      std::move(credential), /*dom_exception_details=*/nullptr);
 }
 
 void OnMakePublicKeyCredentialWithPaymentExtensionComplete(
@@ -641,7 +669,8 @@ void OnMakePublicKeyCredentialWithPaymentExtensionComplete(
     const String& rp_id_for_payment_extension,
     const WTF::Vector<uint8_t>& user_id_for_payment_extension,
     AuthenticatorStatus status,
-    MakeCredentialAuthenticatorResponsePtr credential) {
+    MakeCredentialAuthenticatorResponsePtr credential,
+    WebAuthnDOMExceptionDetailsPtr dom_exception_details) {
   auto* resolver = scoped_resolver->Release();
   const auto required_origin_type =
       RequiredOriginType::kSecureWithPaymentPermissionPolicy;
@@ -649,8 +678,8 @@ void OnMakePublicKeyCredentialWithPaymentExtensionComplete(
   AssertSecurityRequirementsBeforeResponse(resolver, required_origin_type);
   if (status != AuthenticatorStatus::SUCCESS) {
     DCHECK(!credential);
-    resolver->Reject(CredentialManagerErrorToDOMException(
-        mojo::ConvertTo<CredentialManagerError>(status)));
+    resolver->Reject(
+        AuthenticatorStatusToDOMException(status, dom_exception_details));
     return;
   }
 
@@ -669,7 +698,8 @@ void OnMakePublicKeyCredentialWithPaymentExtensionComplete(
 void OnGetAssertionComplete(
     std::unique_ptr<ScopedPromiseResolver> scoped_resolver,
     AuthenticatorStatus status,
-    GetAssertionAuthenticatorResponsePtr credential) {
+    GetAssertionAuthenticatorResponsePtr credential,
+    WebAuthnDOMExceptionDetailsPtr dom_exception_details) {
   auto* resolver = scoped_resolver->Release();
   const auto required_origin_type = RequiredOriginType::kSecure;
 
@@ -692,7 +722,7 @@ void OnGetAssertionComplete(
     if (credential->echo_appid_extension) {
       extension_outputs->setAppid(credential->appid_extension);
     }
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     if (credential->echo_user_verification_methods) {
       extension_outputs->setUvm(
           UvmEntryToArray(std::move(*credential->user_verification_methods)));
@@ -730,8 +760,8 @@ void OnGetAssertionComplete(
     return;
   }
   DCHECK(!credential);
-  resolver->Reject(CredentialManagerErrorToDOMException(
-      mojo::ConvertTo<CredentialManagerError>(status)));
+  resolver->Reject(
+      AuthenticatorStatusToDOMException(status, dom_exception_details));
 }
 
 void OnSmsReceive(ScriptPromiseResolver* resolver,
@@ -1019,7 +1049,7 @@ ScriptPromise CredentialsContainer::get(
                         WebFeature::kCredentialManagerGetPublicKeyCredential);
     }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     if (options->publicKey()->hasExtensions() &&
         options->publicKey()->extensions()->hasUvm()) {
       UseCounter::Count(resolver->GetExecutionContext(),
@@ -1195,7 +1225,8 @@ ScriptPromise CredentialsContainer::get(
         // TODO(yigu): Ideally the logic should be handled in CredentialManager
         // via Get. However currently it's only for password management and we
         // should refactor the logic to make it generic.
-        if (!RuntimeEnabledFeatures::WebIDEnabled()) {
+        if (!RuntimeEnabledFeatures::WebIDEnabled(
+                ExecutionContext::From(script_state))) {
           resolver->Reject(MakeGarbageCollected<DOMException>(
               DOMExceptionCode::kNotSupportedError, "Invalid provider entry"));
           return promise;

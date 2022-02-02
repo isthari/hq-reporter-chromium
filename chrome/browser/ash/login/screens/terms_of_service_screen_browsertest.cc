@@ -7,6 +7,7 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
+#include "base/files/file_util.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/login/existing_user_controller.h"
@@ -15,9 +16,9 @@
 #include "chrome/browser/ash/login/session/user_session_manager_test_api.h"
 #include "chrome/browser/ash/login/test/cryptohome_mixin.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
+#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/embedded_test_server_setup_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
-#include "chrome/browser/ash/login/test/local_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
@@ -130,9 +131,9 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
 
   void UploadDeviceLocalAccountPolicy() {
     BuildDeviceLocalAccountPolicy();
-    ASSERT_TRUE(local_policy_mixin_.server()->UpdatePolicy(
+    policy_test_server_mixin_.UpdatePolicy(
         policy::dm_protocol::kChromePublicAccountPolicyType, kAccountId,
-        device_local_account_policy_.payload().SerializeAsString()));
+        device_local_account_policy_.payload().SerializeAsString());
   }
 
   void UploadAndInstallDeviceLocalAccountPolicy() {
@@ -145,7 +146,7 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
     em::ChromeDeviceSettingsProto& proto(device_policy()->payload());
     policy::DeviceLocalAccountTestHelper::AddPublicSession(&proto, kAccountId);
     RefreshDevicePolicy();
-    ASSERT_TRUE(local_policy_mixin_.UpdateDevicePolicy(proto));
+    policy_test_server_mixin_.UpdateDevicePolicy(proto);
   }
 
   void WaitForDisplayName() {
@@ -188,17 +189,21 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
         &PublicSessionTosScreenTest::HandleScreenExit, base::Unretained(this)));
   }
 
-  void WaitFosScreenShown() {
+  void WaitForScreenShown() {
     OobeScreenWaiter(TermsOfServiceScreenView::kScreenId).Wait();
     EXPECT_TRUE(LoginScreenTestApi::IsOobeDialogVisible());
   }
 
   void WaitForScreenExit() {
-    if (screen_exited_)
+    if (result_.has_value()) {
+      original_callback_.Run(result_.value());
       return;
+    }
     base::RunLoop run_loop;
     screen_exit_callback_ = run_loop.QuitClosure();
     run_loop.Run();
+    ASSERT_TRUE(result_.has_value());
+    original_callback_.Run(result_.value());
   }
 
   chromeos::FakeSessionManagerClient* session_manager_client() {
@@ -220,14 +225,11 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
   }
 
   void HandleScreenExit(TermsOfServiceScreen::Result result) {
-    screen_exited_ = true;
     result_ = result;
-    original_callback_.Run(result);
     if (screen_exit_callback_)
       screen_exit_callback_.Run();
   }
 
-  bool screen_exited_ = false;
   base::RepeatingClosure screen_exit_callback_;
   TermsOfServiceScreen::ScreenExitCallback original_callback_;
   policy::UserPolicyBuilder device_local_account_policy_;
@@ -237,7 +239,7 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
           kAccountId,
           policy::DeviceLocalAccount::TYPE_PUBLIC_SESSION));
   policy::DevicePolicyCrosTestHelper policy_helper_;
-  LocalPolicyTestServerMixin local_policy_mixin_{&mixin_host_};
+  EmbeddedPolicyTestServerMixin policy_test_server_mixin_{&mixin_host_};
   DeviceStateMixin device_state_{
       &mixin_host_, DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED};
 };
@@ -258,9 +260,12 @@ IN_PROC_BROWSER_TEST_F(PublicSessionTosScreenTest, Accepted) {
   SetUpTermsOfServiceUrlPolicy();
   StartPublicSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   SetUpExitCallback();
 
+  test::OobeJS()
+      .CreateVisibilityWaiter(true, {"terms-of-service", "acceptButton"})
+      ->Wait();
   test::OobeJS().TapOnPath({"terms-of-service", "acceptButton"});
 
   WaitForScreenExit();
@@ -278,7 +283,7 @@ IN_PROC_BROWSER_TEST_F(PublicSessionTosScreenTest, Declined) {
   SetUpTermsOfServiceUrlPolicy();
   StartPublicSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   SetUpExitCallback();
 
   test::OobeJS().TapOnPath({"terms-of-service", "backButton"});
@@ -339,17 +344,21 @@ class ManagedUserTosScreenTestBase : public OobeBaseTest {
                             base::Unretained(this)));
   }
 
-  void WaitFosScreenShown() {
+  void WaitForScreenShown() {
     OobeScreenWaiter(TermsOfServiceScreenView::kScreenId).Wait();
     EXPECT_TRUE(LoginScreenTestApi::IsOobeDialogVisible());
   }
 
   void WaitForScreenExit() {
-    if (screen_exited_)
+    if (result_.has_value()) {
+      original_callback_.Run(result_.value());
       return;
+    }
     base::RunLoop run_loop;
     screen_exit_callback_ = run_loop.QuitClosure();
     run_loop.Run();
+    ASSERT_TRUE(result_.has_value());
+    original_callback_.Run(result_.value());
   }
 
   chromeos::FakeSessionManagerClient* session_manager_client() {
@@ -376,14 +385,11 @@ class ManagedUserTosScreenTestBase : public OobeBaseTest {
 
  private:
   void HandleScreenExit(TermsOfServiceScreen::Result result) {
-    screen_exited_ = true;
     result_ = result;
-    original_callback_.Run(result);
     if (screen_exit_callback_)
       screen_exit_callback_.Run();
   }
 
-  bool screen_exited_ = false;
   base::RepeatingClosure screen_exit_callback_;
   TermsOfServiceScreen::ScreenExitCallback original_callback_;
   DeviceStateMixin device_state_{
@@ -433,9 +439,12 @@ IN_PROC_BROWSER_TEST_P(ManagedUserTosScreenTest, Accepted) {
   SetUpTermsOfServiceUrlPolicy();
   StartManagedUserSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   SetUpExitCallback();
 
+  test::OobeJS()
+      .CreateVisibilityWaiter(true, {"terms-of-service", "acceptButton"})
+      ->Wait();
   test::OobeJS().TapOnPath({"terms-of-service", "acceptButton"});
   WaitForScreenExit();
 
@@ -453,7 +462,7 @@ IN_PROC_BROWSER_TEST_P(ManagedUserTosScreenTest, Declined) {
   SetUpTermsOfServiceUrlPolicy();
   StartManagedUserSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   SetUpExitCallback();
 
   test::OobeJS().TapOnPath({"terms-of-service", "backButton"});
@@ -476,7 +485,7 @@ IN_PROC_BROWSER_TEST_P(ManagedUserTosScreenTest, TosSaved) {
   TermsOfServiceScreen::SetTosSavedCallbackForTesting(run_loop.QuitClosure());
   StartManagedUserSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   run_loop.Run();
 
   EXPECT_TRUE(TosFileExists());
@@ -542,7 +551,7 @@ IN_PROC_BROWSER_TEST_P(ManagedUserTosOnboardingResumeTest, ResumeOnboarding) {
   SetUpTermsOfServiceUrlPolicy();
   StartManagedUserSession();
 
-  WaitFosScreenShown();
+  WaitForScreenShown();
   SetUpExitCallback();
 
   test::OobeJS().TapOnPath({"terms-of-service", "acceptButton"});

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/apps/app_service/web_contents_app_id_utils.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
@@ -44,7 +45,7 @@ bool IsAppReady(Profile* profile, const std::string& app_id) {
   return app_installed;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 const extensions::Extension* GetExtensionForWebContents(
     Profile* profile,
     content::WebContents* tab) {
@@ -64,11 +65,11 @@ const extensions::Extension* GetExtensionForWebContents(
   }
   return nullptr;
 }
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 absl::optional<std::string> GetInstanceAppIdForWebContents(
     content::WebContents* tab) {
   Profile* profile = Profile::FromBrowserContext(tab->GetBrowserContext());
@@ -112,7 +113,7 @@ absl::optional<std::string> GetInstanceAppIdForWebContents(
   }
   return absl::nullopt;
 }
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 std::string GetAppIdForWebContents(content::WebContents* web_contents) {
   std::string app_id;

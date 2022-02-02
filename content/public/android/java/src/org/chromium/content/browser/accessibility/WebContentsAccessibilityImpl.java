@@ -305,8 +305,10 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         } else {
             refreshState();
         }
-        mDelegate.setOnScrollPositionChangedCallback(
-                () -> handleScrollPositionChanged(mAccessibilityFocusId));
+        mDelegate.setOnScrollPositionChangedCallback(() -> {
+            handleScrollPositionChanged(mAccessibilityFocusId);
+            moveAccessibilityFocusToIdAndRefocusIfNeeded(mAccessibilityFocusId);
+        });
 
         BrowserAccessibilityState.addListener(this);
 
@@ -411,6 +413,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             mEventDispatcher.updateRelevantEventTypes(convertMaskToEventTypes(serviceEventMask));
             mEventDispatcher.setOnDemandEnabled(true);
         }
+
+        // Set whether image descriptions should be enabled for this instance. We do not want
+        // the feature to run in certain cases (e.g. WebView or Chrome Custom Tab).
+        WebContentsAccessibilityImplJni.get().setAllowImageDescriptions(
+                mNativeObj, WebContentsAccessibilityImpl.this, mAllowImageDescriptions);
     }
 
     @CalledByNative
@@ -756,8 +763,9 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         if (!isAccessibilityEnabled()) return;
 
         // Update the AXMode based on screen reader status.
-        WebContentsAccessibilityImplJni.get().setAXMode(
-                mNativeObj, WebContentsAccessibilityImpl.this, newScreenReaderEnabledState);
+        WebContentsAccessibilityImplJni.get().setAXMode(mNativeObj,
+                WebContentsAccessibilityImpl.this, newScreenReaderEnabledState,
+                /* isAccessibilityEnabled= */ true);
 
         // Update the list of events we dispatch to enabled services.
         if (ContentFeatureList.isEnabled(ContentFeatureList.ON_DEMAND_ACCESSIBILITY_EVENTS)) {
@@ -808,9 +816,6 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     @Override
     public void setShouldFocusOnPageLoad(boolean on) {
         mShouldFocusOnPageLoad = on;
-
-        // If focus on page load is true, we will allow the image descriptions feature.
-        mAllowImageDescriptions = on;
     }
 
     @Override
@@ -1074,6 +1079,14 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         }
     }
 
+    public void updateAXModeFromNativeAccessibilityState() {
+        if (!isNativeInitialized()) return;
+        // Update the AXMode based on screen reader status.
+        WebContentsAccessibilityImplJni.get().setAXMode(mNativeObj,
+                WebContentsAccessibilityImpl.this, BrowserAccessibilityState.screenReaderMode(),
+                isAccessibilityEnabled());
+    }
+
     // Returns true if the hover event is to be consumed by accessibility feature.
     @CalledByNative
     private boolean onHoverEvent(int action) {
@@ -1098,6 +1111,20 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         float x = event.getX() + mDelegate.getAccessibilityCoordinates().getScrollX();
         float y = event.getY() + mDelegate.getAccessibilityCoordinates().getScrollY();
         return WebContentsAccessibilityImplJni.get().onHoverEventNoRenderer(mNativeObj, this, x, y);
+    }
+
+    @Override
+    public void resetFocus() {
+        if (mNativeObj == 0) return;
+
+        // Reset accessibility focus.
+        WebContentsAccessibilityImplJni.get().moveAccessibilityFocus(
+                mNativeObj, WebContentsAccessibilityImpl.this, mAccessibilityFocusId, View.NO_ID);
+        mAccessibilityFocusId = View.NO_ID;
+        mAccessibilityFocusRect = null;
+
+        sendAccessibilityEvent(mLastHoverId, AccessibilityEvent.TYPE_VIEW_HOVER_EXIT);
+        mLastHoverId = View.NO_ID;
     }
 
     /**
@@ -1126,7 +1153,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     private boolean jumpToElementType(
             int virtualViewId, String elementType, boolean forwards, boolean canWrap) {
         int id = WebContentsAccessibilityImplJni.get().findElementType(mNativeObj,
-                WebContentsAccessibilityImpl.this, virtualViewId, elementType, forwards, canWrap);
+                WebContentsAccessibilityImpl.this, virtualViewId, elementType, forwards, canWrap,
+                elementType.isEmpty());
         if (id == 0) return false;
 
         moveAccessibilityFocusToId(id);
@@ -1504,18 +1532,6 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     }
 
     @CalledByNative
-    private void handlePageLoaded(int id) {
-        // Set whether image descriptions should be enabled for this instance. We do not want
-        // the feature to run in certain cases (e.g. WebView or Chrome Custom Tab).
-        WebContentsAccessibilityImplJni.get().setAllowImageDescriptions(
-                mNativeObj, WebContentsAccessibilityImpl.this, mAllowImageDescriptions);
-
-        if (!mShouldFocusOnPageLoad) return;
-        if (mUserHasTouchExplored) return;
-        moveAccessibilityFocusToIdAndRefocusIfNeeded(id);
-    }
-
-    @CalledByNative
     private void handleFocusChanged(int id) {
         // If |mShouldFocusOnPageLoad| is false, that means this is a WebView and
         // we should avoid moving accessibility focus when the page loads, but more
@@ -1605,6 +1621,12 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         if (!mIsHovering) return;
 
         sendAccessibilityEvent(id, AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+        // The above call doesn't work reliably for nodes that weren't in the viewport when
+        // using an AXTree that was cached.
+        if (mDelegate.getNativeAXTree() != 0) {
+            // As a workaround force the node into focus when a paint preview is showing.
+            moveAccessibilityFocusToIdAndRefocusIfNeeded(id);
+        }
     }
 
     @CalledByNative
@@ -1839,9 +1861,9 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         CharSequence computedText = computeText(
                 text, annotateAsLink, language, suggestionStarts, suggestionEnds, suggestions);
 
-        // For pre-Android R, we add stateDescription to text for backwards compatibility.
+        // We add the stateDescription attribute when it is non-null and not empty.
         if (stateDescription != null && !stateDescription.isEmpty()) {
-            computedText = computedText + ", " + stateDescription;
+            node.setStateDescription(stateDescription);
         }
 
         // We expose the nested structure of links, which results in the roles of all nested nodes
@@ -1850,20 +1872,6 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             node.setContentDescription(computedText);
         } else {
             node.setText(computedText);
-        }
-
-        // TODO(mschillaci): In a follow-up CL, match these across Android versions and fix tests.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // For Android R and higher, we will not rely on concatenating text and
-            // stateDescription, and will instead revert text to original content and set
-            // stateDescription separately.
-            if (stateDescription != null && !stateDescription.isEmpty()) {
-                CharSequence originalText = computeText(text, annotateAsLink, language,
-                        suggestionStarts, suggestionEnds, suggestions);
-
-                node.setText(originalText);
-                node.setStateDescription(stateDescription);
-            }
         }
     }
 
@@ -2295,7 +2303,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                 WebContentsAccessibilityImpl caller, int id);
         int findElementType(long nativeWebContentsAccessibilityAndroid,
                 WebContentsAccessibilityImpl caller, int startId, String elementType,
-                boolean forwards, boolean canWrapToLastElement);
+                boolean forwards, boolean canWrapToLastElement, boolean useDefaultPredicate);
         void setTextFieldValue(long nativeWebContentsAccessibilityAndroid,
                 WebContentsAccessibilityImpl caller, int id, String newValue);
         void setSelection(long nativeWebContentsAccessibilityAndroid,
@@ -2325,7 +2333,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         void enable(long nativeWebContentsAccessibilityAndroid, WebContentsAccessibilityImpl caller,
                 boolean screenReaderMode);
         void setAXMode(long nativeWebContentsAccessibilityAndroid,
-                WebContentsAccessibilityImpl caller, boolean screenReaderMode);
+                WebContentsAccessibilityImpl caller, boolean screenReaderMode,
+                boolean isAccessibilityEnabled);
         boolean areInlineTextBoxesLoaded(long nativeWebContentsAccessibilityAndroid,
                 WebContentsAccessibilityImpl caller, int id);
         void loadInlineTextBoxes(long nativeWebContentsAccessibilityAndroid,

@@ -23,6 +23,7 @@ import {CustomizeDialogPage} from './customize_dialog_types.js';
 import {I18nBehavior, loadTimeData} from './i18n_setup.js';
 import {recordLoadDuration} from './metrics_utils.js';
 import {ModuleRegistry} from './modules/module_registry.js';
+import {BackgroundImage, PageCallbackRouter, PageHandlerRemote, Theme} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
 import {$$} from './utils.js';
 import {Action as VoiceAction, recordVoiceAction} from './voice_search_overlay.js';
@@ -113,7 +114,7 @@ class AppElement extends mixinBehaviors
         observer: 'notifyOneGoogleBarDarkThemeEnabledChange_',
       },
 
-      /** @private {!newTabPage.mojom.Theme} */
+      /** @private {!Theme} */
       theme_: {
         observer: 'onThemeChange_',
         type: Object,
@@ -260,9 +261,9 @@ class AppElement extends mixinBehaviors
   constructor() {
     performance.mark('app-creation-start');
     super();
-    /** @private {!newTabPage.mojom.PageCallbackRouter} */
+    /** @private {!PageCallbackRouter} */
     this.callbackRouter_ = NewTabPageProxy.getInstance().callbackRouter;
-    /** @private {newTabPage.mojom.PageHandlerRemote} */
+    /** @private {!PageHandlerRemote} */
     this.pageHandler_ = NewTabPageProxy.getInstance().handler;
     /** @private {!BackgroundManager} */
     this.backgroundManager_ = BackgroundManager.getInstance();
@@ -440,7 +441,12 @@ class AppElement extends mixinBehaviors
     }
   }
 
-  /** @private */
+  /**
+   * TODO(crbug.com/1273590): Remove suppression when app.js is converted to
+   * TypeScript.
+   * @suppress {checkTypes}
+   * @private
+   */
   onOpenVoiceSearch_() {
     this.showVoiceSearchOverlay_ = true;
     recordVoiceAction(VoiceAction.kActivateSearchBox);
@@ -468,6 +474,9 @@ class AppElement extends mixinBehaviors
    * voice search.
    * @param {KeyboardEvent} e
    * @private
+   * TODO(crbug.com/1273590): Remove suppression when app.js is converted to
+   * TypeScript.
+   * @suppress {checkTypes}
    */
   onWindowKeydown_(e) {
     let ctrlKeyPressed = e.ctrlKey;
@@ -512,7 +521,8 @@ class AppElement extends mixinBehaviors
 
   /** @private */
   onPromoAndModulesLoadedChange_() {
-    if (this.promoAndModulesLoaded_) {
+    if (this.promoAndModulesLoaded_ &&
+        loadTimeData.getBoolean('modulesEnabled')) {
       recordLoadDuration(
           'NewTabPage.Modules.ShownTime', WindowProxy.getInstance().now());
     }
@@ -528,7 +538,7 @@ class AppElement extends mixinBehaviors
    * @private
    */
   updateBackgroundImagePath_() {
-    /** @type {newTabPage.mojom.BackgroundImage|undefined} */
+    /** @type {BackgroundImage|undefined} */
     const backgroundImage = this.theme_ && this.theme_.backgroundImage;
 
     if (backgroundImage) {

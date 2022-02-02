@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from '../assert.js';
+import {assert, assertExists} from '../assert.js';
 import {reportError} from '../error.js';
 import {I18nString} from '../i18n_string.js';
 import * as loadTimeData from '../models/load_time_data.js';
 import {DeviceOperator} from '../mojo/device_operator.js';
-import * as toast from '../toast.js';
+import {speak} from '../spoken_msg.js';
 import {ErrorLevel, ErrorType, Facing, VideoConfig} from '../type.js';
 import {WaitableEvent} from '../waitable_event.js';
 
@@ -90,7 +90,8 @@ export class StreamManager {
   private constructor() {
     this.videoConfigFilter = (() => {
       const board = loadTimeData.getBoard();
-      return board === 'grunt' ? ({height}) => height < 720 : () => true;
+      return board === 'grunt' ? ({height}: VideoConfig) => height < 720 :
+                                 () => true;
     })();
 
     navigator.mediaDevices.addEventListener(
@@ -127,6 +128,7 @@ export class StreamManager {
     if (await DeviceOperator.isSupported()) {
       try {
         await this.setMultipleStreamsEnabled(realDeviceId, true);
+        assert(this.virtualMap !== null);
         constraints.deviceId = this.virtualMap.virtualId;
       } catch (e) {
         reportError(ErrorType.MULTIPLE_STREAMS_FAILURE, ErrorLevel.ERROR, e);
@@ -142,11 +144,12 @@ export class StreamManager {
    * Closes the given capture stream.
    */
   async closeCaptureStream(captureStream: MediaStream): Promise<void> {
-    captureStream.getVideoTracks()[0].stop();
+    assertExists(captureStream.getVideoTracks()[0]).stop();
     const deviceOperator = await DeviceOperator.getInstance();
     if (deviceOperator !== null) {
       // We need to cache |virtualId| first since it will be wiped out after
       // disabling multi-stream.
+      assert(this.virtualMap !== null);
       const virtualId = this.virtualMap.virtualId;
       try {
         await this.setMultipleStreamsEnabled(this.virtualMap.realId, false);
@@ -171,7 +174,7 @@ export class StreamManager {
   /**
    * Gets devices information via mojo IPC.
    */
-  private async doDeviceInfoUpdate(): Promise<DeviceInfo[]|null>|null {
+  private async doDeviceInfoUpdate(): Promise<DeviceInfo[]|null> {
     this.devicesInfo = this.enumerateDevices();
     this.camera3DevicesInfo = this.queryMojoDevicesInfo();
     try {
@@ -187,7 +190,7 @@ export class StreamManager {
    * virtual device.
    */
   private async doDeviceNotify(devices: DeviceInfo[]) {
-    const isVirtual = (d) => d.v3Info !== null &&
+    const isVirtual = (d: DeviceInfo) => d.v3Info !== null &&
         (d.v3Info.facing === Facing.VIRTUAL_USER ||
          d.v3Info.facing === Facing.VIRTUAL_ENV ||
          d.v3Info.facing === Facing.VIRTUAL_EXT);
@@ -208,11 +211,11 @@ export class StreamManager {
 
     let isRealDeviceChange = false;
     for (const added of this.getDifference(realDevices, this.realDevices)) {
-      toast.speak(I18nString.STATUS_MSG_CAMERA_PLUGGED, added.v1Info.label);
+      speak(I18nString.STATUS_MSG_CAMERA_PLUGGED, added.v1Info.label);
       isRealDeviceChange = true;
     }
     for (const removed of this.getDifference(this.realDevices, realDevices)) {
-      toast.speak(I18nString.STATUS_MSG_CAMERA_UNPLUGGED, removed.v1Info.label);
+      speak(I18nString.STATUS_MSG_CAMERA_UNPLUGGED, removed.v1Info.label);
       isRealDeviceChange = true;
     }
     if (isRealDeviceChange) {
@@ -255,6 +258,7 @@ export class StreamManager {
    */
   private async queryMojoDevicesInfo(): Promise<DeviceInfo[]|null> {
     const deviceInfos = await this.devicesInfo;
+    assert(deviceInfos !== null);
     const isV3Supported = await DeviceOperator.isSupported();
     return Promise.all(deviceInfos.map(
         async (d) => ({
@@ -274,8 +278,8 @@ export class StreamManager {
    */
   async setMultipleStreamsEnabled(deviceId: string, enabled: boolean):
       Promise<void> {
-    assert(await DeviceOperator.isSupported());
     const deviceOperator = await DeviceOperator.getInstance();
+    assert(deviceOperator !== null);
 
     if (enabled) {
       const waitEvent = new WaitableEvent<string>();

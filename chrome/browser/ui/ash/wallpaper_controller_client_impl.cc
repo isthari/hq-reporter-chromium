@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/components/cryptohome/system_salt_getter.h"
 #include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
@@ -45,7 +46,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/cryptohome/system_salt_getter.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/sync/base/pref_names.h"
@@ -64,7 +64,7 @@
 #include "ui/display/screen.h"
 #include "url/gurl.h"
 
-using chromeos::ProfileHelper;
+using ::ash::ProfileHelper;
 using extension_misc::kWallpaperManagerId;
 using file_manager::VolumeManager;
 using session_manager::SessionManager;
@@ -131,10 +131,10 @@ void GetFilesIdSaltReady(
     const AccountId& account_id,
     base::OnceCallback<void(const std::string&)> files_id_callback) {
   DCHECK(CanGetFilesId());
-  std::string stored_value;
-  if (user_manager::known_user::GetStringPref(account_id, kWallpaperFilesId,
-                                              &stored_value)) {
-    std::move(files_id_callback).Run(stored_value);
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  if (const std::string* stored_value =
+          known_user.FindStringPath(account_id, kWallpaperFilesId)) {
+    std::move(files_id_callback).Run(*stored_value);
     return;
   }
 
@@ -304,7 +304,7 @@ void WallpaperControllerClientImpl::SetInitialWallpaper() {
 
   // Guest wallpaper should be initialized when guest logs in.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kGuestSession)) {
+          ash::switches::kGuestSession)) {
     return;
   }
 

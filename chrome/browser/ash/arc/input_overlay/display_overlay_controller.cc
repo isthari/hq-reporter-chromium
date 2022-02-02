@@ -9,6 +9,7 @@
 #include "components/exo/shell_surface_util.h"
 
 namespace arc {
+namespace input_overlay {
 
 class DisplayOverlayController::InputMappingView : public views::View {
  public:
@@ -20,7 +21,8 @@ class DisplayOverlayController::InputMappingView : public views::View {
               content_bounds.height());
     for (auto& action : actions) {
       auto view = action->CreateView(content_bounds);
-      AddChildView(std::move(view));
+      if (view)
+        AddChildView(std::move(view));
     }
   }
   InputMappingView(const InputMappingView&) = delete;
@@ -112,4 +114,5 @@ views::Widget* DisplayOverlayController::GetOverlayWidget() {
                             : nullptr;
 }
 
+}  // namespace input_overlay
 }  // namespace arc

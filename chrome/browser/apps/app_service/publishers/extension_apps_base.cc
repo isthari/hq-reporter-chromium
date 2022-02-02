@@ -185,6 +185,17 @@ void ExtensionAppsBase::OnExtensionUninstalled(
   AppPublisher::Publish(std::move(app));
 }
 
+void ExtensionAppsBase::SetShowInFields(const extensions::Extension* extension,
+                                        App& app) {
+  auto show =
+      ShouldShow(extension, profile_) && ShouldShownInLauncher(extension);
+  app.show_in_launcher = show;
+  app.show_in_shelf = show;
+  app.show_in_search = show;
+  app.show_in_management = show;
+  app.handles_intents = show;
+}
+
 void ExtensionAppsBase::SetShowInFields(
     apps::mojom::AppPtr& app,
     const extensions::Extension* extension) {
@@ -209,11 +220,34 @@ void ExtensionAppsBase::SetShowInFields(
 std::unique_ptr<App> ExtensionAppsBase::CreateAppImpl(
     const extensions::Extension* extension,
     Readiness readiness) {
+  auto install_reason = ConvertMojomInstallReasonToInstallReason(
+      GetInstallReason(profile_, extension));
   std::unique_ptr<App> app = AppPublisher::MakeApp(
-      app_type(), extension->id(), readiness, extension->name());
+      app_type(), extension->id(), readiness, extension->name(), install_reason,
+      install_reason == InstallReason::kSystem
+          ? InstallSource::kSystem
+          : InstallSource::kChromeWebStore);
   app->short_name = extension->short_name();
   app->description = extension->description();
   app->version = extension->GetVersionForDisplay();
+
+  if (profile_) {
+    auto* prefs = extensions::ExtensionPrefs::Get(profile_);
+    if (prefs && prefs->GetInstalledExtensionInfo(extension->id())) {
+      app->last_launch_time = prefs->GetLastLaunchTime(extension->id());
+      app->install_time = prefs->GetInstallTime(extension->id());
+    }
+  }
+
+  app->is_platform_app = extension->is_platform_app();
+
+  SetShowInFields(extension, *app);
+
+  const extensions::ManagementPolicy* policy =
+      extensions::ExtensionSystem::Get(profile())->management_policy();
+  DCHECK(policy);
+  app->allow_uninstall = policy->UserMayModifySettings(extension, nullptr) &&
+                         !policy->MustRemainInstalled(extension, nullptr);
 
   // TODO(crbug.com/1253250): Add other fields for the App struct.
   return app;
@@ -629,12 +663,16 @@ void ExtensionAppsBase::OnExtensionLastLaunchTimeChanged(
     return;
   }
 
-  apps::mojom::AppPtr app = apps::mojom::App::New();
-  app->app_type = mojom_app_type();
-  app->app_id = extension->id();
-  app->last_launch_time = last_launch_time;
+  apps::mojom::AppPtr mojom_app = apps::mojom::App::New();
+  mojom_app->app_type = mojom_app_type();
+  mojom_app->app_id = extension->id();
+  mojom_app->last_launch_time = last_launch_time;
 
-  PublisherBase::Publish(std::move(app), subscribers_);
+  PublisherBase::Publish(std::move(mojom_app), subscribers_);
+
+  auto app = std::make_unique<App>(app_type(), extension->id());
+  app->last_launch_time = last_launch_time;
+  AppPublisher::Publish(std::move(app));
 }
 
 void ExtensionAppsBase::OnExtensionPrefsWillBeDestroyed(
@@ -703,8 +741,8 @@ void ExtensionAppsBase::OnExtensionUnloaded(
   mojom_app->readiness = mojom_readiness;
   PublisherBase::Publish(std::move(mojom_app), subscribers_);
 
-  std::unique_ptr<App> app = AppPublisher::MakeApp(
-      app_type(), extension->id(), readiness, extension->name());
+  std::unique_ptr<App> app = std::make_unique<App>(app_type(), extension->id());
+  app->readiness = readiness;
   AppPublisher::Publish(std::move(app));
 }
 

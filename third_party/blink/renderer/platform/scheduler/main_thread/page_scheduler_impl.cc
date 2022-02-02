@@ -192,13 +192,13 @@ PageSchedulerImpl::PageSchedulerImpl(
       delay_for_background_and_network_idle_tab_freezing_(
           GetDelayForBackgroundAndNetworkIdleTabFreezing()),
       throttle_foreground_timers_(
-          base::FeatureList::IsEnabled(kThrottleForegroundTimers)),
+          base::FeatureList::IsEnabled(features::kThrottleForegroundTimers)),
       foreground_timers_throttled_wake_up_interval_(
           GetForegroundTimersThrottledWakeUpInterval()) {
   page_lifecycle_state_tracker_ = std::make_unique<PageLifecycleStateTracker>(
-      this, kDefaultPageVisibility == PageVisibilityState::kVisible
-                ? PageLifecycleState::kActive
-                : PageLifecycleState::kHiddenBackgrounded);
+      kDefaultPageVisibility == PageVisibilityState::kVisible
+          ? PageLifecycleState::kActive
+          : PageLifecycleState::kHiddenBackgrounded);
   do_throttle_cpu_time_callback_.Reset(base::BindRepeating(
       &PageSchedulerImpl::DoThrottleCPUTime, base::Unretained(this)));
   do_intensively_throttle_wake_ups_callback_.Reset(
@@ -311,6 +311,15 @@ void PageSchedulerImpl::SetPageFrozenImpl(
       page_lifecycle_state_tracker_->SetPageLifecycleState(
           PageLifecycleState::kHiddenForegrounded);
     }
+    // Since the page is no longer frozen, detach the handler that watches for
+    // IPCs posted to frozen pages (or cancel setting up the handler).
+    set_ipc_posted_handler_task_.Cancel();
+    has_ipc_detection_enabled_ = false;
+    main_thread_scheduler_->UpdateIpcTracking();
+    for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_) {
+      frame_scheduler->DetachOnIPCTaskPostedWhileInBackForwardCacheHandler();
+    }
+
     main_thread_scheduler_->OnPageResumed();
   }
 
@@ -325,12 +334,6 @@ void PageSchedulerImpl::SetPageBackForwardCached(
   if (!is_stored_in_back_forward_cache_) {
     TRACE_EVENT_INSTANT("navigation",
                         "PageSchedulerImpl::SetPageBackForwardCached_Restore");
-    set_ipc_posted_handler_task_.Cancel();
-    has_ipc_detection_enabled_ = false;
-    main_thread_scheduler_->UpdateIpcTracking();
-    for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_) {
-      frame_scheduler->DetachOnIPCTaskPostedWhileInBackForwardCacheHandler();
-    }
     stored_in_back_forward_cache_timestamp_ = base::TimeTicks();
   } else {
     TRACE_EVENT_INSTANT("navigation",
@@ -933,10 +936,8 @@ PageLifecycleState PageSchedulerImpl::GetPageLifecycleState() const {
 }
 
 PageSchedulerImpl::PageLifecycleStateTracker::PageLifecycleStateTracker(
-    PageSchedulerImpl* page_scheduler_impl,
     PageLifecycleState state)
-    : page_scheduler_impl_(page_scheduler_impl),
-      current_state_(kDefaultPageLifecycleState) {
+    : current_state_(kDefaultPageLifecycleState) {
   SetPageLifecycleState(state);
 }
 

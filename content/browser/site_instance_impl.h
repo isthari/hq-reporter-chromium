@@ -34,7 +34,6 @@ namespace content {
 
 class AgentSchedulingGroupHost;
 class BrowsingInstance;
-class RenderProcessHostFactory;
 class SiteInstanceGroup;
 class StoragePartitionConfig;
 class StoragePartitionImpl;
@@ -282,11 +281,10 @@ class CONTENT_EXPORT SiteInstanceImpl final : public SiteInstance,
   // For guest SiteInstances, `site_info_` is returned because guests are not
   // allowed to derive new guest SiteInfos. All guest navigations must stay in
   // the same SiteInstance with the same SiteInfo.
-  // TODO(https://crbug.com/1243449): This function has become ambiguous with
-  // the inclusion of WebExposedIsolationInfo into UrlInfo, since the function
-  // overrides the value of WebExposedIsolationInfo in UrlInfo with that of the
-  // SiteInstance. It should be refactored and/or renamed to make its behavior
-  // more obvious.
+  //
+  // Note: Since we're deriving the state of the SiteInfo based on both UrlInfo
+  // and SiteInstance, we verify internally that their WebExposedIsolationInfos
+  // are compatible.
   SiteInfo DeriveSiteInfo(const UrlInfo& url_info, bool is_related = false);
 
   // Helper function that returns the storage partition domain for this
@@ -536,9 +534,6 @@ class CONTENT_EXPORT SiteInstanceImpl final : public SiteInstance,
       const IsolationContext& isolation_context,
       const GURL& url,
       const SiteInfo& site_info);
-
-  // An object used to construct RenderProcessHosts.
-  static const RenderProcessHostFactory* g_render_process_host_factory_;
 
   // A unique ID for this SiteInstance.
   SiteInstanceId id_;

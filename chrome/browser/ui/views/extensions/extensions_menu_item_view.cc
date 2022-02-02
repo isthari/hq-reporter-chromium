@@ -10,6 +10,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/extensions/site_permissions_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
@@ -77,9 +78,9 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
   // Items with kSiteAccess type should only be created if their
   // associated extension has or requests access to the current page.
   if (item_type == MenuItemType::kSiteAccess) {
-    DCHECK(controller_->GetPageInteractionStatus(
+    DCHECK(controller_->GetSiteInteraction(
                browser->tab_strip_model()->GetActiveWebContents()) !=
-           ToolbarActionViewController::PageInteractionStatus::kNone);
+           extensions::SitePermissionsHelper::SiteInteraction::kNone);
   }
 
   // Set so the extension button receives enter/exit on children to retain hover
@@ -209,8 +210,9 @@ void ExtensionsMenuItemView::AddPinButton() {
 void ExtensionsMenuItemView::AddContextMenuButton() {
   DCHECK_EQ(item_type_, MenuItemType::kExtensions);
 
-  context_menu_controller_ =
-      std::make_unique<ExtensionContextMenuController>(controller_.get());
+  context_menu_controller_ = std::make_unique<ExtensionContextMenuController>(
+      controller_.get(),
+      extensions::ExtensionContextMenuModel::ContextMenuSource::kMenuItem);
 
   auto context_menu_button = std::make_unique<HoverButton>(
       views::Button::PressedCallback(), std::u16string());

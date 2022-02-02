@@ -57,8 +57,10 @@ void ContentRendererClient::PrepareErrorPageForHttpStatusError(
     const blink::WebURLError& error,
     const std::string& http_method,
     int http_status,
+    mojom::AlternativeErrorPageOverrideInfoPtr alternative_error_page_info,
     std::string* error_html) {
-  PrepareErrorPage(render_frame, error, http_method, error_html);
+  PrepareErrorPage(render_frame, error, http_method,
+                   std::move(alternative_error_page_info), error_html);
 }
 
 bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
@@ -99,7 +101,7 @@ ContentRendererClient::GetProtocolHandlerSecurityLevel() {
   return blink::ProtocolHandlerSecurityLevel::kStrict;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 bool ContentRendererClient::HandleNavigation(
     RenderFrame* render_frame,
     bool render_view_was_created_by_renderer,
@@ -187,7 +189,7 @@ ContentRendererClient::CreateWorkerContentSettingsClient(
   return nullptr;
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 std::unique_ptr<media::SpeechRecognitionClient>
 ContentRendererClient::CreateSpeechRecognitionClient(
     RenderFrame* render_frame,

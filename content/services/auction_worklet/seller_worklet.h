@@ -42,43 +42,54 @@ namespace auction_worklet {
 // seller worklet's Javascript.
 class SellerWorklet : public mojom::SellerWorklet {
  public:
-  // Starts loading the worklet script on construction. Callback will be invoked
-  // asynchronously once the data has been fetched or an error has occurred.
+  // Deletes the worklet immediately and resets the SellerWorklet's Mojo pipe
+  // with the provided description. See mojo::Receiver::ResetWithReason().
+  using ClosePipeCallback =
+      base::OnceCallback<void(const std::string& description)>;
+
+  // Starts loading the worklet script on construction.
   SellerWorklet(scoped_refptr<AuctionV8Helper> v8_helper,
                 bool pause_for_debugger_on_start,
                 mojo::PendingRemote<network::mojom::URLLoaderFactory>
                     pending_url_loader_factory,
                 const GURL& decision_logic_url,
                 const absl::optional<GURL>& trusted_scoring_signals_url,
-                const url::Origin& top_window_origin,
-                mojom::AuctionWorkletService::LoadSellerWorkletCallback
-                    load_worklet_callback);
+                const url::Origin& top_window_origin);
 
   explicit SellerWorklet(const SellerWorklet&) = delete;
   SellerWorklet& operator=(const SellerWorklet&) = delete;
 
   ~SellerWorklet() override;
 
+  // Sets the callback to be invoked on errors which require closing the pipe.
+  // Callback will also immediately delete `this`. Not an argument to
+  // constructor because the Mojo ReceiverId needs to be bound to the callback,
+  // but can only get that after creating the worklet. Must be called
+  // immediately after creating a SellerWorklet.
+  void set_close_pipe_callback(ClosePipeCallback close_pipe_callback) {
+    close_pipe_callback_ = std::move(close_pipe_callback);
+  }
+
   int context_group_id_for_testing() const;
 
   // mojom::SellerWorklet implementation:
-  void ScoreAd(
-      const std::string& ad_metadata_json,
-      double bid,
-      blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
-      const url::Origin& browser_signal_interest_group_owner,
-      const GURL& browser_signal_render_url,
-      const std::vector<GURL>& browser_signal_ad_components,
-      uint32_t browser_signal_bidding_duration_msecs,
-      ScoreAdCallback callback) override;
+  void ScoreAd(const std::string& ad_metadata_json,
+               double bid,
+               blink::mojom::AuctionAdConfigNonSharedParamsPtr
+                   auction_ad_config_non_shared_params,
+               const url::Origin& browser_signal_interest_group_owner,
+               const GURL& browser_signal_render_url,
+               const std::vector<GURL>& browser_signal_ad_components,
+               uint32_t browser_signal_bidding_duration_msecs,
+               ScoreAdCallback callback) override;
   void SendPendingSignalsRequests() override;
-  void ReportResult(
-      blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
-      const url::Origin& browser_signal_interest_group_owner,
-      const GURL& browser_signal_render_url,
-      double browser_signal_bid,
-      double browser_signal_desirability,
-      ReportResultCallback callback) override;
+  void ReportResult(blink::mojom::AuctionAdConfigNonSharedParamsPtr
+                        auction_ad_config_non_shared_params,
+                    const url::Origin& browser_signal_interest_group_owner,
+                    const GURL& browser_signal_render_url,
+                    double browser_signal_bid,
+                    double browser_signal_desirability,
+                    ReportResultCallback callback) override;
   void ConnectDevToolsAgent(
       mojo::PendingReceiver<blink::mojom::DevToolsAgent> agent) override;
 
@@ -94,7 +105,8 @@ class SellerWorklet : public mojom::SellerWorklet {
     // safe to access after that happens.
     std::string ad_metadata_json;
     double bid;
-    blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config;
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params;
     url::Origin browser_signal_interest_group_owner;
     GURL browser_signal_render_url;
     // While these are URLs, it's more concenient to store these as strings
@@ -107,6 +119,7 @@ class SellerWorklet : public mojom::SellerWorklet {
 
     std::unique_ptr<TrustedSignalsRequestManager::Request>
         trusted_scoring_signals_request;
+    scoped_refptr<TrustedSignals::Result> trusted_scoring_signals_result;
 
     // Error message from downloading trusted scoring signals, if any. Prepended
     // to errors passed to the ScoreAdCallback.
@@ -115,16 +128,41 @@ class SellerWorklet : public mojom::SellerWorklet {
 
   using ScoreAdTaskList = std::list<ScoreAdTask>;
 
+  // Contains all data needed for a ReportResult() call. Destroyed only when its
+  // `callback` is invoked.
+  struct ReportResultTask {
+    ReportResultTask();
+    ~ReportResultTask();
+
+    // These fields all correspond to the arguments of ReportResult(). They're
+    // std::move()ed when calling out to V8State to run Javascript, so are not
+    // safe to access after that happens.
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params;
+    url::Origin browser_signal_interest_group_owner;
+    GURL browser_signal_render_url;
+    double browser_signal_bid;
+    double browser_signal_desirability;
+
+    ReportResultCallback callback;
+  };
+
+  using ReportResultTaskList = std::list<ReportResultTask>;
+
   // Portion of SellerWorklet that deals with V8 execution, and therefore lives
   // on the v8 thread --- everything except the constructor must be run there.
   class V8State {
    public:
-    // Matches auction_worklet::mojom::SellerWorklet::ScoreAdCallback,
-    // except the errors vectors are passed by value. Must be invoked on the
-    // user thread. Different signitures also protects against passing the
-    // wrong callback to V8State.
+    // Match corresponding auction_worklet::mojom::SellerWorklet callback types,
+    // except arguments are passed by value. Must be invoked on the user thread.
+    // Different signatures protect against passing the wrong callback to
+    // V8State, and avoids having to make a copy of the errors vector.
     using ScoreAdCallbackInternal =
         base::OnceCallback<void(double score, std::vector<std::string> errors)>;
+    using ReportResultCallbackInternal =
+        base::OnceCallback<void(absl::optional<std::string> signals_for_winner,
+                                absl::optional<GURL> report_url,
+                                std::vector<std::string> errors)>;
 
     V8State(scoped_refptr<AuctionV8Helper> v8_helper,
             scoped_refptr<AuctionV8Helper::DebugId> debug_id,
@@ -134,24 +172,24 @@ class SellerWorklet : public mojom::SellerWorklet {
 
     void SetWorkletScript(WorkletLoader::Result worklet_script);
 
-    void ScoreAd(
-        const std::string& ad_metadata_json,
-        double bid,
-        blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
-        scoped_refptr<TrustedSignals::Result> trusted_scoring_signals,
-        const url::Origin& browser_signal_interest_group_owner,
-        const GURL& browser_signal_render_url,
-        const std::vector<std::string>& browser_signal_ad_components,
-        uint32_t browser_signal_bidding_duration_msecs,
-        ScoreAdCallbackInternal callback);
+    void ScoreAd(const std::string& ad_metadata_json,
+                 double bid,
+                 blink::mojom::AuctionAdConfigNonSharedParamsPtr
+                     auction_ad_config_non_shared_params,
+                 scoped_refptr<TrustedSignals::Result> trusted_scoring_signals,
+                 const url::Origin& browser_signal_interest_group_owner,
+                 const GURL& browser_signal_render_url,
+                 const std::vector<std::string>& browser_signal_ad_components,
+                 uint32_t browser_signal_bidding_duration_msecs,
+                 ScoreAdCallbackInternal callback);
 
-    void ReportResult(
-        blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
-        const url::Origin& browser_signal_interest_group_owner,
-        const GURL& browser_signal_render_url,
-        double browser_signal_bid,
-        double browser_signal_desirability,
-        ReportResultCallback callback);
+    void ReportResult(blink::mojom::AuctionAdConfigNonSharedParamsPtr
+                          auction_ad_config_non_shared_params,
+                      const url::Origin& browser_signal_interest_group_owner,
+                      const GURL& browser_signal_render_url,
+                      double browser_signal_bid,
+                      double browser_signal_desirability,
+                      ReportResultCallbackInternal callback);
 
     void ConnectDevToolsAgent(
         mojo::PendingReceiver<blink::mojom::DevToolsAgent> agent);
@@ -167,7 +205,7 @@ class SellerWorklet : public mojom::SellerWorklet {
                                          std::vector<std::string> errors);
 
     void PostReportResultCallbackToUserThread(
-        ReportResultCallback callback,
+        ReportResultCallbackInternal callback,
         absl::optional<std::string> signals_for_winner,
         absl::optional<GURL> report_url,
         std::vector<std::string> errors);
@@ -205,15 +243,27 @@ class SellerWorklet : public mojom::SellerWorklet {
       scoped_refptr<TrustedSignals::Result> result,
       absl::optional<std::string> error_msg);
 
+  // Checks if the script has been loaded successfully, and the
+  // TrustedSignals load has finished, if needed (successfully or not). If so,
+  // calls scoreAd().
+  void ScoreAdIfReady(ScoreAdTaskList::iterator task);
+
   void DeliverScoreAdCallbackOnUserThread(ScoreAdTaskList::iterator task,
                                           double score,
                                           std::vector<std::string> errors);
 
+  // Runs the specified queued ReportWinTask. All code must already be loaded by
+  // the time this is invoked.
+  void RunReportResult(ReportResultTaskList::iterator task);
+
   void DeliverReportResultCallbackOnUserThread(
-      ReportResultCallback callback,
+      ReportResultTaskList::iterator task,
       absl::optional<std::string> signals_for_winner,
       absl::optional<GURL> report_url,
       std::vector<std::string> errors);
+
+  // Returns true if unpaused and the script has loaded.
+  bool IsCodeReady() const;
 
   scoped_refptr<base::SequencedTaskRunner> v8_runner_;
   scoped_refptr<AuctionV8Helper> v8_helper_;
@@ -223,7 +273,7 @@ class SellerWorklet : public mojom::SellerWorklet {
 
   const GURL script_source_url_;
 
-  // This is populated only if `this` was created with a non-null
+  // Populated only if `this` was created with a non-null
   // `trusted_scoring_signals_url`.
   std::unique_ptr<TrustedSignalsRequestManager>
       trusted_signals_request_manager_;
@@ -235,15 +285,19 @@ class SellerWorklet : public mojom::SellerWorklet {
   // to the v8 thread, so it needs to be an std::lists rather than an
   // std::vector.
   ScoreAdTaskList score_ad_tasks_;
+  ReportResultTaskList report_result_tasks_;
 
+  // Deleted once load has completed.
   std::unique_ptr<WorkletLoader> worklet_loader_;
 
   // Lives on `v8_runner_`. Since it's deleted there, tasks can be safely
   // posted from main thread to it with an Unretained pointer.
   std::unique_ptr<V8State, base::OnTaskRunnerDeleter> v8_state_;
 
-  mojom::AuctionWorkletService::LoadSellerWorkletCallback
-      load_worklet_callback_;
+  ClosePipeCallback close_pipe_callback_;
+
+  // Error that occurred while loading the worklet script, if any.
+  absl::optional<std::string> load_script_error_msg_;
 
   SEQUENCE_CHECKER(user_sequence_checker_);
 

@@ -472,7 +472,11 @@ void WebStateImpl::RealizedWebState::OnAuthRequired(
 void WebStateImpl::RealizedWebState::WebFrameBecameAvailable(
     std::unique_ptr<WebFrame> frame) {
   WebFrame* frame_ptr = frame.get();
-  GetWebFramesManager().AddFrame(std::move(frame));
+  bool success = GetWebFramesManager().AddFrame(std::move(frame));
+  if (!success) {
+    // Frame was not added, do not notify observers.
+    return;
+  }
 
   for (auto& observer : observers())
     observer.WebFrameDidBecomeAvailable(owner_, frame_ptr);
@@ -774,6 +778,10 @@ void WebStateImpl::RealizedWebState::CreateFullPagePdf(
       }];
 }
 
+void WebStateImpl::RealizedWebState::CloseMediaPresentations() {
+  [web_controller_ closeMediaPresentations];
+}
+
 void WebStateImpl::RealizedWebState::CloseWebState() {
   if (delegate_) {
     delegate_->CloseWebState(owner_);
@@ -824,6 +832,11 @@ void WebStateImpl::RealizedWebState::SetStateForPermission(
     PermissionState state,
     Permission permission) {
   [web_controller_ setState:state forPermission:permission];
+}
+
+NSDictionary<NSNumber*, NSNumber*>*
+WebStateImpl::RealizedWebState::GetStatesForAllPermissions() const {
+  return [web_controller_ statesForAllPermissions];
 }
 
 void WebStateImpl::RealizedWebState::OnStateChangedForPermission(

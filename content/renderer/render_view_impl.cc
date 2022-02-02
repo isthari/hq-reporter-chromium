@@ -14,6 +14,7 @@
 #include "base/location.h"
 #include "base/strings/string_piece.h"
 #include "base/task/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "cc/trees/ukm_manager.h"
 #include "content/common/agent_scheduling_group.mojom.h"
 #include "content/public/common/content_client.h"
@@ -21,12 +22,12 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/content_renderer_client.h"
+#include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view_visitor.h"
 #include "content/public/renderer/window_features_converter.h"
 #include "content/renderer/agent_scheduling_group.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_frame_proxy.h"
-#include "content/renderer/render_thread_impl.h"
 #include "third_party/blink/public/mojom/page/page.mojom.h"
 #include "third_party/blink/public/platform/impression_conversions.h"
 #include "third_party/blink/public/platform/modules/video_capture/web_video_capture_impl_manager.h"
@@ -160,7 +161,7 @@ void RenderViewImpl::Initialize(
 
   GetContentClient()->renderer()->WebViewCreated(webview_);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // TODO(sgurun): crbug.com/325351 Needed only for android webview's deprecated
   // HandleNavigation codepath.
   was_created_by_renderer_ = was_created_by_renderer;

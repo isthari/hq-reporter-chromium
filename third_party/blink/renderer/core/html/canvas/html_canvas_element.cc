@@ -978,8 +978,11 @@ scoped_refptr<StaticBitmapImage> HTMLCanvasElement::Snapshot(
     image_bitmap = context_->GetImage();
   }
 
-  if (!image_bitmap)
+  if (image_bitmap)
+    DCHECK(image_bitmap->SupportsDisplayCompositing());
+  else
     image_bitmap = CreateTransparentImage(size_);
+
   return image_bitmap;
 }
 
@@ -1240,7 +1243,7 @@ void HTMLCanvasElement::SetCanvas2DLayerBridgeInternal(
     // use accelerated-GPU rendering.
     // If any of the two conditions fails, or if the creation of accelerated
     // resource provider fails, the canvas will fallback to CPU rendering.
-    UMA_HISTOGRAM_BOOLEAN("Blink.Canvas.WillReadFrequently",
+    UMA_HISTOGRAM_BOOLEAN("Blink.Canvas.2DLayerBridge.WillReadFrequently",
                           context_->CreationAttributes().will_read_frequently);
 
     if (ShouldAccelerate() &&

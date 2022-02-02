@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "base/callback_helpers.h"
-#include "base/compiler_specific.h"
 #include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
@@ -80,7 +79,7 @@
 #include "ui/native_theme/native_theme.h"
 #include "ui/native_theme/native_theme_observer.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "content/public/browser/android/child_process_importance.h"
 #endif
 
@@ -144,7 +143,7 @@ namespace mojom {
 class CreateNewWindowParams;
 }  // namespace mojom
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 class WebContentsAndroid;
 #endif
 
@@ -216,7 +215,10 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
 
   // Complex initialization here. Specifically needed to avoid having
   // members call back into our virtual functions in the constructor.
-  virtual void Init(const WebContents::CreateParams& params);
+  // The primary main frame policy might be passed down as it is inherited from
+  // the opener when WebContents is created with an opener.
+  virtual void Init(const WebContents::CreateParams& params,
+                    blink::FramePolicy primary_main_frame_policy);
 
   // Returns the SavePackage which manages the page saving job. May be NULL.
   SavePackage* save_package() const { return save_package_.get(); }
@@ -322,7 +324,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // TODO(https://crbug.com/1170277): Rename to HasAccessedInitialMainDocument
   bool HasAccessedInitialDocument();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void SetPrimaryMainFrameImportance(ChildProcessImportance importance);
 #endif
 
@@ -348,7 +350,6 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       int frame_tree_node_id) override;
   void ForEachFrame(
       const base::RepeatingCallback<void(RenderFrameHost*)>& on_frame) override;
-  int SendToAllFrames(IPC::Message* message) override;
   void ForEachRenderFrameHost(
       RenderFrameHost::FrameIterationCallback on_frame) override;
   void ForEachRenderFrameHost(
@@ -392,11 +393,11 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   const std::string& GetEncoding() override;
   bool WasDiscarded() override;
   void SetWasDiscarded(bool was_discarded) override;
-  base::ScopedClosureRunner IncrementCapturerCount(
+  [[nodiscard]] base::ScopedClosureRunner IncrementCapturerCount(
       const gfx::Size& capture_size,
       bool stay_hidden,
       bool stay_awake,
-      bool is_activity = true) override WARN_UNUSED_RESULT;
+      bool is_activity = true) override;
   const blink::mojom::CaptureHandleConfig& GetCaptureHandleConfig() override;
   bool IsBeingCaptured() override;
   bool IsBeingVisiblyCaptured() override;
@@ -507,7 +508,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   RenderFrameHostImpl* GetOpener() override;
   bool HasOriginalOpener() override;
   RenderFrameHostImpl* GetOriginalOpener() override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void DidChooseColorInColorChooser(SkColor color) override;
   void DidEndColorChooser() override;
 #endif
@@ -534,9 +535,8 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   bool IsFullscreen() override;
   bool ShouldShowStaleContentOnEviction() override;
   void ExitFullscreen(bool will_cause_resize) override;
-  base::ScopedClosureRunner ForSecurityDropFullscreen(
-      int64_t display_id = display::kInvalidDisplayId) override
-      WARN_UNUSED_RESULT;
+  [[nodiscard]] base::ScopedClosureRunner ForSecurityDropFullscreen(
+      int64_t display_id = display::kInvalidDisplayId) override;
   void ResumeLoadingCreatedWebContents() override;
   void SetIsOverlayContent(bool is_overlay_content) override;
   bool IsFocusedElementEditable() override;
@@ -552,7 +552,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   void Resize(const gfx::Rect& new_bounds) override;
   gfx::Size GetSize() override;
   void UpdateWindowControlsOverlay(const gfx::Rect& bounding_rect) override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   base::android::ScopedJavaLocalRef<jobject> GetJavaWebContents() override;
   WebContentsAndroid* GetWebContentsAndroid();
   void ClearWebContentsAndroid();
@@ -645,7 +645,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       absl::optional<ui::AXEventCallback> callback) override;
   device::mojom::GeolocationContext* GetGeolocationContext() override;
   device::mojom::WakeLockContext* GetWakeLockContext() override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void GetNFC(RenderFrameHost*,
               mojo::PendingReceiver<device::mojom::NFC>) override;
 #endif
@@ -660,9 +660,6 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       RenderFrameHostImpl* rfh,
       bool is_fullscreen,
       blink::mojom::FullscreenOptionsPtr options) override;
-#if defined(OS_ANDROID)
-  void UpdateUserGestureCarryoverInfo() override;
-#endif
   bool ShouldRouteMessageEvent(
       RenderFrameHostImpl* target_rfh,
       SiteInstance* source_site_instance) const override;
@@ -689,8 +686,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
                          WindowOpenDisposition disposition,
                          const gfx::Rect& initial_rect,
                          bool user_gesture) override;
-  void DocumentAvailableInMainFrame(
-      RenderFrameHost* render_frame_host) override;
+  void PrimaryMainDocumentElementAvailable() override;
   void PassiveInsecureContentFound(const GURL& resource_url) override;
   bool ShouldAllowRunningInsecureContent(bool allowed_per_prefs,
                                          const url::Origin& origin,
@@ -704,7 +700,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       const gfx::Rect& rect,
       const base::UnguessableToken& guid,
       RenderFrameHostImpl* render_frame_host) override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   base::android::ScopedJavaLocalRef<jobject> GetJavaRenderFrameHostDelegate()
       override;
 #endif
@@ -859,7 +855,8 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   std::unique_ptr<PrerenderHandle> StartPrerendering(
       const GURL& prerendering_url,
       PrerenderTriggerType trigger_type,
-      const std::string& embedder_histogram_suffix) override;
+      const std::string& embedder_histogram_suffix,
+      ui::PageTransition page_transition) override;
 
   // NavigatorDelegate ---------------------------------------------------------
 
@@ -1009,7 +1006,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // blink::mojom::ColorChooserFactory ---------------------------------------
   void OnColorChooserFactoryReceiver(
       mojo::PendingReceiver<blink::mojom::ColorChooserFactory> receiver);
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void OpenColorChooser(
       mojo::PendingReceiver<blink::mojom::ColorChooser> chooser,
       mojo::PendingRemote<blink::mojom::ColorChooserClient> client,
@@ -1159,8 +1156,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // Notifies the Picture-in-Picture controller that there is a new player
   // entering Picture-in-Picture.
   // Returns the result of the enter request.
-  PictureInPictureResult EnterPictureInPicture(const viz::SurfaceId&,
-                                               const gfx::Size& natural_size);
+  PictureInPictureResult EnterPictureInPicture();
 
   // Updates the Picture-in-Picture controller with a signal that
   // Picture-in-Picture mode has ended.
@@ -1187,14 +1183,14 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       scoped_refptr<FileChooserImpl::FileSelectListenerImpl> listener,
       const base::FilePath& directory_path);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Called by FindRequestManager when all of the find match rects are in.
   void NotifyFindMatchRectsReply(int version,
                                  const std::vector<gfx::RectF>& rects,
                                  const gfx::RectF& active_rect);
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Called by WebContentsAndroid to send the Display Cutout safe area to
   // DisplayCutoutHostImpl.
   void SetDisplayCutoutSafeArea(gfx::Insets insets);
@@ -1304,6 +1300,11 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
       base::TimeDelta duration) {
     minimum_delay_between_loading_updates_ms_ = duration;
   }
+
+  // If the given frame is prerendered, cancels the associated prerender.
+  // Returns true if a prerender was canceled.
+  bool CancelPrerendering(FrameTreeNode* frame_tree_node,
+                          PrerenderHost::FinalStatus final_status);
 
  private:
   using FrameTreeIterationCallback = base::RepeatingCallback<void(FrameTree*)>;
@@ -1750,7 +1751,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
 
   // Returns the ColorProvider instance for this WebContents object. This will
   // always return a valid ColorProvider instance.
-  const ui::ColorProvider* GetColorProvider() const;
+  const ui::ColorProvider& GetColorProvider() const override;
 
   // Sets the visibility to |new_visibility| and propagates this to the
   // renderer side, taking into account the current capture state. This
@@ -1839,7 +1840,9 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // display title.
   void NotifyTitleUpdateForEntry(NavigationEntryImpl* entry);
   // Returns the navigation entry whose title is used as the display title for
-  // this WebContents (i.e. for WebContents::GetTitle()).
+  // this WebContents (i.e. for WebContents::GetTitle()). This value can be
+  // null, in which case a fallback title is used (see
+  // |page_title_when_no_navigation_entry_|).
   NavigationEntry* GetNavigationEntryForTitle();
 
   // Wrapper for ui::GetAvailablePointerAndHoverTypes which temporarily allows
@@ -1886,7 +1889,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // is opened with "noopener", and won't be unset if the opener is closed.
   bool opened_by_another_window_;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<WebContentsAndroid> web_contents_android_;
 #endif
 
@@ -1942,6 +1945,9 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   bool is_resume_pending_;
 
   // Data for current page -----------------------------------------------------
+
+  // When a title cannot be taken from any entry, this title will be used.
+  std::u16string page_title_when_no_navigation_entry_;
 
   // The last published theme color.
   absl::optional<SkColor> last_sent_theme_color_;
@@ -2039,7 +2045,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   gfx::Size device_emulation_size_;
   gfx::Size view_size_before_emulation_;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Holds information about a current color chooser dialog, if one is visible.
   class ColorChooserHolder;
   std::unique_ptr<ColorChooserHolder> color_chooser_holder_;
@@ -2098,7 +2104,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
 
   bool updating_web_preferences_ = false;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<NFCHost> nfc_host_;
 #endif
 
@@ -2159,7 +2165,7 @@ class CONTENT_EXPORT WebContentsImpl : public WebContents,
   // instructions are displayed to the user in fullscreen mode.
   bool esc_key_locked_ = false;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<service_manager::InterfaceProvider> java_interfaces_;
 #endif
 

@@ -13,6 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/browser_element_identifiers.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_style.h"
 #include "chrome/browser/ui/ui_features.h"
@@ -116,7 +117,7 @@ TabGroupHeader::TabGroupHeader(TabStrip* tab_strip,
   // to contrast with the solid color.
   SetProperty(views::kDrawFocusRingBackgroundOutline, true);
 
-  SetProperty(views::kElementIdentifierKey, kTabGroupHeaderIdentifier);
+  SetProperty(views::kElementIdentifierKey, kTabGroupHeaderElementId);
 
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 
@@ -135,8 +136,8 @@ bool TabGroupHeader::OnKeyPressed(const ui::KeyEvent& event) {
         tab_strip_->controller()->ToggleTabGroupCollapsedState(
             group().value(), ToggleTabGroupCollapsedStateOrigin::kKeyboard);
     if (successful_toggle) {
-#if defined(OS_WIN)
-        NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
+#if BUILDFLAG(IS_WIN)
+      NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
 #else
         NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 #endif
@@ -146,7 +147,7 @@ bool TabGroupHeader::OnKeyPressed(const ui::KeyEvent& event) {
   }
 
   constexpr int kModifiedFlag =
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
       ui::EF_COMMAND_DOWN;
 #else
       ui::EF_CONTROL_DOWN;
@@ -282,7 +283,7 @@ void TabGroupHeader::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 // toggled. The state is added into the title for other platforms and the title
 // will be reread with the updated state when the header's collapsed state is
 // toggled.
-#if !defined(OS_WIN)
+#if !BUILDFLAG(IS_WIN)
   collapsed_state =
       is_collapsed ? l10n_util::GetStringUTF16(IDS_GROUP_AX_LABEL_COLLAPSED)
                    : l10n_util::GetStringUTF16(IDS_GROUP_AX_LABEL_EXPANDED);
@@ -363,7 +364,7 @@ void TabGroupHeader::ShowContextMenuForViewImpl(
   // reached this function via mouse if and only if the current OS is Mac.
   // Therefore, we don't stop the menu propagation in that case.
   constexpr bool kStopContextMenuPropagation =
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
       false;
 #else
       true;
@@ -510,6 +511,3 @@ void TabGroupHeader::EditorBubbleTracker::OnWidgetDestroyed(
     views::Widget* widget) {
   is_open_ = false;
 }
-
-DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(TabGroupHeader,
-                                      kTabGroupHeaderIdentifier);

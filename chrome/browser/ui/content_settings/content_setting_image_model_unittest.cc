@@ -51,7 +51,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "services/device/public/cpp/geolocation/geolocation_manager.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
 #include "services/device/public/cpp/test/fake_geolocation_manager.h"
@@ -256,7 +256,8 @@ TEST_F(ContentSettingImageModelTest, SensorAccessed) {
   content_settings->OnContentBlocked(ContentSettingsType::SENSORS);
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
-      /* tooltip_empty = */ false, IDS_SENSORS_BLOCKED_TOOLTIP, 0);
+      /* tooltip_empty = */ false, IDS_SENSORS_BLOCKED_TOOLTIP,
+      /* explanatory_string_id = */ 0);
 
   NavigateAndCommit(web_contents(), GURL("http://www.google.com"));
   content_settings =
@@ -270,7 +271,8 @@ TEST_F(ContentSettingImageModelTest, SensorAccessed) {
   content_settings->OnContentAllowed(ContentSettingsType::SENSORS);
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
-      /* tooltip_empty = */ false, IDS_SENSORS_ALLOWED_TOOLTIP, 0);
+      /* tooltip_empty = */ false, IDS_SENSORS_ALLOWED_TOOLTIP,
+      /* explanatory_string_id = */ 0);
 
   NavigateAndCommit(web_contents(), GURL("http://www.google.com"));
   content_settings =
@@ -284,10 +286,11 @@ TEST_F(ContentSettingImageModelTest, SensorAccessed) {
   content_settings->OnContentBlocked(ContentSettingsType::SENSORS);
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
-      /* tooltip_empty = */ false, IDS_SENSORS_BLOCKED_TOOLTIP, 0);
+      /* tooltip_empty = */ false, IDS_SENSORS_BLOCKED_TOOLTIP,
+      /* explanatory_string_id = */ 0);
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 // Test the correct ContentSettingImageModel for various permutations of site
 // and system level Geolocation permissions
 TEST_F(ContentSettingImageModelTest, GeolocationAccessPermissionsChanged) {
@@ -326,7 +329,7 @@ TEST_F(ContentSettingImageModelTest, GeolocationAccessPermissionsChanged) {
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
       /* tooltip_empty = */ false, IDS_ALLOWED_GEOLOCATION_MESSAGE,
-      IDS_ALLOWED_GEOLOCATION_MESSAGE);
+      /* explanatory_string_id = */ 0);
 
   settings_map->SetDefaultContentSetting(ContentSettingsType::GEOLOCATION,
                                          CONTENT_SETTING_BLOCK);
@@ -334,14 +337,14 @@ TEST_F(ContentSettingImageModelTest, GeolocationAccessPermissionsChanged) {
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
       /* tooltip_empty = */ false, IDS_BLOCKED_GEOLOCATION_MESSAGE,
-      IDS_BLOCKED_GEOLOCATION_MESSAGE);
+      /* explanatory_string_id = */ 0);
 
   geolocation_manager->SetSystemPermission(
       device::LocationSystemPermissionStatus::kDenied);
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
       /* tooltip_empty = */ false, IDS_BLOCKED_GEOLOCATION_MESSAGE,
-      IDS_BLOCKED_GEOLOCATION_MESSAGE);
+      /* explanatory_string_id = */ 0);
 
   content_settings->OnContentAllowed(ContentSettingsType::GEOLOCATION);
   UpdateModelAndVerifyStates(
@@ -394,8 +397,7 @@ TEST_F(ContentSettingImageModelTest, GeolocationAccessPermissionsUndetermined) {
   content_settings->OnContentBlocked(ContentSettingsType::GEOLOCATION);
   UpdateModelAndVerifyStates(
       content_setting_image_model.get(), /* is_visible = */ true,
-      /* tooltip_empty = */ false, IDS_BLOCKED_GEOLOCATION_MESSAGE,
-      IDS_BLOCKED_GEOLOCATION_MESSAGE);
+      /* tooltip_empty = */ false, IDS_BLOCKED_GEOLOCATION_MESSAGE, 0);
 }
 
 TEST_F(ContentSettingImageModelTest, GeolocationAccessDeniedExperiment) {
@@ -641,7 +643,7 @@ TEST_F(ContentSettingImageModelTest, NotificationsIconVisibility) {
   EXPECT_FALSE(content_setting_image_model->is_visible());
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 TEST_F(ContentSettingImageModelTest, NotificationsPrompt) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
@@ -731,6 +733,6 @@ TEST_F(ContentSettingImageModelTest, NotificationsContentAbusive) {
   EXPECT_EQ(0, content_setting_image_model->explanatory_string_id());
   manager_->Accept();
 }
-#endif  // !defined(OS_ANDROID)
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 }  // namespace

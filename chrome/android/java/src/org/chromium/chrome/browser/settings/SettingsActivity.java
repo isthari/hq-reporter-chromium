@@ -416,6 +416,7 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
                             LaunchIntentDispatcher::createCustomTabActivityIntent);
         }
         if (fragment instanceof PrivacySettings) {
+            ((PrivacySettings) fragment).setBottomSheetController(mBottomSheetController);
             ((PrivacySettings) fragment).setDialogContainer(findViewById(R.id.dialog_container));
         }
     }
@@ -440,13 +441,6 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
             // Something terribly wrong has happened.
             throw new RuntimeException(ex);
         }
-    }
-
-    @Override
-    protected void applyThemeOverlays() {
-        super.applyThemeOverlays();
-
-        setTheme(R.style.ThemeRefactorOverlay_Disabled_Settings);
     }
 
     /**

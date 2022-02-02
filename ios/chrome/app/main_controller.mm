@@ -68,7 +68,6 @@
 #include "ios/chrome/browser/crash_report/crash_report_helper.h"
 #import "ios/chrome/browser/crash_report/crash_restore_helper.h"
 #include "ios/chrome/browser/credential_provider/credential_provider_buildflags.h"
-#import "ios/chrome/browser/credential_provider/feature_flags.h"
 #include "ios/chrome/browser/download/download_directory_util.h"
 #import "ios/chrome/browser/external_files/external_file_remover_factory.h"
 #import "ios/chrome/browser/external_files/external_file_remover_impl.h"
@@ -119,6 +118,7 @@
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ios/public/provider/chrome/browser/mailto/mailto_handler_provider.h"
 #import "ios/public/provider/chrome/browser/overrides/overrides_api.h"
+#import "ios/public/provider/chrome/browser/ui_utils/ui_utils_api.h"
 #import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
 #import "ios/web/common/features.h"
 #include "ios/web/public/webui/web_ui_ios_controller_factory.h"
@@ -431,8 +431,8 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   _chromeMain = [ChromeMainStarter startChromeMain];
 
-  // Initialize the ChromeBrowserProvider.
-  ios::GetChromeBrowserProvider().Initialize();
+  // Initialize the provider UI global state.
+  ios::provider::InitializeUI();
 
   // If the user has interacted with the app, then start (or continue) watching
   // for crashes. Otherwise, do not watch for crashes.
@@ -690,7 +690,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // Create the window accessibility agent only when multiple windows are
   // possible.
   if (base::ios::IsMultipleScenesSupported()) {
-    [appState addAgent:[[WindowAccessibityChangeNotifierAppAgent alloc] init]];
+    [appState addAgent:[[WindowAccessibilityChangeNotifierAppAgent alloc] init]];
   }
 }
 
@@ -990,11 +990,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   NSUserDefaults* sharedDefaults = app_group::GetGroupUserDefaults();
 
-  NSNumber* passwordCreationValue = [NSNumber
-      numberWithBool:base::FeatureList::IsEnabled(kPasswordCreationEnabled)];
-  NSNumber* passwordCreationVersion =
-      [NSNumber numberWithInt:kPasswordCreationFeatureVersion];
-
   NSNumber* credentialProviderExtensionPromoValue =
       [NSNumber numberWithBool:base::FeatureList::IsEnabled(
                                    kCredentialProviderExtensionPromo)];
@@ -1015,10 +1010,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   //   }
   // }
   NSDictionary* fieldTrialValues = @{
-    base::SysUTF8ToNSString(kPasswordCreationEnabled.name) : @{
-      kFieldTrialValueKey : passwordCreationValue,
-      kFieldTrialVersionKey : passwordCreationVersion,
-    },
     base::SysUTF8ToNSString(kCredentialProviderExtensionPromo.name) : @{
       kFieldTrialValueKey : credentialProviderExtensionPromoValue,
       kFieldTrialVersionKey : credentialProviderExtensionPromoVersion,

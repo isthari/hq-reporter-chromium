@@ -51,6 +51,21 @@ void ChromeSearchResult::SetDetailsTags(const Tags& tags) {
   SetSearchResultMetadata();
 }
 
+void ChromeSearchResult::SetTitleTextVector(const TextVector& text_vector) {
+  metadata_->title_vector = text_vector;
+  SetSearchResultMetadata();
+}
+
+void ChromeSearchResult::SetDetailsTextVector(const TextVector& text_vector) {
+  metadata_->details_vector = text_vector;
+  SetSearchResultMetadata();
+}
+
+void ChromeSearchResult::SetBigTitleTextVector(const TextVector& text_vector) {
+  metadata_->big_title_vector = text_vector;
+  SetSearchResultMetadata();
+}
+
 void ChromeSearchResult::SetAccessibleName(const std::u16string& name) {
   metadata_->accessible_name = name;
   SetSearchResultMetadata();
@@ -119,9 +134,9 @@ void ChromeSearchResult::SetQueryUrl(const GURL& url) {
     updater->SetSearchResultMetadata(id(), CloneMetadata());
 }
 
-void ChromeSearchResult::SetEquivalentResutlId(
-    const std::string& equivlanet_result_id) {
-  metadata_->equivalent_result_id = equivlanet_result_id;
+void ChromeSearchResult::SetEquivalentResultId(
+    const std::string& equivalent_result_id) {
+  metadata_->equivalent_result_id = equivalent_result_id;
   auto* updater = model_updater();
   if (updater)
     updater->SetSearchResultMetadata(id(), CloneMetadata());

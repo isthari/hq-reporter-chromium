@@ -29,7 +29,7 @@
 #include "url/origin.h"
 #include "url/url_constants.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -307,7 +307,7 @@ base::Value* CreateOriginDictAndReturnSessionsDict(
       ->SetKey(kSessions, base::Value(base::Value::Type::DICTIONARY));
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 // Clear sessions whose creation time falls in [start, end] from
 // |sessions_dict|. This function also cleans corruption data and should never
 // fail.
@@ -354,7 +354,7 @@ void ClearSessionDataForTimePeriod(base::Value* sessions_dict,
 // 2. Removes the origin data if all of the sessions are removed.
 // 3. Returns a list of origin IDs to unprovision.
 std::vector<base::UnguessableToken> ClearMatchingLicenseData(
-    base::DictionaryValue* storage_dict,
+    base::Value* storage_dict,
     base::Time start,
     base::Time end,
     const base::RepeatingCallback<bool(const GURL&)>& filter) {
@@ -432,7 +432,7 @@ void ClearMediaDrmLicensesBlocking(
     media_drm_bridge->Unprovision();
   }
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 // Returns true if any session in |sessions_dict| has been modified more
 // recently than |start| and before |end|, and otherwise
@@ -682,7 +682,7 @@ std::vector<GURL> MediaDrmStorageImpl::GetOriginsModifiedBetween(
   return matching_origins;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 // static
 void MediaDrmStorageImpl::ClearMatchingLicenses(
     PrefService* pref_service,
@@ -815,7 +815,7 @@ void MediaDrmStorageImpl::OnProvisioned(OnProvisionedCallback callback) {
   }
 
   DictionaryPrefUpdate update(pref_service_, prefs::kMediaDrmStorage);
-  base::DictionaryValue* storage_dict = update.Get();
+  base::Value* storage_dict = update.Get();
   DCHECK(storage_dict);
 
   // Update origin dict once origin provisioning completes. There may be
@@ -847,7 +847,7 @@ void MediaDrmStorageImpl::SavePersistentSession(
   }
 
   DictionaryPrefUpdate update(pref_service_, prefs::kMediaDrmStorage);
-  base::DictionaryValue* storage_dict = update.Get();
+  base::Value* storage_dict = update.Get();
   DCHECK(storage_dict);
 
   base::Value* sessions_dict = GetSessionsDictFromStorageDict<base::Value>(

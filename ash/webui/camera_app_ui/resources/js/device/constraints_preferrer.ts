@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from '../assert.js';
-import * as dom from '../dom.js';
+import {assert, assertExists} from '../assert.js';
 import * as localStorage from '../models/local_storage.js';
 import * as state from '../state.js';
 import {
   Facing,
-  Mode,
   Resolution,
   ResolutionList,
 } from '../type.js';
@@ -48,22 +46,6 @@ export abstract class ConstraintsPreferrer {
    * that video device.
    */
   protected supportedResolutions = new Map<string, ResolutionList>();
-
-  /**
-   * Listener for changes of preferred resolution used on particular video
-   * device.
-   */
-  protected preferredResolutionChangeListener:
-      (deviceId: string, resolution: Resolution) => void = () => {
-        // Do nothing.
-      };
-
-  /**
-   * @param doReconfigureStream Trigger stream reconfiguration to reflect
-   *     changes in user preferred settings.
-   */
-  protected constructor(
-      protected readonly doReconfigureStream: () => Promise<void>) {}
 
   /**
    * Restores saved preferred capture resolution per video device.
@@ -124,30 +106,12 @@ export abstract class ConstraintsPreferrer {
   abstract getSortedCandidates(deviceId: string): CaptureCandidate[];
 
   /**
-   * Gets capture resolution supported by video device with given device id.
-   */
-  getSupportedResolutions(deviceId: string): ResolutionList {
-    // Guarding from fake camera code path calling this function.
-    assert(this.supportedResolutions.get(deviceId) !== undefined);
-    return this.supportedResolutions.get(deviceId);
-  }
-
-  /**
    * Changes user preferred capture resolution.
    * @param deviceId Device id of the video device to be changed.
    * @param resolution Preferred capture resolution.
    */
   abstract changePreferredResolution(deviceId: string, resolution: Resolution):
       void;
-
-  /**
-   * Sets listener for changes of preferred resolution used in taking photo on
-   * particular video device.
-   */
-  setPreferredResolutionChangeListener(
-      listener: (deviceId: string, resolution: Resolution) => void): void {
-    this.preferredResolutionChangeListener = listener;
-  }
 
   /**
    * Sorts the preview resolution (Rp) according to the capture resolution
@@ -181,8 +145,10 @@ export abstract class ConstraintsPreferrer {
     const aspectRatio = captureResolution.width / captureResolution.height;
     const Rs = Math.min(screenWidth, Math.floor(screenHeight * aspectRatio));
     const Rc = captureResolution.width;
-    const cmpDescending = (r1, r2) => r2.width - r1.width;
-    const cmpAscending = (r1, r2) => r1.width - r2.width;
+    const cmpDescending = (r1: Resolution, r2: Resolution) =>
+        r2.width - r1.width;
+    const cmpAscending = (r1: Resolution, r2: Resolution) =>
+        r1.width - r2.width;
 
     if (Rc <= Rs) {
       const notLargerThanR =
@@ -252,8 +218,9 @@ export abstract class ConstraintsPreferrer {
     const result = new Map<number, ResolutionList>();
     for (const r of rs) {
       const ratio = toSupportedPreviewRatio(r);
-      result.set(ratio, result.get(ratio) || []);
-      result.get(ratio).push(r);
+      const ratios = result.get(ratio) || [];
+      ratios.push(r);
+      result.set(ratio, ratios);
     }
     return result;
   }
@@ -282,8 +249,6 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
    */
   private prefFpses: Record<string, Record<string, number>> = {};
 
-  private readonly toggleFps = dom.get('#toggle-fps', HTMLInputElement);
-
   /**
    * Currently in used recording resolution.
    */
@@ -296,33 +261,11 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
   private deviceVideoPreviewResolutionMap = new Map<
       string, Array<{videoRs: ResolutionList, previewRs: ResolutionList}>>();
 
-  constructor(doReconfigureStream: () => Promise<void>) {
-    super(doReconfigureStream);
+  constructor() {
+    super();
 
     this.restoreResolutionPreference('deviceVideoResolution');
     this.restoreFpsPreference();
-
-    this.toggleFps.addEventListener('click', (event) => {
-      if (!state.get(state.State.STREAMING) || state.get(state.State.TAKING)) {
-        event.preventDefault();
-      }
-    });
-    this.toggleFps.addEventListener('change', () => {
-      this.setPreferredConstFps(
-          this.deviceId, this.resolution, this.toggleFps.checked ? 60 : 30);
-      state.set(state.State.MODE_SWITCHING, true);
-      (async () => {
-        let hasError = false;
-        try {
-          await this.doReconfigureStream();
-        } catch (error) {
-          hasError = true;
-          throw error;
-        } finally {
-          state.set(state.State.MODE_SWITCHING, false, {hasError});
-        }
-      })();
-    });
   }
 
   /**
@@ -342,11 +285,6 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
   changePreferredResolution(deviceId: string, resolution: Resolution): void {
     this.prefResolution.set(deviceId, resolution);
     this.saveResolutionPreference('deviceVideoResolution');
-    if (state.get(Mode.VIDEO) && deviceId === this.deviceId) {
-      this.doReconfigureStream();
-    } else {
-      this.preferredResolutionChangeListener(deviceId, resolution);
-    }
   }
 
   /**
@@ -356,17 +294,35 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
    * @param resolution Resolution to be set with.
    * @param prefFps Preferred fps to be set with.
    */
-  private setPreferredConstFps(
-      deviceId: string, resolution: Resolution, prefFps: number) {
+  setPreferredConstFps(
+      deviceId: string, resolution: Resolution, prefFps: number): void {
     if (!SUPPORTED_CONSTANT_FPS.includes(prefFps)) {
       return;
     }
-    this.toggleFps.checked = prefFps === 60;
     SUPPORTED_CONSTANT_FPS.forEach(
         (fps) => state.set(state.assertState(`fps-${fps}`), fps === prefFps));
-    this.prefFpses[deviceId] = this.prefFpses[deviceId] || {};
-    this.prefFpses[deviceId][resolution.toString()] = prefFps;
+    const resolutionFpses = this.prefFpses[deviceId] || {};
+    resolutionFpses[resolution.toString()] = prefFps;
+    this.prefFpses[deviceId] = resolutionFpses;
     this.saveFpsPreference();
+  }
+
+  /**
+   * Gets user preferred video constant fps for a specific device/resolution.
+   * @param deviceId Device id of the device.
+   * @return Returns preferred fps or null if no preferred fps found in user
+   *     preference.
+   */
+  getPreferredConstFps(deviceId: string, resolution: Resolution): number|null {
+    return this.prefFpses?.[deviceId]?.[resolution.toString()] || null;
+  }
+
+  /**
+   * Gets the constant fps info for particular video device with particular
+   * resolution.
+   */
+  private getConstFpsInfo(deviceId: string, resolution: Resolution): number[] {
+    return this.constFpsInfo[deviceId]?.[resolution.toString()] ?? [];
   }
 
   updateDevicesInfo(devices: Camera3DeviceInfo[]): void {
@@ -424,13 +380,13 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
     this.resolution = resolution;
     this.prefResolution.set(deviceId, this.resolution);
     this.saveResolutionPreference('deviceVideoResolution');
-    this.preferredResolutionChangeListener(deviceId, this.resolution);
 
-    const fps = stream.getVideoTracks()[0].getSettings().frameRate;
+    const videoTrack = assertExists(stream.getVideoTracks()[0]);
+    const fps = assertExists(videoTrack.getSettings().frameRate);
     this.setPreferredConstFps(deviceId, this.resolution, fps);
     const supportedConstFpses =
-        this.constFpsInfo[deviceId][this.resolution.toString()].filter(
-            (fps) => SUPPORTED_CONSTANT_FPS.includes(fps));
+        this.getConstFpsInfo(deviceId, this.resolution)
+            .filter((fps) => SUPPORTED_CONSTANT_FPS.includes(fps));
     // Only enable multi fps UI on external camera.
     // See https://crbug.com/1059191 for details.
     state.set(
@@ -446,22 +402,25 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
      * constant fps under that resolution or null fps for not support constant
      * fps. The resolution-fpses are sorted by user preference of constant fps.
      */
-    const getFpses = (r: Resolution): Array<{r: Resolution, fps: number}> => {
-      let constFpses: Array<number|null> = [null];
-      const constFpsInfo = this.constFpsInfo[deviceId][r.toString()];
-      // The higher constant fps will be ignored if constant 30 and 60 presented
-      // due to currently lack of UI support for toggling it.
-      if (constFpsInfo.includes(30) && constFpsInfo.includes(60)) {
-        const prefFps = this.prefFpses[deviceId] ?
-            this.prefFpses[deviceId][r.toString()] :
-            30;
-        constFpses = prefFps === 30 ? [30, 60] : [60, 30];
-      } else {
-        constFpses =
-            [...constFpsInfo.filter((fps) => fps >= 30).sort().reverse(), null];
-      }
-      return constFpses.map((fps) => ({r, fps}));
-    };
+    const getFpses =
+        (r: Resolution): Array<{r: Resolution, fps: number | null}> => {
+          let constFpses: Array<number|null> = [null];
+          const constFpsInfo = this.getConstFpsInfo(deviceId, r);
+          // The higher constant fps will be ignored if constant 30 and 60
+          // presented due to currently lack of UI support for toggling it.
+          if (constFpsInfo.includes(30) && constFpsInfo.includes(60)) {
+            const prefFpses = this.prefFpses[deviceId];
+            const prefFps =
+                prefFpses !== undefined ? prefFpses[r.toString()] : 30;
+            constFpses = prefFps === 30 ? [30, 60] : [60, 30];
+          } else {
+            constFpses = [
+              ...constFpsInfo.filter((fps) => fps >= 30).sort().reverse(),
+              null,
+            ];
+          }
+          return constFpses.map((fps) => ({r, fps}));
+        };
 
     const toVideoCandidate =
         ({videoRs,
@@ -491,7 +450,7 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
                   }));
             };
 
-    return this.deviceVideoPreviewResolutionMap.get(deviceId)
+    return assertExists(this.deviceVideoPreviewResolutionMap.get(deviceId))
         .flatMap(toVideoCandidate)
         .sort(this.getPreferResolutionSort(prefR));
   }
@@ -502,36 +461,39 @@ export class VideoConstraintsPreferrer extends ConstraintsPreferrer {
      * constant fps under that resolution or null fps for not support constant
      * fps. The resolution-fpses are sorted by user preference of constant fps.
      */
-    const getFpses = (r: Resolution): Array<{r: Resolution, fps: number}> => {
-      let constFpses: Array<number|null> = [null];
-      const constFpsInfo = this.constFpsInfo[deviceId][r.toString()];
-      // The higher constant fps will be ignored if constant 30 and 60 presented
-      // due to currently lack of UI support for toggling it.
-      if (constFpsInfo.includes(30) && constFpsInfo.includes(60)) {
-        const prefFps = this.prefFpses[deviceId] ?
-            this.prefFpses[deviceId][r.toString()] :
-            30;
-        constFpses = prefFps === 30 ? [30, 60] : [60, 30];
-      } else {
-        constFpses =
-            [...constFpsInfo.filter((fps) => fps >= 30).sort().reverse(), null];
-      }
-      return constFpses.map((fps) => ({r, fps}));
-    };
+    const getFpses =
+        (r: Resolution): Array<{r: Resolution, fps: number | null}> => {
+          let constFpses: Array<number|null> = [null];
+          const constFpsInfo = this.getConstFpsInfo(deviceId, r);
+          // The higher constant fps will be ignored if constant 30 and 60
+          // presented due to currently lack of UI support for toggling it.
+          if (constFpsInfo.includes(30) && constFpsInfo.includes(60)) {
+            const prefFpses = this.prefFpses[deviceId];
+            const prefFps =
+                prefFpses !== undefined ? prefFpses[r.toString()] : 30;
+            constFpses = prefFps === 30 ? [30, 60] : [60, 30];
+          } else {
+            constFpses = [
+              ...constFpsInfo.filter((fps) => fps >= 30).sort().reverse(),
+              null,
+            ];
+          }
+          return constFpses.map((fps) => ({r, fps}));
+        };
 
     const toPreivewConstraints =
-        ({width, height}: Resolution, fps: number): StreamConstraints => ({
+        ({width, height}: Resolution, fps: number|null): StreamConstraints => ({
           deviceId,
           audio: true,
           video: {
-            frameRate: fps ? {exact: fps} : {min: 20, ideal: 30},
+            frameRate: fps !== null ? {exact: fps} : {min: 20, ideal: 30},
             width,
             height,
           },
         });
 
     const prefR = this.getPrefResolution(deviceId) || new Resolution(0, -1);
-    return [...this.supportedResolutions.get(deviceId)]
+    return [...assertExists(this.supportedResolutions.get(deviceId))]
         .flatMap(getFpses)
         .map(({r, fps}) => ({
                resolution: r,
@@ -566,8 +528,8 @@ export class PhotoConstraintsPreferrer extends ConstraintsPreferrer {
    */
   private devicePTZSupportMap = new Map<string, boolean>();
 
-  constructor(doReconfigureStream: () => Promise<void>) {
-    super(doReconfigureStream);
+  constructor() {
+    super();
 
     this.restoreResolutionPreference('devicePhotoResolution');
   }
@@ -575,11 +537,6 @@ export class PhotoConstraintsPreferrer extends ConstraintsPreferrer {
   changePreferredResolution(deviceId: string, resolution: Resolution): void {
     this.prefResolution.set(deviceId, resolution);
     this.saveResolutionPreference('devicePhotoResolution');
-    if (!state.get(Mode.VIDEO) && deviceId === this.deviceId) {
-      this.doReconfigureStream();
-    } else {
-      this.preferredResolutionChangeListener(deviceId, resolution);
-    }
   }
 
   updateDevicesInfo(devices: Camera3DeviceInfo[]): void {
@@ -609,6 +566,7 @@ export class PhotoConstraintsPreferrer extends ConstraintsPreferrer {
 
       let prefR = this.getPrefResolution(deviceId) || new Resolution(0, -1);
       const captureRs = this.supportedResolutions.get(deviceId);
+      assert(captureRs !== undefined);
       if (!captureRs.some((r) => r.equals(prefR))) {
         prefR = captureRs.reduce(
             (maxR, R) => (maxR.area < R.area ? R : maxR),
@@ -620,12 +578,11 @@ export class PhotoConstraintsPreferrer extends ConstraintsPreferrer {
   }
 
   updateValues(
-      deviceId: string, stream: MediaStream, facing: Facing,
+      deviceId: string, _stream: MediaStream, _facing: Facing,
       resolution: Resolution): void {
     this.deviceId = deviceId;
     this.prefResolution.set(deviceId, resolution);
     this.saveResolutionPreference('devicePhotoResolution');
-    this.preferredResolutionChangeListener(deviceId, resolution);
   }
 
   getSortedCandidates(deviceId: string): CaptureCandidate[] {
@@ -661,7 +618,7 @@ export class PhotoConstraintsPreferrer extends ConstraintsPreferrer {
           return {resolution: captureR, previewCandidates};
         };
 
-    return this.deviceCapturePreviewResolutionMap.get(deviceId)
+    return assertExists(this.deviceCapturePreviewResolutionMap.get(deviceId))
         .map(toCaptureCandidate)
         .sort(this.getPreferResolutionSort(prefR));
   }

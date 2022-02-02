@@ -232,6 +232,10 @@
     "META": {"sizes": {"includes": [500],}},
     "includes": [1900],
   },
+  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/privacy_sandbox/resources.grd": {
+    "META": {"sizes": {"includes": [20],}},
+    "includes": [1910],
+  },
   "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/read_later/read_later_resources.grd": {
     "META": {"sizes": {"includes": [10],}},
     "includes": [1920],
@@ -365,6 +369,10 @@
    "META": {"sizes": {"includes": [10],}},
    "includes": [2520],
   },
+  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/app_settings/resources.grd": {
+    "META": {"sizes": {"includes": [10]}},
+    "includes": [2530],
+  },
   "<(SHARED_INTERMEDIATE_DIR)/components/sync/driver/resources/resources.grd": {
    "META": {"sizes": {"includes": [30],}},
     "includes": [2540],
@@ -494,11 +502,11 @@
     "includes": [3140],
     "structures": [3160],
   },
-  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/sample_system_web_app_ui/ash_sample_system_web_app_resources.grd": {
+  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/sample_system_web_app_ui/resources/trusted/ash_sample_system_web_app_resources.grd": {
     "META": {"sizes": {"includes": [50],}},
     "includes": [3180],
   },
-  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/sample_system_web_app_ui/ash_sample_system_web_app_untrusted_resources.grd": {
+  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/sample_system_web_app_ui/resources/untrusted/ash_sample_system_web_app_untrusted_resources.grd": {
     "META": {"sizes": {"includes": [50],}},
     "includes": [3200],
   },
@@ -527,6 +535,10 @@
   "ash/webui/eche_app_ui/resources/mock/ash_eche_bundle_mock_resources.grd": {
     "META": {"sizes": {"includes": [120],}},
     "includes": [3320],
+  },
+  "ash/webui/multidevice_debug/resources/multidevice_debug_resources.grd": {
+    "META": {"join": 2},
+    "includes": [3330],
   },
   "<(SHARED_INTERMEDIATE_DIR)/ash/webui/personalization_app/resources/ash_personalization_app_resources.grd": {
     "META": {"sizes": {"includes": [120],}},

@@ -114,9 +114,9 @@ void Registry::ForgetFileSystem(const ProviderId& provider_id,
   DictionaryPrefUpdate dict_update(pref_service,
                                    prefs::kFileSystemProviderMounted);
 
-  base::DictionaryValue* file_systems_per_extension = NULL;
-  if (!dict_update->GetDictionaryWithoutPathExpansion(
-          provider_id.ToString(), &file_systems_per_extension))
+  base::Value* file_systems_per_extension =
+      dict_update->FindDictKey(provider_id.ToString());
+  if (!file_systems_per_extension)
     return;  // Nothing to forget.
 
   file_systems_per_extension->RemoveKey(file_system_id);
@@ -249,19 +249,22 @@ void Registry::UpdateWatcherTag(const ProvidedFileSystemInfo& file_system_info,
 
   // All of the following checks should not happen in healthy environment.
   // However, since they rely on storage, DCHECKs can't be used.
-  base::DictionaryValue* file_systems_per_extension = NULL;
-  base::DictionaryValue* file_system = NULL;
-  base::DictionaryValue* watchers = NULL;
-  base::DictionaryValue* watcher_value = NULL;
-  if (!dict_update->GetDictionaryWithoutPathExpansion(
-          file_system_info.provider_id().ToString(),
-          &file_systems_per_extension) ||
-      !file_systems_per_extension->GetDictionaryWithoutPathExpansion(
-          file_system_info.file_system_id(), &file_system) ||
-      !file_system->GetDictionaryWithoutPathExpansion(kPrefKeyWatchers,
-                                                      &watchers) ||
-      !watchers->GetDictionaryWithoutPathExpansion(watcher.entry_path.value(),
-                                                   &watcher_value)) {
+  base::Value* file_systems_per_extension =
+      dict_update->FindDictKey(file_system_info.provider_id().ToString());
+  base::Value* file_system = nullptr;
+  base::Value* watchers = nullptr;
+  base::Value* watcher_value = nullptr;
+
+  if (file_systems_per_extension) {
+    file_system = file_systems_per_extension->FindDictKey(
+        file_system_info.file_system_id());
+  }
+  if (file_system)
+    watchers = file_system->FindDictKey(kPrefKeyWatchers);
+  if (watchers)
+    watcher_value = watchers->FindDictKey(watcher.entry_path.value());
+
+  if (!watcher_value) {
     // Broken preferences.
     LOG(ERROR) << "Broken preferences detected while updating a tag.";
     return;

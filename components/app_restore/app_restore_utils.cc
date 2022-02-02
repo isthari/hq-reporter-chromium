@@ -11,6 +11,7 @@
 #include "components/app_restore/features.h"
 #include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_read_handler.h"
+#include "components/app_restore/full_restore_save_handler.h"
 #include "components/app_restore/window_info.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
@@ -31,6 +32,16 @@ bool ShouldUseFullRestoreArcData() {
 }
 
 }  // namespace
+
+bool IsArcWindow(aura::Window* window) {
+  return window->GetProperty(aura::client::kAppType) ==
+         static_cast<int>(ash::AppType::ARC_APP);
+}
+
+bool IsLacrosWindow(aura::Window* window) {
+  return window->GetProperty(aura::client::kAppType) ==
+         static_cast<int>(ash::AppType::LACROS);
+}
 
 void ApplyProperties(app_restore::WindowInfo* window_info,
                      ui::PropertyHandler* property_handler) {
@@ -63,9 +74,6 @@ void ApplyProperties(app_restore::WindowInfo* window_info,
 
 void ModifyWidgetParams(int32_t restore_window_id,
                         views::Widget::InitParams* out_params) {
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return;
-
   DCHECK(out_params);
 
   const bool is_arc_app =
@@ -127,9 +135,6 @@ void ModifyWidgetParams(int32_t restore_window_id,
 }
 
 int32_t FetchRestoreWindowId(const std::string& app_id) {
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return 0;
-
   // If full restore is not running, check if desk templates can get a viable
   // window id, otherwise default to checking full restore.
   auto* full_restore_read_handler =
@@ -163,9 +168,6 @@ void SetArcSessionIdForWindowId(int32_t arc_session_id, int32_t window_id) {
 }
 
 int32_t GetArcRestoreWindowIdForTaskId(int32_t task_id) {
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return 0;
-
   if (ShouldUseFullRestoreArcData()) {
     return full_restore::FullRestoreReadHandler::GetInstance()
         ->GetArcRestoreWindowIdForTaskId(task_id);
@@ -175,9 +177,6 @@ int32_t GetArcRestoreWindowIdForTaskId(int32_t task_id) {
 }
 
 int32_t GetArcRestoreWindowIdForSessionId(int32_t session_id) {
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return 0;
-
   if (ShouldUseFullRestoreArcData()) {
     return full_restore::FullRestoreReadHandler::GetInstance()
         ->GetArcRestoreWindowIdForSessionId(session_id);
@@ -191,6 +190,31 @@ std::string GetAppIdFromAppName(const std::string& app_name) {
   if (app_name.substr(0, prefix.length()) != prefix)
     return std::string();
   return app_name.substr(prefix.length());
+}
+
+const std::string GetLacrosWindowId(aura::Window* window) {
+  const std::string* lacros_window_id =
+      window->GetProperty(app_restore::kLacrosWindowId);
+  DCHECK(lacros_window_id);
+  return *lacros_window_id;
+}
+
+int32_t GetLacrosRestoreWindowId(const std::string& lacros_window_id) {
+  return full_restore::FullRestoreReadHandler::GetInstance()
+      ->GetLacrosRestoreWindowId(lacros_window_id);
+}
+
+void OnLacrosWindowAdded(aura::Window* const window,
+                         uint32_t browser_session_id,
+                         uint32_t restored_browser_session_id) {
+  if (!IsLacrosWindow(window))
+    return;
+
+  full_restore::FullRestoreReadHandler::GetInstance()
+      ->OnLacrosBrowserWindowAdded(window, restored_browser_session_id);
+
+  full_restore::FullRestoreSaveHandler::GetInstance()
+      ->OnLacrosBrowserWindowAdded(window, browser_session_id);
 }
 
 }  // namespace app_restore

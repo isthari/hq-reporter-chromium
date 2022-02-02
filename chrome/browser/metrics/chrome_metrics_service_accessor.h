@@ -14,6 +14,7 @@
 #include "chrome/browser/metrics/metrics_reporting_state.h"
 #include "chrome/common/metrics.mojom.h"
 #include "components/metrics/metrics_service_accessor.h"
+#include "components/variations/synthetic_trials.h"
 #include "ppapi/buildflags/buildflags.h"
 
 class BreadcrumbsStatus;
@@ -52,6 +53,7 @@ class FirstRunMasterPrefsVariationsSeedTest;
 }
 
 namespace metrics {
+class ChromeOSPerUserMetricsBrowserTestBase;
 class UkmConsentParamBrowserTest;
 }
 
@@ -172,6 +174,7 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class MetricsReportingStateTest;
   friend class metrics::UkmConsentParamBrowserTest;
   friend class ClonedInstallClientIdResetBrowserTest;
+  friend class metrics::ChromeOSPerUserMetricsBrowserTestBase;
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServiceAccessorTest,
                            MetricsReportingEnabled);
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServicesManagerClientTest,
@@ -181,6 +184,11 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   // that it is active as configuration may prevent it on some devices (i.e.
   // the "MetricsReporting" field trial that controls sampling). To include
   // that, call: metrics_services_manager->IsReportingEnabled().
+  //
+  // For Ash Chrome, if a user is logged in and the device has an owner or is
+  // managed, the current user's consent (if applicable) will be used if metrics
+  // reporting for the device has been enabled.
+  //
   // TODO(gayane): Consolidate metric prefs on all platforms.
   // http://crbug.com/362192,  http://crbug.com/532084
   static bool IsMetricsAndCrashReportingEnabled();
@@ -190,13 +198,25 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   // Local State pref service.
   static bool IsMetricsAndCrashReportingEnabled(PrefService* local_state);
 
-  // Calls metrics::MetricsServiceAccessor::RegisterSyntheticFieldTrial() with
-  // g_browser_process->metrics_service(). See that function's declaration for
-  // details.
-  static bool RegisterSyntheticFieldTrial(base::StringPiece trial_name,
-                                          base::StringPiece group_name);
+  // Registers a field trial name and group by calling
+  // metrics::MetricsServiceAccessor::RegisterSyntheticFieldTrial() with
+  // g_browser_process->metrics_service(). The |annotation_mode| parameter
+  // determines when UMA reports should start being annotated with this trial
+  // and group. When set to |kCurrentLog|, the UMA report that will be generated
+  // from the log that is open at the time of registration will be annotated.
+  // When set to |kNextLog|, only reports after the one generated from the log
+  // that is open at the time of registration will be annotated. |kNextLog| is
+  // particularly useful when ambiguity is unacceptable, as |kCurrentLog| will
+  // annotate the report generated from the current log even if it may include
+  // data from when this trial and group were not active. Returns true on
+  // success.
+  static bool RegisterSyntheticFieldTrial(
+      base::StringPiece trial_name,
+      base::StringPiece group_name,
+      variations::SyntheticTrialAnnotationMode annotation_mode =
+          variations::SyntheticTrialAnnotationMode::kNextLog);
 
-  // Cover for function of same name in MetricsServiceAccssor. See
+  // Cover for function of same name in MetricsServiceAccessor. See
   // ChromeMetricsServiceAccessor for details.
   static void SetForceIsMetricsReportingEnabledPrefLookup(bool value);
 

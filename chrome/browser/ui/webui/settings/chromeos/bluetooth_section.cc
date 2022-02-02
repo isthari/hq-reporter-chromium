@@ -122,31 +122,6 @@ const std::vector<SearchConcept>& GetBluetoothPairedSearchConcepts() {
   return *tags;
 }
 
-std::vector<mojom::Setting> GetBluetoothDevicesSubpageSettings() {
-  std::vector<mojom::Setting> bluetooth_devices_settings{
-      mojom::Setting::kBluetoothOnOff, mojom::Setting::kBluetoothPairDevice};
-
-  if (!chromeos::features::IsBluetoothRevampEnabled()) {
-    bluetooth_devices_settings.insert(
-        bluetooth_devices_settings.end(),
-        {mojom::Setting::kBluetoothConnectToDevice,
-         mojom::Setting::kBluetoothDisconnectFromDevice,
-         mojom::Setting::kBluetoothUnpairDevice});
-  }
-
-  return bluetooth_devices_settings;
-}
-
-std::vector<mojom::Setting> GetBluetoothDeviceDetailSubpageSettings() {
-  if (!chromeos::features::IsBluetoothRevampEnabled())
-    return std::vector<mojom::Setting>{};
-
-  return std::vector<mojom::Setting>{
-      mojom::Setting::kBluetoothConnectToDevice,
-      mojom::Setting::kBluetoothDisconnectFromDevice,
-      mojom::Setting::kBluetoothUnpairDevice};
-}
-
 }  // namespace
 
 BluetoothSection::BluetoothSection(Profile* profile,
@@ -254,48 +229,30 @@ void BluetoothSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
        IDS_SETTINGS_BLUETOOTH_SUMMARY_PAGE_TWO_DEVICES_DESCRIPTION},
       {"bluetoothSummaryPageOff", IDS_SETTINGS_BLUETOOTH_SUMMARY_PAGE_OFF},
       {"bluetoothSummaryPageOn", IDS_SETTINGS_BLUETOOTH_SUMMARY_PAGE_ON},
-      {"bluetoothPairedDeviceItemA11yLabelTypeUnknown",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_UNKNOWN},
-      {"bluetoothPairedDeviceItemA11yLabelTypeUnknownWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_UNKNOWN_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeComputer",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_COMPUTER},
-      {"bluetoothPairedDeviceItemA11yLabelCaseBattery",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_CASE_BATTERY},
-      {"bluetoothPairedDeviceItemA11yLabelRightBudBattery",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_RIGHT_BUD_BATTERY},
-      {"bluetoothPairedDeviceItemA11yLabelLeftBudBattery",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_LEFT_BUD_BATTERY},
-      {"bluetoothPairedDeviceItemA11yLabelTypeComputerWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_COMPUTER_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypePhone",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_PHONE},
-      {"bluetoothPairedDeviceItemA11yLabelTypePhoneWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_PHONE_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeHeadset",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_HEADSET},
-      {"bluetoothPairedDeviceItemA11yLabelTypeHeadsetWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_HEADSET_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeVideoCamera",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_VIDEO_CAMERA},
-      {"bluetoothPairedDeviceItemA11yLabelTypeVideoCameraWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_VIDEO_CAMERA_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeGameController",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_GAME_CONTROLLER},
-      {"bluetoothPairedDeviceItemA11yLabelTypeGameControllerWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_GAME_CONTROLLER_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeKeyboard",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_KEYBOARD},
-      {"bluetoothPairedDeviceItemA11yLabelTypeKeyboardWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_KEYBOARD_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeMouse",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_MOUSE},
-      {"bluetoothPairedDeviceItemA11yLabelTypeMouseWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_MOUSE_WITH_BATTERY_INFO},
-      {"bluetoothPairedDeviceItemA11yLabelTypeTablet",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_TABLET},
-      {"bluetoothPairedDeviceItemA11yLabelTypeTabletWithBatteryInfo",
-       IDS_SETTINGS_BLUETOOTH_PAIRED_DEVICE_ITEM_A11Y_LABEL_TYPE_TABLET_WITH_BATTERY_INFO},
+      {"bluetoothA11yDeviceTypeUnknown",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_UNKNOWN},
+      {"bluetoothA11yDeviceTypeComputer",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_COMPUTER},
+      {"bluetoothA11yDeviceTypePhone", IDS_BLUETOOTH_A11Y_DEVICE_TYPE_PHONE},
+      {"bluetoothA11yDeviceTypeHeadset",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_HEADSET},
+      {"bluetoothA11yDeviceTypeVideoCamera",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_VIDEO_CAMERA},
+      {"bluetoothA11yDeviceTypeGameController",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_GAME_CONTROLLER},
+      {"bluetoothA11yDeviceTypeKeyboard",
+       IDS_BLUETOOTH_A11Y_DEVICE_TYPE_KEYBOARD},
+      {"bluetoothA11yDeviceTypeMouse", IDS_BLUETOOTH_A11Y_DEVICE_TYPE_MOUSE},
+      {"bluetoothA11yDeviceTypeTablet", IDS_BLUETOOTH_A11Y_DEVICE_TYPE_TABLET},
+      {"bluetoothA11yDeviceBatteryInfo",
+       IDS_BLUETOOTH_A11Y_DEVICE_BATTERY_INFO},
+      {"bluetoothA11yDeviceNamedBatteryInfoLeftBud",
+       IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_LEFT_BUD},
+      {"bluetoothA11yDeviceNamedBatteryInfoCase",
+       IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_CASE},
+      {"bluetoothA11yDeviceNamedBatteryInfoRightBud",
+       IDS_BLUETOOTH_A11Y_DEVICE_NAMED_BATTERY_INFO_RIGHT_BUD},
+      {"bluetoothA11yDeviceName", IDS_BLUETOOTH_A11Y_DEVICE_NAME},
       {"bluetoothPairDevicePageTitle",
        IDS_SETTINGS_BLUETOOTH_PAIR_DEVICE_TITLE},
       {"bluetoothRemove", IDS_SETTINGS_BLUETOOTH_REMOVE},
@@ -340,6 +297,9 @@ void BluetoothSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
        IDS_BLUETOOTH_DEVICE_LIST_PREVIOUSLY_CONNECTED},
       {"bluetoothDeviceListNoConnectedDevices",
        IDS_BLUETOOTH_DEVICE_LIST_NO_CONNECTED_DEVICES},
+      {"bluetoothEnabledA11YLabel", IDS_SETTINGS_BLUETOOTH_ENABLED_A11Y_LABEL},
+      {"bluetoothDisabledA11YLabel", IDS_SETTINGS_BLUETOOTH_DISABLED_A11Y_LABEL}
+
   };
   html_source->AddLocalizedStrings(kLocalizedStrings);
   html_source->AddBoolean("enableFastPairFlag", features::IsFastPairEnabled());
@@ -385,20 +345,28 @@ void BluetoothSection::RegisterHierarchy(HierarchyGenerator* generator) const {
                                      mojom::SearchResultIcon::kBluetooth,
                                      mojom::SearchResultDefaultRank::kMedium,
                                      mojom::kBluetoothDevicesSubpagePath);
-
+  static constexpr mojom::Setting kBluetoothDevicesSettings[] = {
+      mojom::Setting::kBluetoothOnOff,
+      mojom::Setting::kBluetoothPairDevice,
+      mojom::Setting::kBluetoothUnpairDevice,
+  };
+  static constexpr mojom::Setting kBluetoothDevicesSettingsLegacy[] = {
+      mojom::Setting::kBluetoothConnectToDevice,
+      mojom::Setting::kBluetoothDisconnectFromDevice,
+  };
   RegisterNestedSettingBulk(mojom::Subpage::kBluetoothDevices,
-                            GetBluetoothDevicesSubpageSettings(), generator);
+                            kBluetoothDevicesSettings, generator);
   generator->RegisterTopLevelAltSetting(mojom::Setting::kBluetoothOnOff);
-
   generator->RegisterNestedSubpage(IDS_SETTINGS_BLUETOOTH_DEVICE_DETAILS,
                                    mojom::Subpage::kBluetoothDeviceDetail,
                                    mojom::Subpage::kBluetoothDevices,
                                    mojom::SearchResultIcon::kBluetooth,
                                    mojom::SearchResultDefaultRank::kMedium,
                                    mojom::kBluetoothDeviceDetailSubpagePath);
-  RegisterNestedSettingBulk(mojom::Subpage::kBluetoothDeviceDetail,
-                            GetBluetoothDeviceDetailSubpageSettings(),
-                            generator);
+  RegisterNestedSettingBulk(ash::features::IsBluetoothRevampEnabled()
+                                ? mojom::Subpage::kBluetoothDeviceDetail
+                                : mojom::Subpage::kBluetoothDevices,
+                            kBluetoothDevicesSettingsLegacy, generator);
 }
 
 void BluetoothSection::AdapterPresentChanged(device::BluetoothAdapter* adapter,
@@ -458,6 +426,14 @@ void BluetoothSection::UpdateSearchTags() {
   updater.AddSearchTags(GetBluetoothOnSearchConcepts());
 
   // TODO(crbug/1257312): Add Fast Pair search concepts.
+
+  // Always include the option to pair devices, but skip any device-specific
+  // search options since we have no way to determine which device the user is
+  // interested in.
+  if (ash::features::IsBluetoothRevampEnabled()) {
+    updater.AddSearchTags(GetBluetoothPairableSearchConcepts());
+    return;
+  }
 
   // Filter devices so that only those shown in the UI are returned. Note that
   // passing |max_devices| of 0 indicates that there is no maximum.

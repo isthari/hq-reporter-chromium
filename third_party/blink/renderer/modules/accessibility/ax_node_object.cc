@@ -922,7 +922,7 @@ ax::mojom::blink::Role AXNodeObject::NativeRoleIgnoringAria() const {
     HTMLSelectMenuElement::PartType part_type =
         owner_select_menu->AssignedPartType(GetNode());
     if (part_type == HTMLSelectMenuElement::PartType::kButton) {
-      return ax::mojom::blink::Role::kPopUpButton;
+      return ax::mojom::blink::Role::kComboBoxMenuButton;
     } else if (part_type == HTMLSelectMenuElement::PartType::kListBox) {
       return ax::mojom::blink::Role::kListBox;
     } else if (part_type == HTMLSelectMenuElement::PartType::kOption) {
@@ -2570,15 +2570,30 @@ ax::mojom::blink::AriaCurrentState AXNodeObject::GetAriaCurrentState() const {
 }
 
 ax::mojom::blink::InvalidState AXNodeObject::GetInvalidState() const {
+  // First check aria-invalid.
   const AtomicString& attribute_value =
       GetAOMPropertyOrARIAAttribute(AOMStringProperty::kInvalid);
+  // aria-invalid="false".
   if (EqualIgnoringASCIICase(attribute_value, "false"))
     return ax::mojom::blink::InvalidState::kFalse;
-  // "spelling" and "grammar" are exposed via Markers() as if they are native
-  // errors. Any non-empty, and non-false value is considered True.
-  if (!attribute_value.IsEmpty())
+  // In most cases, aria-invalid="spelling"| "grammar" are used on inline text
+  // elements, and are exposed via Markers() as if they are native errors.
+  // Therefore, they are exposed as InvalidState:kNone here in order to avoid
+  // exposing the state twice, and to prevent superfluous "invalid"
+  // announcements in some screen readers.
+  // On text fields, they are simply exposed as if aria-invalid="true".
+  if (EqualIgnoringASCIICase(attribute_value, "spelling") ||
+      EqualIgnoringASCIICase(attribute_value, "grammar")) {
+    return RoleValue() == ax::mojom::blink::Role::kTextField
+               ? ax::mojom::blink::InvalidState::kTrue
+               : ax::mojom::blink::InvalidState::kNone;
+  }
+  // Any other non-empty value is considered true.
+  if (!attribute_value.IsEmpty()) {
     return ax::mojom::blink::InvalidState::kTrue;
+  }
 
+  // Next check for native the invalid state.
   if (GetElement()) {
     ListedElement* form_control = ListedElement::From(*GetElement());
     if (form_control) {
@@ -2914,7 +2929,7 @@ String AXNodeObject::GetValueForControl() const {
   }
 
   // An ARIA combobox can get value from inner contents.
-  if (AriaRoleAttribute() == ax::mojom::blink::Role::kComboBoxMenuButton) {
+  if (RoleValue() == ax::mojom::blink::Role::kComboBoxMenuButton) {
     AXObjectSet visited;
     return TextFromDescendants(visited, nullptr, false);
   }
@@ -3360,8 +3375,9 @@ static bool ShouldInsertSpaceBetweenObjectsIfNeeded(
   //      LayoutBlockFlow (anonymous)
   //        LayoutText "def" <= next
   // See accessibility/name-calc-aria-hidden.html
+  const auto* next_layout_object = next->GetLayoutObject();
   for (auto* layout_object = previous->GetLayoutObject();
-       layout_object != next->GetLayoutObject();
+       layout_object && layout_object != next_layout_object;
        layout_object = layout_object->NextInPreOrder()) {
     if (layout_object->IsBlockInInline())
       return true;

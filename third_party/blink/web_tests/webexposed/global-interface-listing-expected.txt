@@ -15,6 +15,7 @@ interface AbortSignal : EventTarget
     getter onabort
     getter reason
     method constructor
+    method throwIfAborted
     setter onabort
 interface AbsoluteOrientationSensor : OrientationSensor
     attribute @@toStringTag
@@ -2700,7 +2701,6 @@ interface FileSystemFileHandle : FileSystemHandle
     method createWritable
     method getFile
     method move
-    method rename
 interface FileSystemHandle
     attribute @@toStringTag
     getter kind
@@ -2710,7 +2710,6 @@ interface FileSystemHandle
     method move
     method queryPermission
     method remove
-    method rename
     method requestPermission
 interface FileSystemWritableFileStream : WritableStream
     attribute @@toStringTag
@@ -4249,6 +4248,7 @@ interface HTMLSelectElement : HTMLElement
     setter value
 interface HTMLSelectMenuElement : HTMLElement
     attribute @@toStringTag
+    getter disabled
     getter form
     getter labels
     getter name
@@ -4264,6 +4264,7 @@ interface HTMLSelectMenuElement : HTMLElement
     method constructor
     method reportValidity
     method setCustomValidity
+    setter disabled
     setter name
     setter required
     setter value
@@ -11404,6 +11405,7 @@ namespace CSS
     attribute propertyNamesInGlobal
     attribute testRunner
     attribute textInputController
+    getter anonymous
     getter appHistory
     getter attributionReporting
     getter caches

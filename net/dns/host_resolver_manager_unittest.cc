@@ -63,7 +63,9 @@
 #include "net/dns/mock_mdns_client.h"
 #include "net/dns/mock_mdns_socket_factory.h"
 #include "net/dns/public/dns_config_overrides.h"
+#include "net/dns/public/dns_over_https_config.h"
 #include "net/dns/public/dns_over_https_server_config.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/dns/public/dns_query_type.h"
 #include "net/dns/public/mdns_listener_update_type.h"
 #include "net/dns/public/resolve_error_info.h"
@@ -656,10 +658,10 @@ TEST_F(HostResolverManagerTest, AsynchronousLookup) {
 
   EXPECT_THAT(response.result_error(), IsOk());
   EXPECT_THAT(response.top_level_result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 
@@ -685,10 +687,10 @@ TEST_F(HostResolverManagerTest, AsynchronousLookupWithScheme) {
 
   EXPECT_THAT(response.result_error(), IsOk());
   EXPECT_THAT(response.top_level_result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 
@@ -784,17 +786,17 @@ TEST_F(HostResolverManagerTest, DnsQueryType) {
   proc_->SignalMultiple(2u);
 
   EXPECT_THAT(v4_response.result_error(), IsOk());
-  EXPECT_THAT(v4_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v4_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.20", 80)));
   EXPECT_THAT(v4_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.20", 80))))));
 
   EXPECT_THAT(v6_response.result_error(), IsOk());
-  EXPECT_THAT(v6_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v6_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::5", 80)));
   EXPECT_THAT(v6_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::5", 80))))));
 }
 
@@ -811,12 +813,13 @@ TEST_F(HostResolverManagerTest, DnsQueryWithoutAliases) {
   proc_->SignalMultiple(1u);
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.20", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.20", 80))))));
-  EXPECT_FALSE(response.request()->GetDnsAliasResults());
+  EXPECT_THAT(response.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 }
 
 TEST_F(HostResolverManagerTest, LocalhostIPV4IPV6Lookup) {
@@ -827,10 +830,10 @@ TEST_F(HostResolverManagerTest, LocalhostIPV4IPV6Lookup) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v4_v4_response.result_error(), IsOk());
-  EXPECT_THAT(v4_v4_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v4_v4_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(v4_v4_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
 
   parameters.dns_query_type = DnsQueryType::AAAA;
@@ -838,23 +841,22 @@ TEST_F(HostResolverManagerTest, LocalhostIPV4IPV6Lookup) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v4_v6_response.result_error(), IsOk());
-  EXPECT_THAT(v4_v6_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v4_v6_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(v4_v6_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::1", 80))))));
 
   ResolveHostResponseHelper v4_unsp_response(resolver_->CreateRequest(
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v4_unsp_response.result_error(), IsOk());
-  EXPECT_THAT(
-      v4_unsp_response.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(v4_unsp_response.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       v4_unsp_response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -875,10 +877,10 @@ TEST_F(HostResolverManagerTest, ResolveIPLiteralWithHostResolverSystemOnly) {
   // IP literal resolution is expected to take precedence over source, so the
   // result is expected to be the input IP, not the result IP from the proc rule
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected(kIpLiteral, 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected(kIpLiteral, 80))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 }
@@ -962,11 +964,11 @@ TEST_F(HostResolverManagerTest, NumericIPv4Address) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.1.2.3", 5555)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::UnorderedElementsAre(CreateExpected("127.1.2.3", 5555))))));
 }
 
@@ -977,11 +979,11 @@ TEST_F(HostResolverManagerTest, NumericIPv4AddressWithScheme) {
       resolve_context_.get(), resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.1.2.3", 5555)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::UnorderedElementsAre(CreateExpected("127.1.2.3", 5555))))));
 }
 
@@ -994,10 +996,10 @@ TEST_F(HostResolverManagerTest, NumericIPv6Address) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("2001:db8::1", 5555)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::UnorderedElementsAre(
+              testing::Pointee(testing::UnorderedElementsAre(
                   ExpectEndpointResult(testing::UnorderedElementsAre(
                       CreateExpected("2001:db8::1", 5555))))));
 }
@@ -1009,10 +1011,10 @@ TEST_F(HostResolverManagerTest, NumericIPv6AddressWithScheme) {
       resolve_context_.get(), resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("2001:db8::1", 5555)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::UnorderedElementsAre(
+              testing::Pointee(testing::UnorderedElementsAre(
                   ExpectEndpointResult(testing::UnorderedElementsAre(
                       CreateExpected("2001:db8::1", 5555))))));
 }
@@ -2109,11 +2111,11 @@ TEST_F(HostResolverManagerTest, AddressFamilyWithRawIPs) {
       HostPortPair("127.0.0.1", 80), NetworkIsolationKey(), NetLogWithSource(),
       v4_parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v4_v4_request.result_error(), IsOk());
-  EXPECT_THAT(v4_v4_request.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v4_v4_request.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(
       v4_v4_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
 
   ResolveHostResponseHelper v4_v6_request(resolver_->CreateRequest(
@@ -2125,12 +2127,11 @@ TEST_F(HostResolverManagerTest, AddressFamilyWithRawIPs) {
       HostPortPair("127.0.0.1", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v4_unsp_request.result_error(), IsOk());
-  EXPECT_THAT(
-      v4_unsp_request.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
+  EXPECT_THAT(v4_unsp_request.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(
       v4_unsp_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
 
   ResolveHostResponseHelper v6_v4_request(resolver_->CreateRequest(
@@ -2142,23 +2143,22 @@ TEST_F(HostResolverManagerTest, AddressFamilyWithRawIPs) {
       HostPortPair("::1", 80), NetworkIsolationKey(), NetLogWithSource(),
       v6_parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v6_v6_request.result_error(), IsOk());
-  EXPECT_THAT(v6_v6_request.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v6_v6_request.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(
       v6_v6_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("::1", 80))))));
 
   ResolveHostResponseHelper v6_unsp_request(resolver_->CreateRequest(
       HostPortPair("::1", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(v6_unsp_request.result_error(), IsOk());
-  EXPECT_THAT(
-      v6_unsp_request.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("::1", 80)));
+  EXPECT_THAT(v6_unsp_request.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(
       v6_unsp_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("::1", 80))))));
 }
 
@@ -2195,12 +2195,11 @@ TEST_F(HostResolverManagerTest, LocalOnly_FromCache) {
       resolve_context_->host_cache()));
   EXPECT_TRUE(cache_hit_request.complete());
   EXPECT_THAT(cache_hit_request.result_error(), IsOk());
-  EXPECT_THAT(
-      cache_hit_request.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
+  EXPECT_THAT(cache_hit_request.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
   EXPECT_THAT(
       cache_hit_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
   EXPECT_FALSE(cache_hit_request.request()->GetStaleInfo().value().is_stale());
 }
@@ -2257,10 +2256,10 @@ TEST_F(HostResolverManagerTest, LocalOnly_FromIp) {
   // Expected to resolve synchronously.
   EXPECT_TRUE(response.complete());
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("1.2.3.4", 56)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("1.2.3.4", 56))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 }
@@ -2338,11 +2337,11 @@ TEST_F(HostResolverManagerTest, StaleAllowed) {
       resolve_context_->host_cache()));
   EXPECT_TRUE(stale_request.complete());
   EXPECT_THAT(stale_request.result_error(), IsOk());
-  EXPECT_THAT(stale_request.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(stale_request.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 84)));
   EXPECT_THAT(
       stale_request.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 84))))));
   EXPECT_TRUE(stale_request.request()->GetStaleInfo().value().is_stale());
 }
@@ -2362,11 +2361,11 @@ TEST_F(HostResolverManagerTest, StaleAllowed_NonLocal) {
       NetLogWithSource(), stale_allowed_parameters, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.2.42", 85)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.2.42", 85))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 }
@@ -2384,11 +2383,11 @@ TEST_F(HostResolverManagerTest, StaleAllowed_FromIp) {
   // Expected to resolve synchronously without stale info.
   EXPECT_TRUE(response.complete());
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("1.2.3.4", 57)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("1.2.3.4", 57))))));
   EXPECT_FALSE(response.request()->GetStaleInfo());
 }
@@ -2635,16 +2634,14 @@ TEST_F(HostResolverManagerTest, IncludeCanonicalName) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
-  EXPECT_EQ("canon.name",
-            response.request()->GetAddressResults().value().GetCanonicalName());
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("canon.name")));
+              testing::Pointee(testing::UnorderedElementsAre("canon.name")));
 
   EXPECT_THAT(response_no_flag.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
 }
@@ -2666,15 +2663,14 @@ TEST_F(HostResolverManagerTest, IncludeCanonicalNameButNotReceived) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
-  EXPECT_EQ("",
-            response.request()->GetAddressResults().value().GetCanonicalName());
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
-  EXPECT_EQ(response.request()->GetDnsAliasResults(), absl::nullopt);
+  EXPECT_THAT(response.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   EXPECT_THAT(response_no_flag.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
 }
@@ -2699,16 +2695,14 @@ TEST_F(HostResolverManagerTest, IncludeCanonicalNameSkipsUrlCanonicalization) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
-  EXPECT_EQ("CANON.name",
-            response.request()->GetAddressResults().value().GetCanonicalName());
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("CANON.name")));
+              testing::Pointee(testing::UnorderedElementsAre("CANON.name")));
 
   EXPECT_THAT(response_no_flag.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
 }
@@ -2728,11 +2722,11 @@ TEST_F(HostResolverManagerTest, LoopbackOnly) {
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
 
   EXPECT_THAT(response_no_flag.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
@@ -2765,11 +2759,11 @@ TEST_F(HostResolverManagerTest, IsSpeculative) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.42", 80)));
   EXPECT_THAT(
       response2.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.1.42", 80))))));
 
   EXPECT_EQ("just.testing", proc_->GetCaptureList()[0].hostname);
@@ -2793,11 +2787,11 @@ TEST_F(HostResolverManagerTest, AvoidMulticastResolutionParameter) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("123.123.123.123", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("123.123.123.123", 80))))));
 
   EXPECT_THAT(response_no_flag.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
@@ -3075,13 +3069,13 @@ TEST_F(HostResolverManagerTest, Mdns) {
 
   EXPECT_THAT(response.result_error(), IsOk());
   EXPECT_THAT(
-      response.request()->GetAddressResults().value().endpoints(),
+      response.request()->GetAddressResults()->endpoints(),
       testing::UnorderedElementsAre(
           CreateExpected("1.2.3.4", 80),
           CreateExpected("000a:0000:0000:0000:0001:0002:0003:0004", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(
+      testing::Pointee(testing::UnorderedElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("000a:0000:0000:0000:0001:0002:0003:0004", 80),
               CreateExpected("1.2.3.4", 80))))));
@@ -3110,11 +3104,11 @@ TEST_F(HostResolverManagerTest, Mdns_AaaaOnly) {
                                       sizeof(kMdnsResponseAAAA));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected(
                   "000a:0000:0000:0000:0001:0002:0003:0004", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::UnorderedElementsAre(
+              testing::Pointee(testing::UnorderedElementsAre(
                   ExpectEndpointResult(testing::ElementsAre(CreateExpected(
                       "000a:0000:0000:0000:0001:0002:0003:0004", 80))))));
 }
@@ -3410,11 +3404,11 @@ TEST_F(HostResolverManagerTest, Mdns_PartialResults) {
                                   kSleepFudgeFactor);
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("1.2.3.4", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::UnorderedElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::UnorderedElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("1.2.3.4", 80))))));
 
   test_task_runner->FastForwardUntilNoTasksRemain();
@@ -3864,11 +3858,11 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyWriteToHostCache) {
         NetLogWithSource(), absl::nullopt, resolve_context_.get(),
         resolve_context_->host_cache()));
     EXPECT_THAT(response1.result_error(), IsOk());
-    EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected(kFirstDnsResult, 80)));
     EXPECT_THAT(
         response1.request()->GetEndpointResults(),
-        testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+        testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
             testing::ElementsAre(CreateExpected(kFirstDnsResult, 80))))));
     EXPECT_FALSE(response1.request()->GetStaleInfo());
     EXPECT_EQ(1u, proc_->GetCaptureList().size());
@@ -3916,11 +3910,11 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyWriteToHostCache) {
         resolve_context_->host_cache()));
     EXPECT_THAT(response2.result_error(), IsOk());
     if (split_cache_by_network_isolation_key) {
-      EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+      EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
                   testing::ElementsAre(CreateExpected(kSecondDnsResult, 80)));
       EXPECT_THAT(
           response2.request()->GetEndpointResults(),
-          testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+          testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
               testing::ElementsAre(CreateExpected(kSecondDnsResult, 80))))));
       EXPECT_FALSE(response2.request()->GetStaleInfo());
       EXPECT_EQ(2u, proc_->GetCaptureList().size());
@@ -3929,11 +3923,11 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyWriteToHostCache) {
                          0 /* host_resolver_flags */, HostResolverSource::ANY,
                          kNetworkIsolationKey2)));
     } else {
-      EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+      EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
                   testing::ElementsAre(CreateExpected(kFirstDnsResult, 80)));
       EXPECT_THAT(
           response2.request()->GetEndpointResults(),
-          testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+          testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
               testing::ElementsAre(CreateExpected(kFirstDnsResult, 80))))));
       EXPECT_TRUE(response2.request()->GetStaleInfo());
       EXPECT_EQ(1u, proc_->GetCaptureList().size());
@@ -3999,14 +3993,14 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyReadFromHostCache) {
         NetLogWithSource(), absl::nullopt, resolve_context_.get(),
         resolve_context_->host_cache()));
     EXPECT_THAT(response1.result_error(), IsOk());
-    EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected(
                     kCacheEntries[split_cache_by_network_isolation_key ? 1 : 0]
                         .cached_ip_address,
                     80)));
     EXPECT_THAT(
         response1.request()->GetEndpointResults(),
-        testing::Optional(testing::ElementsAre(
+        testing::Pointee(testing::ElementsAre(
             ExpectEndpointResult(testing::ElementsAre(CreateExpected(
                 kCacheEntries[split_cache_by_network_isolation_key ? 1 : 0]
                     .cached_ip_address,
@@ -4020,14 +4014,14 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyReadFromHostCache) {
         NetLogWithSource(), absl::nullopt, resolve_context_.get(),
         resolve_context_->host_cache()));
     EXPECT_THAT(response2.result_error(), IsOk());
-    EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected(
                     kCacheEntries[split_cache_by_network_isolation_key ? 2 : 0]
                         .cached_ip_address,
                     80)));
     EXPECT_THAT(
         response2.request()->GetEndpointResults(),
-        testing::Optional(testing::ElementsAre(
+        testing::Pointee(testing::ElementsAre(
             ExpectEndpointResult(testing::ElementsAre(CreateExpected(
                 kCacheEntries[split_cache_by_network_isolation_key ? 2 : 0]
                     .cached_ip_address,
@@ -4087,18 +4081,18 @@ TEST_F(HostResolverManagerTest, NetworkIsolationKeyTwoRequestsAtOnce) {
     // of the cache.
 
     EXPECT_THAT(response1.result_error(), IsOk());
-    EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected(kDnsResult, 80)));
     EXPECT_THAT(response1.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected(kDnsResult, 80))))));
     EXPECT_FALSE(response1.request()->GetStaleInfo());
 
     EXPECT_THAT(response2.result_error(), IsOk());
-    EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected(kDnsResult, 80)));
     EXPECT_THAT(response2.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected(kDnsResult, 80))))));
     EXPECT_FALSE(response2.request()->GetStaleInfo());
 
@@ -4142,18 +4136,18 @@ TEST_F(HostResolverManagerTest, ContextsNotMerged) {
   // of the cache.
 
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected(kDnsResult, 80)));
   EXPECT_THAT(response1.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected(kDnsResult, 80))))));
   EXPECT_FALSE(response1.request()->GetStaleInfo());
 
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected(kDnsResult, 80)));
   EXPECT_THAT(response2.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected(kDnsResult, 80))))));
   EXPECT_FALSE(response2.request()->GetStaleInfo());
 
@@ -4502,11 +4496,11 @@ TEST_F(HostResolverManagerDnsTest, DisableAndEnableInsecureDnsClient) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response_proc.result_error(), IsOk());
-  EXPECT_THAT(response_proc.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_proc.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.2.47", 1212)));
   EXPECT_THAT(
       response_proc.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.2.47", 1212))))));
 
   resolver_->SetInsecureDnsClientEnabled(/*enabled*/ true,
@@ -4515,13 +4509,12 @@ TEST_F(HostResolverManagerDnsTest, DisableAndEnableInsecureDnsClient) {
       HostPortPair("ok_fail", 1212), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_dns_client.result_error(), IsOk());
-  EXPECT_THAT(
-      response_dns_client.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("::1", 1212),
-                                    CreateExpected("127.0.0.1", 1212)));
+  EXPECT_THAT(response_dns_client.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("::1", 1212),
+                                            CreateExpected("127.0.0.1", 1212)));
   EXPECT_THAT(
       response_dns_client.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::UnorderedElementsAre(CreateExpected("::1", 1212),
                                         CreateExpected("127.0.0.1", 1212))))));
 }
@@ -4540,11 +4533,11 @@ TEST_F(HostResolverManagerDnsTest, UseProcTaskWhenPrivateDnsActive) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response_proc.result_error(), IsOk());
-  EXPECT_THAT(response_proc.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_proc.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.2.47", 1212)));
   EXPECT_THAT(
       response_proc.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("192.168.2.47", 1212))))));
 }
 
@@ -4561,12 +4554,12 @@ TEST_F(HostResolverManagerDnsTest, LocalhostLookup) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
@@ -4574,12 +4567,12 @@ TEST_F(HostResolverManagerDnsTest, LocalhostLookup) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response1.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
@@ -4587,12 +4580,12 @@ TEST_F(HostResolverManagerDnsTest, LocalhostLookup) {
       HostPortPair("localhost.", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response2.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -4614,12 +4607,12 @@ TEST_F(HostResolverManagerDnsTest, LocalhostLookupWithHosts) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
@@ -4628,12 +4621,12 @@ TEST_F(HostResolverManagerDnsTest, LocalhostLookupWithHosts) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response1.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -4669,22 +4662,22 @@ TEST_F(HostResolverManagerDnsTest, DnsTask) {
 
   // Resolved by MockDnsClient.
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
   // Fallback to ProcTask.
   EXPECT_THAT(response1.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.102", 80)));
   EXPECT_THAT(response2.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.102", 80))))));
 }
 
@@ -4698,12 +4691,12 @@ TEST_F(HostResolverManagerDnsTest, DnsTaskWithScheme) {
 
   // Resolved by MockDnsClient.
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -4729,11 +4722,10 @@ TEST_F(HostResolverManagerDnsTest, NoFallbackToProcTask) {
 
   EXPECT_THAT(initial_response0.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(initial_response1.result_error(), IsOk());
-  EXPECT_THAT(
-      initial_response1.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("192.168.1.102", 80)));
+  EXPECT_THAT(initial_response1.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("192.168.1.102", 80)));
   EXPECT_THAT(initial_response1.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.102", 80))))));
 
   // Switch to a valid config.
@@ -4750,12 +4742,12 @@ TEST_F(HostResolverManagerDnsTest, NoFallbackToProcTask) {
 
   // Resolved by MockDnsClient.
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   // Fallback to ProcTask is disabled.
@@ -4811,10 +4803,10 @@ TEST_F(HostResolverManagerDnsTest, FallbackBySource_Any) {
 
   EXPECT_THAT(response0.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.102", 80)));
   EXPECT_THAT(response1.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.102", 80))))));
 }
 
@@ -4871,10 +4863,10 @@ TEST_F(HostResolverManagerDnsTest, FallbackOnAbortBySource_Any) {
   // All requests should fallback to proc resolver.
   EXPECT_THAT(response0.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.102", 80)));
   EXPECT_THAT(response1.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.102", 80))))));
 }
 
@@ -4938,13 +4930,12 @@ TEST_F(HostResolverManagerDnsTest,
       /*additional_dns_types_enabled*/ false);
 
   EXPECT_THAT(response_secure.result_error(), IsOk());
-  EXPECT_THAT(
-      response_secure.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_secure.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_secure.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -4983,28 +4974,28 @@ TEST_F(HostResolverManagerDnsTest, DnsTaskUnspec) {
     EXPECT_THAT(response->result_error(), IsOk());
   }
 
-  EXPECT_THAT(responses[0]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[0]->request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       responses[0]->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
-  EXPECT_THAT(responses[1]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[1]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(responses[1]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
-  EXPECT_THAT(responses[2]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[2]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(responses[2]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::1", 80))))));
-  EXPECT_THAT(responses[3]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[3]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.101", 80)));
   EXPECT_THAT(responses[3]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.101", 80))))));
 }
 
@@ -5027,10 +5018,10 @@ TEST_F(HostResolverManagerDnsTest, NameCollisionIcann) {
       HostPortPair("6collision", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_ipv6.result_error(), IsOk());
-  EXPECT_THAT(response_ipv6.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_ipv6.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::127.0.53.53", 80)));
   EXPECT_THAT(response_ipv6.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::127.0.53.53", 80))))));
 }
 
@@ -5065,37 +5056,40 @@ TEST_F(HostResolverManagerDnsTest, ServeFromHosts) {
       HostPortPair("nx_ipv4", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_ipv4.result_error(), IsOk());
-  EXPECT_THAT(response_ipv4.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_ipv4.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(response_ipv4.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
-  EXPECT_FALSE(response_ipv4.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_ipv4.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   ResolveHostResponseHelper response_ipv6(resolver_->CreateRequest(
       HostPortPair("nx_ipv6", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_ipv6.result_error(), IsOk());
-  EXPECT_THAT(response_ipv6.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_ipv6.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(response_ipv6.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::1", 80))))));
-  EXPECT_FALSE(response_ipv6.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_ipv6.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   ResolveHostResponseHelper response_both(resolver_->CreateRequest(
       HostPortPair("nx_both", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_both.result_error(), IsOk());
-  EXPECT_THAT(response_both.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_both.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_both.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
-  EXPECT_FALSE(response_both.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_both.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   // Requests with specified DNS query type.
   HostResolver::ResolveHostParameters parameters;
@@ -5105,42 +5099,41 @@ TEST_F(HostResolverManagerDnsTest, ServeFromHosts) {
       HostPortPair("nx_ipv4", 80), NetworkIsolationKey(), NetLogWithSource(),
       parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_specified_ipv4.result_error(), IsOk());
-  EXPECT_THAT(response_specified_ipv4.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
+  EXPECT_THAT(
+      response_specified_ipv4.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(response_specified_ipv4.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
-  EXPECT_FALSE(response_specified_ipv4.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_specified_ipv4.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   parameters.dns_query_type = DnsQueryType::AAAA;
   ResolveHostResponseHelper response_specified_ipv6(resolver_->CreateRequest(
       HostPortPair("nx_ipv6", 80), NetworkIsolationKey(), NetLogWithSource(),
       parameters, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_specified_ipv6.result_error(), IsOk());
-  EXPECT_THAT(response_specified_ipv6.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(CreateExpected("::1", 80)));
+  EXPECT_THAT(
+      response_specified_ipv6.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(CreateExpected("::1", 80)));
   EXPECT_THAT(response_specified_ipv6.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::1", 80))))));
-  EXPECT_FALSE(response_specified_ipv6.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_specified_ipv6.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 
   // Request with upper case.
   ResolveHostResponseHelper response_upper(resolver_->CreateRequest(
       HostPortPair("nx_IPV4", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response_upper.result_error(), IsOk());
-  EXPECT_THAT(response_upper.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_upper.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(response_upper.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
-  EXPECT_FALSE(response_upper.request()->GetDnsAliasResults());
+  EXPECT_THAT(response_upper.request()->GetDnsAliasResults(),
+              testing::Pointee(testing::IsEmpty()));
 }
 
 TEST_F(HostResolverManagerDnsTest, SkipHostsWithUpcomingProcTask) {
@@ -5393,10 +5386,10 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable) {
   EXPECT_THAT(response.result_error(), IsOk());
 
   // Only expect IPv4 results.
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 500)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 500))))));
 }
 
@@ -5414,12 +5407,12 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_InvalidConfig) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("1.2.3.4", 500),
                                             CreateExpected("::5", 500)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::5", 500), CreateExpected("1.2.3.4", 500))))));
 }
@@ -5437,12 +5430,12 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_UseLocalIpv6) {
       HostPortPair("ok", 500), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 500),
                                             CreateExpected("::1", 500)));
   EXPECT_THAT(
       response1.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 500), CreateExpected("127.0.0.1", 500))))));
 
@@ -5454,10 +5447,10 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_UseLocalIpv6) {
       HostPortPair("ok", 500), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 500)));
   EXPECT_THAT(response2.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 500))))));
 }
 
@@ -5480,13 +5473,12 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_Localhost) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(system_response.result_error(), IsOk());
-  EXPECT_THAT(
-      system_response.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(system_response.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       system_response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
@@ -5496,13 +5488,12 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_Localhost) {
       HostPortPair("localhost", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(builtin_response.result_error(), IsOk());
-  EXPECT_THAT(
-      builtin_response.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(builtin_response.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       builtin_response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
@@ -5516,14 +5507,62 @@ TEST_F(HostResolverManagerDnsTest, Ipv6Unreachable_Localhost) {
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   EXPECT_THAT(ipv6_disabled_response.result_error(), IsOk());
   EXPECT_THAT(
-      ipv6_disabled_response.request()->GetAddressResults().value().endpoints(),
+      ipv6_disabled_response.request()->GetAddressResults()->endpoints(),
       testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                     CreateExpected("::1", 80)));
   EXPECT_THAT(
       ipv6_disabled_response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
+}
+
+// Test that IPv6 being unreachable only causes the AAAA query to be disabled,
+// rather than querying only for A. See https://crbug.com/1272055.
+TEST_F(HostResolverManagerDnsTest, Ipv6UnreachableOnlyDisablesAAAAQuery) {
+  const std::string kName = "https.test";
+
+  base::test::ScopedFeatureList features;
+  features.InitAndEnableFeatureWithParameters(
+      features::kUseDnsHttpsSvcb, {{"UseDnsHttpsSvcbEnableInsecure", "true"}});
+
+  MockDnsClientRuleList rules;
+  std::vector<DnsResourceRecord> records = {
+      BuildTestHttpsAliasRecord(kName, "alias.test")};
+  rules.emplace_back(kName, dns_protocol::kTypeHttps, /*secure=*/false,
+                     MockDnsClientRule::Result(BuildTestDnsResponse(
+                         kName, dns_protocol::kTypeHttps, records)),
+                     /*delay=*/false);
+  rules.emplace_back(
+      kName, dns_protocol::kTypeA, /*secure=*/false,
+      MockDnsClientRule::Result(MockDnsClientRule::ResultType::kOk),
+      /*delay=*/false);
+  rules.emplace_back(
+      kName, dns_protocol::kTypeAAAA, /*secure=*/false,
+      MockDnsClientRule::Result(MockDnsClientRule::ResultType::kUnexpected),
+      /*delay=*/false);
+
+  CreateResolverWithLimitsAndParams(kMaxJobs, DefaultParams(proc_.get()),
+                                    /*ipv6_reachable=*/false,
+                                    /*check_ipv6_on_wifi=*/true);
+  UseMockDnsClient(CreateValidDnsConfig(), std::move(rules));
+
+  ResolveHostResponseHelper response(resolver_->CreateRequest(
+      url::SchemeHostPort(url::kHttpsScheme, kName, 443), NetworkIsolationKey(),
+      NetLogWithSource(),
+      /*optional_parameters=*/absl::nullopt, resolve_context_.get(),
+      resolve_context_->host_cache()));
+  EXPECT_THAT(response.result_error(), IsOk());
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 443)));
+  EXPECT_THAT(
+      response.request()->GetEndpointResults(),
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
+          testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 443))))));
+  EXPECT_FALSE(response.request()->GetHostnameResults());
+  EXPECT_FALSE(response.request()->GetTextResults());
+  EXPECT_THAT(response.request()->GetExperimentalResultsForTesting(),
+              testing::Optional(testing::ElementsAre(true)));
 }
 
 TEST_F(HostResolverManagerDnsTest, SeparateJobsBySecureDnsMode) {
@@ -5697,24 +5736,24 @@ TEST_F(HostResolverManagerDnsTest, DeleteWithCompletedRequests) {
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
   DestroyResolver();
 
   // Completed requests should be unaffected by manager destruction.
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -5867,20 +5906,20 @@ TEST_F(HostResolverManagerDnsTest, AAAACompletesFirst) {
 
   dns_client_->CompleteDelayedTransactions();
   EXPECT_THAT(responses[0]->result_error(), IsOk());
-  EXPECT_THAT(responses[0]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[0]->request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       responses[0]->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 
   EXPECT_THAT(responses[1]->result_error(), IsOk());
-  EXPECT_THAT(responses[1]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[1]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(responses[1]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
 
   EXPECT_THAT(responses[2]->result_error(), IsError(ERR_DNS_TIMED_OUT));
@@ -5926,10 +5965,10 @@ TEST_F(HostResolverManagerDnsTest, AAAACompletesFirst_AutomaticMode) {
   // Complete the insecure transactions.
   dns_client_->CompleteDelayedTransactions();
   ASSERT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("127.0.0.1", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("127.0.0.1", 80))))));
   HostCache::Key insecure_key =
       HostCache::Key("secure_slow_nx_insecure_4slow_ok",
@@ -5957,13 +5996,12 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic) {
   ASSERT_THAT(response_secure.result_error(), IsOk());
   EXPECT_FALSE(
       response_secure.request()->GetResolveErrorInfo().is_secure_network_error);
-  EXPECT_THAT(
-      response_secure.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_secure.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_secure.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key secure_key = HostCache::Key(
@@ -5983,13 +6021,12 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic) {
   EXPECT_FALSE(response_insecure.request()
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
-  EXPECT_THAT(
-      response_insecure.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_insecure.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_insecure.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key insecure_key =
@@ -6005,10 +6042,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic) {
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   proc_->SignalMultiple(1u);
   EXPECT_THAT(response_proc.result_error(), IsOk());
-  EXPECT_THAT(response_proc.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_proc.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.100", 80)));
   EXPECT_THAT(response_proc.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.100", 80))))));
 }
 
@@ -6037,10 +6074,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_SecureCache) {
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
   EXPECT_THAT(
-      response_secure_cached.request()->GetAddressResults().value().endpoints(),
+      response_secure_cached.request()->GetAddressResults()->endpoints(),
       testing::ElementsAre(kExpectedSecureIP));
   EXPECT_THAT(response_secure_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedSecureIP)))));
   EXPECT_FALSE(
       response_secure_cached.request()->GetStaleInfo().value().is_stale());
@@ -6069,13 +6106,11 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_InsecureCache) {
   EXPECT_FALSE(response_insecure_cached.request()
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
-  EXPECT_THAT(response_insecure_cached.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(kExpectedInsecureIP));
+  EXPECT_THAT(
+      response_insecure_cached.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(kExpectedInsecureIP));
   EXPECT_THAT(response_insecure_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedInsecureIP)))));
   EXPECT_FALSE(
       response_insecure_cached.request()->GetStaleInfo().value().is_stale());
@@ -6112,11 +6147,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_Downgrade) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response_cached.result_error(), IsOk());
-  EXPECT_THAT(
-      response_cached.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(kExpectedSecureIP));
+  EXPECT_THAT(response_cached.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(kExpectedSecureIP));
   EXPECT_THAT(response_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedSecureIP)))));
 
   // The insecure cache should be checked before any insecure requests are sent.
@@ -6125,13 +6159,11 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_Downgrade) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(insecure_response_cached.result_error(), IsOk());
-  EXPECT_THAT(insecure_response_cached.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(kExpectedInsecureIP));
+  EXPECT_THAT(
+      insecure_response_cached.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(kExpectedInsecureIP));
   EXPECT_THAT(insecure_response_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedInsecureIP)))));
 
   // The DnsConfig doesn't contain DoH servers so AUTOMATIC mode will be
@@ -6141,12 +6173,12 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_Downgrade) {
       HostPortPair("automatic", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key key = HostCache::Key(
@@ -6172,13 +6204,12 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_Unavailable) {
   EXPECT_FALSE(response_automatic.request()
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
-  EXPECT_THAT(
-      response_automatic.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_automatic.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_automatic.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key secure_key = HostCache::Key(
@@ -6303,10 +6334,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_Stale) {
   EXPECT_THAT(response_stale.result_error(), IsOk());
   EXPECT_FALSE(
       response_stale.request()->GetResolveErrorInfo().is_secure_network_error);
-  EXPECT_THAT(response_stale.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response_stale.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(kExpectedStaleIP));
   EXPECT_THAT(response_stale.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedStaleIP)))));
   EXPECT_TRUE(response_stale.request()->GetStaleInfo()->is_stale());
 }
@@ -6329,13 +6360,12 @@ TEST_F(HostResolverManagerDnsTest,
       HostPortPair("automatic", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response_secure.result_error(), IsOk());
-  EXPECT_THAT(
-      response_secure.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_secure.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_secure.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key secure_key = HostCache::Key(
@@ -6353,11 +6383,10 @@ TEST_F(HostResolverManagerDnsTest,
       resolve_context_->host_cache()));
   proc_->SignalMultiple(1u);
   ASSERT_THAT(response_insecure.result_error(), IsOk());
-  EXPECT_THAT(
-      response_insecure.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("192.168.1.100", 80)));
+  EXPECT_THAT(response_insecure.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("192.168.1.100", 80)));
   EXPECT_THAT(response_insecure.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.100", 80))))));
   HostCache::Key insecure_key =
       HostCache::Key("insecure_automatic", DnsQueryType::UNSPECIFIED,
@@ -6380,13 +6409,11 @@ TEST_F(HostResolverManagerDnsTest,
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response_insecure_cached.result_error(), IsOk());
-  EXPECT_THAT(response_insecure_cached.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(kExpectedInsecureIP));
+  EXPECT_THAT(
+      response_insecure_cached.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(kExpectedInsecureIP));
   EXPECT_THAT(response_insecure_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedInsecureIP)))));
 }
 
@@ -6406,13 +6433,12 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_DotActive) {
       HostPortPair("automatic", 80), NetworkIsolationKey(), NetLogWithSource(),
       absl::nullopt, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response_secure.result_error(), IsOk());
-  EXPECT_THAT(
-      response_secure.request()->GetAddressResults().value().endpoints(),
-      testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
-                                    CreateExpected("::1", 80)));
+  EXPECT_THAT(response_secure.request()->GetAddressResults()->endpoints(),
+              testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
+                                            CreateExpected("::1", 80)));
   EXPECT_THAT(
       response_secure.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   HostCache::Key secure_key = HostCache::Key(
@@ -6433,11 +6459,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_DotActive) {
   EXPECT_FALSE(response_insecure.request()
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
-  EXPECT_THAT(
-      response_insecure.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("192.168.1.100", 80)));
+  EXPECT_THAT(response_insecure.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("192.168.1.100", 80)));
   EXPECT_THAT(response_insecure.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.100", 80))))));
   HostCache::Key insecure_key =
       HostCache::Key("insecure_automatic", DnsQueryType::UNSPECIFIED,
@@ -6462,13 +6487,11 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Automatic_DotActive) {
   EXPECT_FALSE(response_insecure_cached.request()
                    ->GetResolveErrorInfo()
                    .is_secure_network_error);
-  EXPECT_THAT(response_insecure_cached.request()
-                  ->GetAddressResults()
-                  .value()
-                  .endpoints(),
-              testing::ElementsAre(kExpectedInsecureIP));
+  EXPECT_THAT(
+      response_insecure_cached.request()->GetAddressResults()->endpoints(),
+      testing::ElementsAre(kExpectedInsecureIP));
   EXPECT_THAT(response_insecure_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedInsecureIP)))));
 }
 
@@ -6602,11 +6625,10 @@ TEST_F(HostResolverManagerDnsTest, SecureDnsMode_Secure_Local_CacheHit) {
   EXPECT_THAT(response_cached.result_error(), IsOk());
   EXPECT_FALSE(
       response_cached.request()->GetResolveErrorInfo().is_secure_network_error);
-  EXPECT_THAT(
-      response_cached.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(kExpectedSecureIP));
+  EXPECT_THAT(response_cached.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(kExpectedSecureIP));
   EXPECT_THAT(response_cached.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(kExpectedSecureIP)))));
 }
 
@@ -6641,20 +6663,20 @@ TEST_F(HostResolverManagerDnsTest, SlowResolve) {
   proc_->SignalMultiple(3u);
 
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   EXPECT_THAT(response1.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.1.211", 80)));
   EXPECT_THAT(response2.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.1.211", 80))))));
 }
 
@@ -6695,21 +6717,21 @@ TEST_F(HostResolverManagerDnsTest, SlowSecureResolve_AutomaticMode) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response0.result_error(), IsOk());
-  EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response0.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
   EXPECT_THAT(response1.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(response2.result_error(), IsOk());
-  EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("111.222.112.223", 80)));
   EXPECT_THAT(
       response2.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::ElementsAre(CreateExpected("111.222.112.223", 80))))));
 }
 
@@ -6754,12 +6776,12 @@ TEST_F(HostResolverManagerDnsTest, SerialResolver) {
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(response.complete());
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -6792,12 +6814,12 @@ TEST_F(HostResolverManagerDnsTest, AAAAStartsAfterOtherJobFinishes) {
 
   dns_client_->CompleteDelayedTransactions();
   EXPECT_THAT(response1.result_error(), IsOk());
-  EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
               testing::UnorderedElementsAre(CreateExpected("127.0.0.1", 80),
                                             CreateExpected("::1", 80)));
   EXPECT_THAT(
       response1.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 80), CreateExpected("127.0.0.1", 80))))));
 }
@@ -6822,10 +6844,10 @@ TEST_F(HostResolverManagerDnsTest, IPv4EmptyFallback) {
       NetLogWithSource(), absl::nullopt, resolve_context_.get(),
       resolve_context_->host_cache()));
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.0.1", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.0.1", 80))))));
 }
 
@@ -6842,10 +6864,10 @@ TEST_F(HostResolverManagerDnsTest, UnspecEmptyFallback) {
       resolve_context_->host_cache()));
 
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.0.1", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.0.1", 80))))));
 }
 
@@ -6998,46 +7020,42 @@ TEST_F(HostResolverManagerDnsTest,
 
     for (size_t i = 0u; i < maximum_insecure_dns_task_failures(); ++i) {
       EXPECT_THAT(failure_responses[i]->result_error(), IsOk());
-      EXPECT_THAT(failure_responses[i]
-                      ->request()
-                      ->GetAddressResults()
-                      .value()
-                      .endpoints(),
-                  testing::ElementsAre(CreateExpected("192.168.0.1", 80)));
+      EXPECT_THAT(
+          failure_responses[i]->request()->GetAddressResults()->endpoints(),
+          testing::ElementsAre(CreateExpected("192.168.0.1", 80)));
       EXPECT_THAT(
           failure_responses[i]->request()->GetEndpointResults(),
-          testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+          testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
               testing::ElementsAre(CreateExpected("192.168.0.1", 80))))));
     }
 
     EXPECT_THAT(response0.result_error(), IsOk());
-    EXPECT_THAT(response0.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response0.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected("192.168.0.2", 80)));
     EXPECT_THAT(response0.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected("192.168.0.2", 80))))));
     EXPECT_THAT(response1.result_error(), IsOk());
-    EXPECT_THAT(response1.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response1.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected("192.168.0.3", 80)));
     EXPECT_THAT(response1.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected("192.168.0.3", 80))))));
     EXPECT_THAT(response2.result_error(), IsOk());
-    EXPECT_THAT(response2.request()->GetAddressResults().value().endpoints(),
+    EXPECT_THAT(response2.request()->GetAddressResults()->endpoints(),
                 testing::ElementsAre(CreateExpected("192.168.0.4", 80)));
     EXPECT_THAT(response2.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected("192.168.0.4", 80))))));
 
     dns_client_->CompleteDelayedTransactions();
     EXPECT_THAT(response_dns.result_error(), IsOk());
 
     EXPECT_THAT(response_system.result_error(), IsOk());
-    EXPECT_THAT(
-        response_system.request()->GetAddressResults().value().endpoints(),
-        testing::ElementsAre(CreateExpected("192.168.0.5", 80)));
+    EXPECT_THAT(response_system.request()->GetAddressResults()->endpoints(),
+                testing::ElementsAre(CreateExpected("192.168.0.5", 80)));
     EXPECT_THAT(response_system.request()->GetEndpointResults(),
-                testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+                testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                     testing::ElementsAre(CreateExpected("192.168.0.5", 80))))));
 
     EXPECT_THAT(response_secure.result_error(), IsOk());
@@ -7099,20 +7117,20 @@ TEST_F(HostResolverManagerDnsTest,
   for (auto& response : responses) {
     EXPECT_THAT(response->result_error(), IsOk());
   }
-  EXPECT_THAT(responses[0]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[0]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.0.1", 80)));
   EXPECT_THAT(responses[0]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.0.1", 80))))));
-  EXPECT_THAT(responses[1]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[1]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.0.2", 80)));
   EXPECT_THAT(responses[1]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.0.2", 80))))));
-  EXPECT_THAT(responses[2]->request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(responses[2]->request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("192.168.0.3", 80)));
   EXPECT_THAT(responses[2]->request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("192.168.0.3", 80))))));
 }
 
@@ -7203,23 +7221,23 @@ TEST_F(HostResolverManagerDnsTest, NoCheckIpv6OnWifi) {
 
   // Should revert to only IPV4 request.
   EXPECT_THAT(response.result_error(), IsOk());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("1.0.0.1", 80)));
   EXPECT_THAT(response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("1.0.0.1", 80))))));
 
   EXPECT_THAT(v4_response.result_error(), IsOk());
-  EXPECT_THAT(v4_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v4_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("1.0.0.1", 80)));
   EXPECT_THAT(v4_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("1.0.0.1", 80))))));
   EXPECT_THAT(v6_response.result_error(), IsOk());
-  EXPECT_THAT(v6_response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(v6_response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(CreateExpected("::2", 80)));
   EXPECT_THAT(v6_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::2", 80))))));
 
   // Now repeat the test on non-wifi to check that IPv6 is used as normal
@@ -7244,26 +7262,23 @@ TEST_F(HostResolverManagerDnsTest, NoCheckIpv6OnWifi) {
 
   // IPV6 should be available.
   EXPECT_THAT(no_wifi_response.result_error(), IsOk());
-  EXPECT_THAT(
-      no_wifi_response.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("::3", 80)));
+  EXPECT_THAT(no_wifi_response.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("::3", 80)));
   EXPECT_THAT(no_wifi_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::3", 80))))));
 
   EXPECT_THAT(no_wifi_v4_response.result_error(), IsOk());
-  EXPECT_THAT(
-      no_wifi_v4_response.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("1.0.0.1", 80)));
+  EXPECT_THAT(no_wifi_v4_response.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("1.0.0.1", 80)));
   EXPECT_THAT(no_wifi_v4_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("1.0.0.1", 80))))));
   EXPECT_THAT(no_wifi_v6_response.result_error(), IsOk());
-  EXPECT_THAT(
-      no_wifi_v6_response.request()->GetAddressResults().value().endpoints(),
-      testing::ElementsAre(CreateExpected("::2", 80)));
+  EXPECT_THAT(no_wifi_v6_response.request()->GetAddressResults()->endpoints(),
+              testing::ElementsAre(CreateExpected("::2", 80)));
   EXPECT_THAT(no_wifi_v6_response.request()->GetEndpointResults(),
-              testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+              testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
                   testing::ElementsAre(CreateExpected("::2", 80))))));
 }
 
@@ -7489,10 +7504,9 @@ TEST_F(HostResolverManagerDnsTest, CanonicalName) {
       params, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response.result_error(), IsOk());
 
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "canonical");
-  EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("canonical", "alias")));
+  EXPECT_THAT(
+      response.request()->GetDnsAliasResults(),
+      testing::Pointee(testing::UnorderedElementsAre("canonical", "alias")));
 }
 
 TEST_F(HostResolverManagerDnsTest, CanonicalName_PreferV6) {
@@ -7515,12 +7529,10 @@ TEST_F(HostResolverManagerDnsTest, CanonicalName_PreferV6) {
   base::RunLoop().RunUntilIdle();
   dns_client_->CompleteDelayedTransactions();
   ASSERT_THAT(response.result_error(), IsOk());
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "correct");
 
   // GetDnsAliasResults() includes all aliases from all families.
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(
+              testing::Pointee(
                   testing::UnorderedElementsAre("correct", "alias", "wrong")));
 }
 
@@ -7539,10 +7551,9 @@ TEST_F(HostResolverManagerDnsTest, CanonicalName_V4Only) {
       HostPortPair("alias", 80), NetworkIsolationKey(), NetLogWithSource(),
       params, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response.result_error(), IsOk());
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "correct");
-  EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("correct", "alias")));
+  EXPECT_THAT(
+      response.request()->GetDnsAliasResults(),
+      testing::Pointee(testing::UnorderedElementsAre("correct", "alias")));
 }
 
 // Test that responses containing CNAME records but no address results are fine
@@ -7576,7 +7587,7 @@ TEST_F(HostResolverManagerDnsTest, CanonicalNameWithoutResults) {
       resolve_context_->host_cache()));
 
   ASSERT_THAT(response.result_error(), IsError(ERR_NAME_NOT_RESOLVED));
-  EXPECT_EQ(response.request()->GetDnsAliasResults(), absl::nullopt);
+  EXPECT_FALSE(response.request()->GetDnsAliasResults());
 
   // Underlying error should be the typical no-results error
   // (ERR_NAME_NOT_RESOLVED), not anything more exotic like
@@ -7620,11 +7631,11 @@ TEST_F(HostResolverManagerDnsTest, CanonicalNameWithResultsForOnlyOneFamily) {
   ASSERT_THAT(response.result_error(), IsOk());
 
   ASSERT_TRUE(response.request()->GetAddressResults());
-  EXPECT_THAT(response.request()->GetAddressResults().value().endpoints(),
+  EXPECT_THAT(response.request()->GetAddressResults()->endpoints(),
               testing::ElementsAre(IPEndPoint(IPAddress::IPv6Localhost(), 80)));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::ElementsAre(IPEndPoint(IPAddress::IPv6Localhost(), 80))))));
 }
 
@@ -7648,10 +7659,8 @@ TEST_F(HostResolverManagerDnsTest, CanonicalNameForcesProc) {
       params, resolve_context_.get(), resolve_context_->host_cache()));
   ASSERT_THAT(response.result_error(), IsOk());
 
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "canonical");
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("canonical")));
+              testing::Pointee(testing::UnorderedElementsAre("canonical")));
 }
 
 TEST_F(HostResolverManagerDnsTest, DnsAliases) {
@@ -7689,14 +7698,12 @@ TEST_F(HostResolverManagerDnsTest, DnsAliases) {
 
   ASSERT_THAT(response.result_error(), IsOk());
   ASSERT_TRUE(response.request()->GetAddressResults());
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "fourth.test");
-  EXPECT_THAT(response.request()->GetAddressResults().value().dns_aliases(),
+  EXPECT_THAT(response.request()->GetAddressResults()->dns_aliases(),
               testing::ElementsAre("fourth.test", "third.test", "second.test",
                                    "first.test"));
 
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre(
+              testing::Pointee(testing::UnorderedElementsAre(
                   "fourth.test", "third.test", "second.test", "first.test")));
 }
 
@@ -7731,20 +7738,18 @@ TEST_F(HostResolverManagerDnsTest, DnsAliasesAreFixedUp) {
       HostPortPair("host.test", 80), NetworkIsolationKey(), NetLogWithSource(),
       params, resolve_context_.get(), resolve_context_->host_cache()));
 
-  // Verify that, while the AddressResults contain the full unfixed alias
-  // list (which has "localhost" has first element and canonical name i.e.
-  // address record name), the call to ResolveHostRequest::GetDnsAliasResults
-  // returns a fixed up list, including URL hostname canonicalization to
-  // uncapitalize "HOST.test".
   ASSERT_THAT(response.result_error(), IsOk());
   ASSERT_TRUE(response.request()->GetAddressResults());
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "localhost");
-  EXPECT_THAT(response.request()->GetAddressResults().value().dns_aliases(),
-              testing::ElementsAre("localhost", "HOST2.test", "host.test"));
+  // AddressList results may or may not be fixed, depending on whether or not
+  // they were built from endpoint results.
   EXPECT_THAT(
-      response.request()->GetDnsAliasResults(),
-      testing::Optional(testing::ElementsAre("host2.test", "host.test")));
+      response.request()->GetAddressResults()->dns_aliases(),
+      testing::AnyOf(testing::UnorderedElementsAre("host2.test", "host.test"),
+                     testing::UnorderedElementsAre("localhost", "HOST2.test",
+                                                   "host.test")));
+  EXPECT_THAT(response.request()->GetDnsAliasResults(),
+              testing::Pointee(
+                  testing::UnorderedElementsAre("host2.test", "host.test")));
 }
 
 TEST_F(HostResolverManagerDnsTest, NoAdditionalDnsAliases) {
@@ -7768,12 +7773,10 @@ TEST_F(HostResolverManagerDnsTest, NoAdditionalDnsAliases) {
 
   ASSERT_THAT(response.result_error(), IsOk());
   ASSERT_TRUE(response.request()->GetAddressResults());
-  EXPECT_EQ(response.request()->GetAddressResults().value().GetCanonicalName(),
-            "first.test");
-  EXPECT_THAT(response.request()->GetAddressResults().value().dns_aliases(),
+  EXPECT_THAT(response.request()->GetAddressResults()->dns_aliases(),
               testing::ElementsAre("first.test"));
   EXPECT_THAT(response.request()->GetDnsAliasResults(),
-              testing::Optional(testing::ElementsAre("first.test")));
+              testing::Pointee(testing::UnorderedElementsAre("first.test")));
 }
 
 TEST_F(HostResolverManagerDnsTest, SortsAndDeduplicatesAddresses) {
@@ -7823,13 +7826,13 @@ TEST_F(HostResolverManagerDnsTest, SortsAndDeduplicatesAddresses) {
 
   EXPECT_THAT(
       response.request()->GetAddressResults(),
-      testing::Optional(testing::Property(
+      testing::Pointee(testing::Property(
           &AddressList::endpoints,
           testing::ElementsAre(IPEndPoint(IPAddress::IPv6Localhost(), 80),
                                IPEndPoint(IPAddress::IPv4Localhost(), 80)))));
   EXPECT_THAT(
       response.request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(ExpectEndpointResult(
+      testing::Pointee(testing::ElementsAre(ExpectEndpointResult(
           testing::ElementsAre(IPEndPoint(IPAddress::IPv6Localhost(), 80),
                                IPEndPoint(IPAddress::IPv4Localhost(), 80))))));
 }
@@ -7888,23 +7891,15 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerAfterConfig) {
 
   std::string server("https://dnsserver.example.net/dns-query{?dns}");
   DnsConfigOverrides overrides;
-  overrides.dns_over_https_servers.emplace(ParseDohTemplates({server}));
+  overrides.dns_over_https_servers.emplace(
+      {*DnsOverHttpsServerConfig::FromString(server)});
   overrides.secure_dns_mode = SecureDnsMode::kAutomatic;
   resolver_->SetDnsConfigOverrides(overrides);
-  base::Value config = resolver_->GetDnsConfigAsValue();
-  base::Value* doh_servers = config.FindListKey("doh_servers");
-  EXPECT_TRUE(doh_servers);
-  if (!doh_servers)
-    return;
-  EXPECT_EQ(doh_servers->GetList().size(), 1u);
-  base::Value& server_method = doh_servers->GetList()[0];
-  EXPECT_TRUE(server_method.is_dict());
-  const std::string* server_template =
-      server_method.FindStringKey("server_template");
-  EXPECT_TRUE(server_template);
-  EXPECT_EQ(*server_template, server);
-  EXPECT_EQ(config.FindKey("secure_dns_mode")->GetInt(),
-            static_cast<int>(SecureDnsMode::kAutomatic));
+  const auto* config = dns_client_->GetEffectiveConfig();
+  ASSERT_TRUE(config);
+  DnsOverHttpsConfig doh_config(config->dns_over_https_servers);
+  EXPECT_EQ(DnsOverHttpsConfig::FromString(server), doh_config);
+  EXPECT_EQ(SecureDnsMode::kAutomatic, config->secure_dns_mode);
 }
 
 TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeConfig) {
@@ -7913,7 +7908,8 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeConfig) {
   CreateSerialResolver();  // To guarantee order of resolutions.
   std::string server("https://dnsserver.example.net/dns-query{?dns}");
   DnsConfigOverrides overrides;
-  overrides.dns_over_https_servers.emplace(ParseDohTemplates({server}));
+  overrides.dns_over_https_servers.emplace(
+      {*DnsOverHttpsServerConfig::FromString(server)});
   overrides.secure_dns_mode = SecureDnsMode::kAutomatic;
   resolver_->SetDnsConfigOverrides(overrides);
 
@@ -7921,20 +7917,11 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeConfig) {
       NetworkChangeNotifier::CONNECTION_WIFI);
   ChangeDnsConfig(CreateValidDnsConfig());
 
-  base::Value config = resolver_->GetDnsConfigAsValue();
-  base::Value* doh_servers = config.FindListKey("doh_servers");
-  EXPECT_TRUE(doh_servers);
-  if (!doh_servers)
-    return;
-  EXPECT_EQ(doh_servers->GetList().size(), 1u);
-  base::Value& server_method = doh_servers->GetList()[0];
-  EXPECT_TRUE(server_method.is_dict());
-  const std::string* server_template =
-      server_method.FindStringKey("server_template");
-  EXPECT_TRUE(server_template);
-  EXPECT_EQ(*server_template, server);
-  EXPECT_EQ(config.FindKey("secure_dns_mode")->GetInt(),
-            static_cast<int>(SecureDnsMode::kAutomatic));
+  const auto* config = dns_client_->GetEffectiveConfig();
+  ASSERT_TRUE(config);
+  DnsOverHttpsConfig doh_config(config->dns_over_https_servers);
+  EXPECT_EQ(DnsOverHttpsConfig::FromString(server), doh_config);
+  EXPECT_EQ(SecureDnsMode::kAutomatic, config->secure_dns_mode);
 }
 
 TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeClient) {
@@ -7943,7 +7930,8 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeClient) {
   CreateSerialResolver();  // To guarantee order of resolutions.
   std::string server("https://dnsserver.example.net/dns-query{?dns}");
   DnsConfigOverrides overrides;
-  overrides.dns_over_https_servers.emplace(ParseDohTemplates({server}));
+  overrides.dns_over_https_servers.emplace(
+      {*DnsOverHttpsServerConfig::FromString(server)});
   overrides.secure_dns_mode = SecureDnsMode::kAutomatic;
   resolver_->SetDnsConfigOverrides(overrides);
 
@@ -7951,20 +7939,11 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerBeforeClient) {
       NetworkChangeNotifier::CONNECTION_WIFI);
   ChangeDnsConfig(CreateValidDnsConfig());
 
-  base::Value config = resolver_->GetDnsConfigAsValue();
-  base::Value* doh_servers = config.FindListKey("doh_servers");
-  EXPECT_TRUE(doh_servers);
-  if (!doh_servers)
-    return;
-  EXPECT_EQ(doh_servers->GetList().size(), 1u);
-  base::Value& server_method = doh_servers->GetList()[0];
-  EXPECT_TRUE(server_method.is_dict());
-  const std::string* server_template =
-      server_method.FindStringKey("server_template");
-  EXPECT_TRUE(server_template);
-  EXPECT_EQ(*server_template, server);
-  EXPECT_EQ(config.FindKey("secure_dns_mode")->GetInt(),
-            static_cast<int>(SecureDnsMode::kAutomatic));
+  const auto* config = dns_client_->GetEffectiveConfig();
+  ASSERT_TRUE(config);
+  DnsOverHttpsConfig doh_config(config->dns_over_https_servers);
+  EXPECT_EQ(DnsOverHttpsConfig::FromString(server), doh_config);
+  EXPECT_EQ(SecureDnsMode::kAutomatic, config->secure_dns_mode);
 }
 
 TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerAndThenRemove) {
@@ -7973,7 +7952,8 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerAndThenRemove) {
   CreateSerialResolver();  // To guarantee order of resolutions.
   std::string server("https://dns.example.com/");
   DnsConfigOverrides overrides;
-  overrides.dns_over_https_servers.emplace(ParseDohTemplates({server}));
+  overrides.dns_over_https_servers.emplace(
+      {*DnsOverHttpsServerConfig::FromString(server)});
   overrides.secure_dns_mode = SecureDnsMode::kAutomatic;
   resolver_->SetDnsConfigOverrides(overrides);
 
@@ -7983,30 +7963,17 @@ TEST_F(HostResolverManagerDnsTest, AddDnsOverHttpsServerAndThenRemove) {
   network_dns_config.dns_over_https_servers.clear();
   ChangeDnsConfig(network_dns_config);
 
-  base::Value config = resolver_->GetDnsConfigAsValue();
-  base::Value* doh_servers = config.FindListKey("doh_servers");
-  EXPECT_TRUE(doh_servers);
-  if (!doh_servers)
-    return;
-  EXPECT_EQ(doh_servers->GetList().size(), 1u);
-  base::Value& server_method = doh_servers->GetList()[0];
-  EXPECT_TRUE(server_method.is_dict());
-  const std::string* server_template =
-      server_method.FindStringKey("server_template");
-  EXPECT_TRUE(server_template);
-  EXPECT_EQ(*server_template, server);
-  EXPECT_EQ(config.FindKey("secure_dns_mode")->GetInt(),
-            static_cast<int>(SecureDnsMode::kAutomatic));
+  const auto* config = dns_client_->GetEffectiveConfig();
+  ASSERT_TRUE(config);
+  DnsOverHttpsConfig doh_config(config->dns_over_https_servers);
+  EXPECT_EQ(DnsOverHttpsConfig::FromString(server), doh_config);
+  EXPECT_EQ(SecureDnsMode::kAutomatic, config->secure_dns_mode);
 
   resolver_->SetDnsConfigOverrides(DnsConfigOverrides());
-  config = resolver_->GetDnsConfigAsValue();
-  doh_servers = config.FindListKey("doh_servers");
-  EXPECT_TRUE(doh_servers);
-  if (!doh_servers)
-    return;
-  EXPECT_EQ(doh_servers->GetList().size(), 0u);
-  EXPECT_EQ(config.FindKey("secure_dns_mode")->GetInt(),
-            static_cast<int>(SecureDnsMode::kOff));
+  config = dns_client_->GetEffectiveConfig();
+  ASSERT_TRUE(config);
+  EXPECT_EQ(0u, config->dns_over_https_servers.size());
+  EXPECT_EQ(SecureDnsMode::kOff, config->secure_dns_mode);
 }
 
 // Basic test socket factory that allows creation of UDP sockets, but those
@@ -8071,8 +8038,8 @@ TEST_F(HostResolverManagerDnsTest, SetDnsConfigOverrides) {
   overrides.doh_attempts = doh_attempts;
   overrides.rotate = true;
   overrides.use_local_ipv6 = true;
-  const auto dns_over_https_servers =
-      ParseDohTemplates({"https://dns.example.com/"});
+  const std::vector<DnsOverHttpsServerConfig> dns_over_https_servers = {
+      *DnsOverHttpsServerConfig::FromString("https://dns.example.com/")};
   overrides.dns_over_https_servers = dns_over_https_servers;
   const SecureDnsMode secure_dns_mode = SecureDnsMode::kSecure;
   overrides.secure_dns_mode = secure_dns_mode;
@@ -8360,10 +8327,12 @@ TEST_F(HostResolverManagerDnsTest, DohMapping) {
 
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
   EXPECT_EQ(original_config.nameservers, fetched_config->nameservers);
-  auto expected_doh_servers = ParseDohTemplates(
-      {"https://chrome.cloudflare-dns.com/dns-query",
-       "https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
-       "https://doh.cleanbrowsing.org/doh/security-filter{?dns}"});
+  auto expected_doh_servers =
+      DnsOverHttpsConfig::FromStrings(
+          {"https://chrome.cloudflare-dns.com/dns-query",
+           "https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
+           "https://doh.cleanbrowsing.org/doh/security-filter{?dns}"})
+          ->servers();
   EXPECT_EQ(expected_doh_servers, fetched_config->dns_over_https_servers);
 }
 
@@ -8452,8 +8421,10 @@ TEST_F(HostResolverManagerDnsTest, DohMappingWithExclusion) {
   // only for permitted providers.
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
   EXPECT_EQ(original_config.nameservers, fetched_config->nameservers);
-  const auto expected_doh_servers = ParseDohTemplates(
-      {"https://doh.cleanbrowsing.org/doh/family-filter{?dns}"});
+  const auto expected_doh_servers =
+      DnsOverHttpsConfig::FromString(
+          "https://doh.cleanbrowsing.org/doh/family-filter{?dns}")
+          ->servers();
   EXPECT_EQ(expected_doh_servers, fetched_config->dns_over_https_servers);
 }
 
@@ -8475,7 +8446,8 @@ TEST_F(HostResolverManagerDnsTest, DohMappingIgnoredIfTemplateSpecified) {
   // If the overrides contains DoH servers, no DoH upgrade should be attempted.
   DnsConfigOverrides overrides;
   const auto dns_over_https_servers_overrides =
-      ParseDohTemplates({"https://doh.server.override.com/"});
+      DnsOverHttpsConfig::FromString("https://doh.server.override.com/")
+          ->servers();
   overrides.dns_over_https_servers = dns_over_https_servers_overrides;
   resolver_->SetDnsConfigOverrides(overrides);
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
@@ -8504,7 +8476,8 @@ TEST_F(HostResolverManagerDnsTest,
   // If the overrides contains DoH servers, no DoH upgrade should be attempted.
   DnsConfigOverrides overrides;
   const auto dns_over_https_servers_overrides =
-      ParseDohTemplates({"https://doh.server.override.com/"});
+      DnsOverHttpsConfig::FromString("https://doh.server.override.com/")
+          ->servers();
   overrides.dns_over_https_servers = dns_over_https_servers_overrides;
   resolver_->SetDnsConfigOverrides(overrides);
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
@@ -8533,10 +8506,12 @@ TEST_F(HostResolverManagerDnsTest, DohMappingWithAutomaticDot) {
 
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
   EXPECT_EQ(original_config.nameservers, fetched_config->nameservers);
-  auto expected_doh_servers = ParseDohTemplates(
-      {"https://chrome.cloudflare-dns.com/dns-query",
-       "https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
-       "https://doh.cleanbrowsing.org/doh/security-filter{?dns}"});
+  auto expected_doh_servers =
+      DnsOverHttpsConfig::FromStrings(
+          {"https://chrome.cloudflare-dns.com/dns-query",
+           "https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
+           "https://doh.cleanbrowsing.org/doh/security-filter{?dns}"})
+          ->servers();
   EXPECT_EQ(expected_doh_servers, fetched_config->dns_over_https_servers);
 }
 
@@ -8561,8 +8536,9 @@ TEST_F(HostResolverManagerDnsTest, DohMappingWithStrictDot) {
   ChangeDnsConfig(original_config);
   const DnsConfig* fetched_config = client_ptr->GetEffectiveConfig();
   EXPECT_EQ(original_config.nameservers, fetched_config->nameservers);
-  const auto expected_doh_servers =
-      ParseDohTemplates({"https://dns.google/dns-query{?dns}"});
+  auto expected_doh_servers =
+      DnsOverHttpsConfig::FromString("https://dns.google/dns-query{?dns}")
+          ->servers();
   EXPECT_EQ(expected_doh_servers, fetched_config->dns_over_https_servers);
 }
 
@@ -13251,7 +13227,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity, IntegrityQueryCompletesLast) {
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
   // If this expectation fails, the INTEGRITY query was probably timed out.
@@ -13361,7 +13337,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity, IntegrityQueryCompletesFirst) {
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
 }
@@ -13406,7 +13382,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity,
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
   EXPECT_THAT(response->request()->GetExperimentalResultsForTesting(),
@@ -13456,7 +13432,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity,
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
 }
@@ -13497,7 +13473,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity,
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
   EXPECT_THAT(response->request()->GetExperimentalResultsForTesting(),
@@ -13542,7 +13518,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity,
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
 }
@@ -13693,7 +13669,7 @@ TEST_F(HostResolverManagerDnsTestIntegrity, RespectsRelativeTimeout) {
                                             CreateExpected("::1", 108)));
   EXPECT_THAT(
       response->request()->GetEndpointResults(),
-      testing::Optional(testing::ElementsAre(
+      testing::Pointee(testing::ElementsAre(
           ExpectEndpointResult(testing::UnorderedElementsAre(
               CreateExpected("::1", 108), CreateExpected("127.0.0.1", 108))))));
 
@@ -13941,11 +13917,15 @@ class HostResolverManagerBootstrapTest : public HostResolverManagerDnsTest {
   base::test::ScopedFeatureList features;
 };
 
-std::vector<IPAddress> IPAddresses(const AddressList& addresses) {
+std::vector<IPAddress> IPAddresses(const std::vector<IPEndPoint>& endpoints) {
   std::vector<IPAddress> ip_addresses;
-  base::ranges::transform(addresses, std::back_inserter(ip_addresses),
+  base::ranges::transform(endpoints, std::back_inserter(ip_addresses),
                           &IPEndPoint::address);
   return ip_addresses;
+}
+
+std::vector<IPAddress> IPAddresses(const AddressList& addresses) {
+  return IPAddresses(addresses.endpoints());
 }
 
 MATCHER_P(AddressesMatch, expected, "Matches addresses between AddressLists") {
@@ -13964,7 +13944,10 @@ TEST_F(HostResolverManagerBootstrapTest, BlankSlate) {
   EXPECT_FALSE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kRemoteAddrs)));
+              testing::Pointee(AddressesMatch(kRemoteAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kRemoteAddrs)))));
 }
 
 TEST_F(HostResolverManagerBootstrapTest, InsecureCacheEntry) {
@@ -13979,7 +13962,10 @@ TEST_F(HostResolverManagerBootstrapTest, InsecureCacheEntry) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kCacheAddrs)));
+              testing::Pointee(AddressesMatch(kCacheAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kCacheAddrs)))));
 }
 
 TEST_F(HostResolverManagerBootstrapTest, SecureCacheEntry) {
@@ -13994,7 +13980,10 @@ TEST_F(HostResolverManagerBootstrapTest, SecureCacheEntry) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kCacheAddrs)));
+              testing::Pointee(AddressesMatch(kCacheAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kCacheAddrs)))));
 }
 
 TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrap) {
@@ -14009,7 +13998,10 @@ TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrap) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   // Run the followup query.
   RunUntilIdle();
@@ -14018,7 +14010,7 @@ TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrap) {
   const auto* secure_result = resolve_context_->host_cache()->Lookup(
       MakeCacheKey(/*secure=*/true), GetMockTickClock()->NowTicks());
   ASSERT_THAT(secure_result, testing::NotNull());
-  EXPECT_THAT(secure_result->second.addresses(),
+  EXPECT_THAT(secure_result->second.legacy_addresses(),
               Optional(AddressesMatch(kRemoteAddrs)));
 }
 
@@ -14037,7 +14029,10 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapAndInsecureCache) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   // Run the followup query.
   RunUntilIdle();
@@ -14046,7 +14041,7 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapAndInsecureCache) {
   const auto* secure_result = resolve_context_->host_cache()->Lookup(
       MakeCacheKey(/*secure=*/true), GetMockTickClock()->NowTicks());
   ASSERT_THAT(secure_result, testing::NotNull());
-  EXPECT_THAT(secure_result->second.addresses(),
+  EXPECT_THAT(secure_result->second.legacy_addresses(),
               Optional(AddressesMatch(kRemoteAddrs)));
 }
 
@@ -14065,7 +14060,10 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapAndSecureCacheEntry) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kCacheAddrs)));
+              testing::Pointee(AddressesMatch(kCacheAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kCacheAddrs)))));
 }
 
 TEST_F(HostResolverManagerBootstrapTest, BlankSlateFailure) {
@@ -14096,7 +14094,10 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapFollowupFailure) {
   EXPECT_TRUE(bootstrap_response.complete());
   EXPECT_THAT(bootstrap_response.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   // Run the followup query.
   RunUntilIdle();
@@ -14146,7 +14147,10 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapAfterFollowup) {
   EXPECT_TRUE(bootstrap_response2.complete());
   EXPECT_THAT(bootstrap_response2.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response2.request()->GetAddressResults(),
-              Optional(AddressesMatch(kRemoteAddrs)));
+              testing::Pointee(AddressesMatch(kRemoteAddrs)));
+  EXPECT_THAT(bootstrap_response2.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kRemoteAddrs)))));
 }
 
 TEST_F(HostResolverManagerBootstrapTest, BootstrapFollowupFailureTwice) {
@@ -14168,7 +14172,10 @@ TEST_F(HostResolverManagerBootstrapTest, BootstrapFollowupFailureTwice) {
   EXPECT_TRUE(bootstrap_response2.complete());
   EXPECT_THAT(bootstrap_response2.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response2.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response2.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   // Run the followup query again.
   RunUntilIdle();
@@ -14191,7 +14198,10 @@ TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrapTwice) {
   EXPECT_TRUE(bootstrap_response1.complete());
   EXPECT_THAT(bootstrap_response1.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response1.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response1.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   ResolveHostResponseHelper bootstrap_response2(resolver_->CreateRequest(
       kEndpoint, kIsolationKey, NetLogWithSource(), bootstrap_params(),
@@ -14200,7 +14210,10 @@ TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrapTwice) {
   EXPECT_TRUE(bootstrap_response2.complete());
   EXPECT_THAT(bootstrap_response2.result_error(), IsOk());
   EXPECT_THAT(bootstrap_response2.request()->GetAddressResults(),
-              Optional(AddressesMatch(kBootstrapAddrs)));
+              testing::Pointee(AddressesMatch(kBootstrapAddrs)));
+  EXPECT_THAT(bootstrap_response2.request()->GetEndpointResults(),
+              testing::Pointee(testing::ElementsAre(
+                  ExpectEndpointResult(AddressesMatch(kBootstrapAddrs)))));
 
   // Run the followup query.
   RunUntilIdle();
@@ -14209,7 +14222,7 @@ TEST_F(HostResolverManagerBootstrapTest, OnlyBootstrapTwice) {
   const auto* secure_result = resolve_context_->host_cache()->Lookup(
       MakeCacheKey(/*secure=*/true), GetMockTickClock()->NowTicks());
   ASSERT_THAT(secure_result, testing::NotNull());
-  EXPECT_THAT(secure_result->second.addresses(),
+  EXPECT_THAT(secure_result->second.legacy_addresses(),
               Optional(AddressesMatch(kRemoteAddrs)));
 }
 

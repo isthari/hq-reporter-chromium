@@ -13,8 +13,21 @@ void DiscoverFeedProvider::StartFeed(
 
 void DiscoverFeedProvider::StopFeed() {}
 
+void DiscoverFeedProvider::StartFeedService(
+    DiscoverFeedConfiguration* discover_config) {}
+
+void DiscoverFeedProvider::StopFeedService() {}
+
+void DiscoverFeedProvider::CreateFeedModels() {}
+
+void DiscoverFeedProvider::ClearFeedModels() {}
+
 bool DiscoverFeedProvider::IsDiscoverFeedEnabled() {
   return false;
+}
+
+FeedMetricsRecorder* DiscoverFeedProvider::GetFeedMetricsRecorder() {
+  return nil;
 }
 
 UIViewController*
@@ -40,5 +53,3 @@ void DiscoverFeedProvider::UpdateFeedForAccountChange() {}
 
 void DiscoverFeedProvider::AddObserver(Observer* observer) {}
 void DiscoverFeedProvider::RemoveObserver(Observer* observer) {}
-void DiscoverFeedProvider::LoadMoreFeedArticles() {}
-void DiscoverFeedProvider::FeedWasShown() {}

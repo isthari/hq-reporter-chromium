@@ -350,8 +350,9 @@ template("test") {
       # Collate the complete set of elements to include in the test component's
       # manifest.
       _manifest_fragments = [
-        "//build/config/fuchsia/test/minimum_capabilities.test-cml",
         "//build/config/fuchsia/test/elf_test_runner.shard.test-cml",
+        "//build/config/fuchsia/test/minimum.shard.test-cml",
+        "//build/config/fuchsia/test/system_test_facet.shard.test-cml",
         _test_program_fragment,
       ]
 
@@ -476,7 +477,10 @@ template("test") {
       if (!defined(data_deps)) {
         data_deps = []
       }
-      data_deps += [ "//testing/buildbot/filters:fuchsia_filters" ]
+
+      # TODO(crbug.com/1199334): Because perfetto unit test is defined outside
+      # of chromium, the dependency to the filter file is added here.
+      data_deps += [ "//testing/buildbot/filters:perfetto_unittests_filters" ]
 
       if (use_rts) {
         data_deps += [ ":${target_name}__rts_filters" ]
@@ -570,10 +574,10 @@ template("test") {
       }
 
       if (ios_use_shared_bundle_id_for_test_apps) {
-        bundle_identifier = "$ios_app_bundle_id_prefix.gtest.unittests"
+        bundle_identifier = "$ios_app_bundle_id_prefix.chrome.unittests"
         not_needed([ "_output_name" ])
       } else {
-        bundle_identifier = "$ios_app_bundle_id_prefix.gtest." +
+        bundle_identifier = "$ios_app_bundle_id_prefix.chrome." +
                             string_replace(_output_name, "_", "-")
       }
 
@@ -685,6 +689,7 @@ template("test") {
 
       if (_use_xvfb) {
         executable = "//testing/xvfb.py"
+        data += [ "//.vpython3" ]
       } else {
         executable = "//testing/test_env.py"
       }
@@ -720,10 +725,7 @@ template("test") {
         executable_args += [ "--cfi-diag=true" ]
       }
 
-      data += [
-        "//build/lacros/test_runner.py",
-        "//.vpython",
-      ]
+      data += [ "//build/lacros/test_runner.py" ]
 
       if (use_rts) {
         data_deps += [ ":${invoker.target_name}__rts_filters" ]

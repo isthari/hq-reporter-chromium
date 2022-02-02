@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'chrome://test/mojo_webui_test_support.js';
 import 'chrome://new-tab-page/lazy_load.js';
 
 import {NewTabPageProxy, WindowProxy} from 'chrome://new-tab-page/new_tab_page.js';
+import {PageCallbackRouter, PageHandlerRemote} from 'chrome://new-tab-page/new_tab_page.mojom-webui.js';
 import {assertNotStyle, assertStyle, installMock} from 'chrome://test/new_tab_page/test_support.js';
 import {TestBrowserProxy} from 'chrome://test/test_browser_proxy.js';
 import {eventToPromise, flushTasks, isVisible} from 'chrome://test/test_util.js';
@@ -37,9 +39,8 @@ suite('NewTabPageCustomizeBackgroundsTest', () => {
     windowProxy.setResultFor('createIframeSrc', '');
 
     handler = installMock(
-        newTabPage.mojom.PageHandlerRemote,
-        mock => NewTabPageProxy.setInstance(
-            mock, new newTabPage.mojom.PageCallbackRouter()));
+        PageHandlerRemote,
+        mock => NewTabPageProxy.setInstance(mock, new PageCallbackRouter()));
     handler.setResultFor('getBackgroundCollections', Promise.resolve({
       collections: [],
     }));
@@ -151,7 +152,7 @@ suite('NewTabPageCustomizeBackgroundsTest', () => {
     assertStyle(customizeBackgrounds.$.images, 'display', 'none');
   });
 
-  test('select image', async () => {
+  test('select different image', async () => {
     const image = {
       attribution1: 'image_0',
       imageUrl: {url: 'https://example.com/image.png'},
@@ -161,6 +162,10 @@ suite('NewTabPageCustomizeBackgroundsTest', () => {
     handler.setResultFor('getBackgroundImages', Promise.resolve({
       images: [image],
     }));
+    customizeBackgrounds.theme.isCustomBackground = true;
+    customizeBackgrounds.theme.backgroundImage = {
+      url: {url: 'https://example.com/notthesameimage.png'}
+    };
     customizeBackgrounds.selectedCollection = createCollection(0);
     await flushTasks();
     const element =
@@ -170,6 +175,30 @@ suite('NewTabPageCustomizeBackgroundsTest', () => {
     assertFalse(element.classList.contains('selected'));
     element.click();
     assertEquals(1, handler.getCallCount('setBackgroundImage'));
+    assertEquals(1, handler.getCallCount('onCustomizeDialogAction'));
+  });
+
+  test('select same image', async () => {
+    const image = {
+      attribution1: 'image_0',
+      imageUrl: {url: 'https://example.com/image.png'},
+      previewImageUrl: {url: 'https://example.com/image.png'},
+    };
+    const customizeBackgrounds = await createCustomizeBackgrounds();
+    handler.setResultFor('getBackgroundImages', Promise.resolve({
+      images: [image],
+    }));
+    customizeBackgrounds.theme.isCustomBackground = true;
+    customizeBackgrounds.theme.backgroundImage = {
+      url: {url: 'https://example.com/image.png'}
+    };
+    customizeBackgrounds.selectedCollection = createCollection(0);
+    await flushTasks();
+    const element =
+        customizeBackgrounds.shadowRoot.querySelector('#images .tile');
+    element.click();
+    assertEquals(1, handler.getCallCount('setBackgroundImage'));
+    assertEquals(0, handler.getCallCount('onCustomizeDialogAction'));
   });
 
   test('image selected by current theme', async () => {

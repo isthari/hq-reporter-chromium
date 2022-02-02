@@ -10,6 +10,7 @@ This file contains the strings for ash.
     <output filename="grit/ash_strings.h" type="rc_header">
       <emit emit_type='prepend'></emit>
     </output>
+    <output filename="ash_strings_af.pak" type="data_package" lang="af" />
     <output filename="ash_strings_am.pak" type="data_package" lang="am" />
     <output filename="ash_strings_ar.pak" type="data_package" lang="ar" />
     <output filename="ash_strings_bg.pak" type="data_package" lang="bg" />
@@ -66,6 +67,7 @@ This file contains the strings for ash.
     <output filename="ash_strings_vi.pak" type="data_package" lang="vi" />
     <output filename="ash_strings_zh-CN.pak" type="data_package" lang="zh-CN" />
     <output filename="ash_strings_zh-TW.pak" type="data_package" lang="zh-TW" />
+    <output filename="ash_strings_zu.pak" type="data_package" lang="zu" />
 
     <!-- Pseudolocales -->
     <output filename="ash_strings_ar-XB.pak" type="data_package" lang="ar-XB" />
@@ -1844,6 +1846,9 @@ This file contains the strings for ash.
       <message name="IDS_ASH_DESKS_TEMPLATES_UNAVAILABLE_APP_TOAST_MORE" desc="The text of the toast displayed when user tries to launch a template with more than two unavailable apps.">
         <ph name="UNAVAILABLE_APPS_ONE">$1<ex>unavailable app one</ex></ph>, <ph name="UNAVAILABLE_APPS_TWO">$2<ex>unavailable app two</ex></ph>, and <ph name="UNAVAILABLE_APPS_COUNT">$3<ex>unavailable app count</ex></ph> more aren't on this device.
       </message>
+      <message name="IDS_ASH_DESKS_TEMPLATES_MANAGEMENT_STATUS_DESCRIPTION" desc="The text of the description under template item if the desks templates is shared by the administrator.">
+        Shared by your administrator
+      </message>
 
       <!-- Virtual Desks -->
       <message name="IDS_ASH_DESKS_NEW_DESK_BUTTON" desc="The label of the new virtual desk (a.k.a. workspaces) button.">
@@ -3469,6 +3474,10 @@ This file contains the strings for ash.
         S
       </message>
 
+      <message name="IDS_ASH_CALENDAR_NO_EVENTS" desc="Text that appears on the event list when there are no events.">
+        Open in Google calendar
+      </message>
+
       <!-- Power off menu  -->
       <message name="IDS_ASH_POWER_BUTTON_MENU_POWER_OFF_BUTTON" desc="Text shown on power off button in power button menu.">
         Shut down
@@ -4028,9 +4037,6 @@ Here are some things you can try to get started.
       <message name="IDS_ASH_SCREEN_CAPTURE_TOOLTIP_SETTINGS" desc="Tooltip of the settings button.">
         Settings
       </message>
-      <message name="IDS_ASH_SCREEN_CAPTURE_LABEL_MICROPHONE" desc="The capture label message for toggling microphone recording, found in the settings menu.">
-        Record microphone
-      </message>
       <message name="IDS_ASH_SCREEN_CAPTURE_AUDIO_INPUT" desc="The label of the audio input menu group header in capture mode settings.">
         Audio input
       </message>
@@ -4305,6 +4311,10 @@ Here are some things you can try to get started.
 
       <message name="IDS_ASH_PROJECTOR_FAILURE_MESSAGE_SAVE_SCREENCAST" desc="The text of the notification when Projector recording fails to save the screencast file.">
         Failed to save screencast
+      </message>
+
+      <message name="IDS_ASH_PROJECTOR_FAILURE_MESSAGE_TRANSCRIPTION" desc="The test of the notification when Projector transcription fails.">
+        Can't generate transcription
       </message>
 
       <!-- SODA Download strings -->
@@ -4586,6 +4596,17 @@ New install
       </message>
       <message name="IDS_ASH_STATUS_TRAY_SHELF_PARTY_OFF_SUBLABEL" desc="The sub label text shown under the tray menu button when Shelf Party mode is off.">
         Off
+      </message>
+
+      <!-- Firmware UI notifications -->
+      <message name="IDS_ASH_FIRMWARE_UPDATE_NOTIFICATION_UPDATE_AVAILABLE_TITLE" desc="Notification title to indicate to users that firmware updates are available.">
+        Firmware updates available
+      </message>
+      <message name="IDS_ASH_FIRMWARE_UPDATE_NOTIFICATION_UPDATE_AVAILABLE_BODY" desc="Notification body text to indicate to users that firmware updates are available.">
+        Firmware updates are available for your device. Click to review and update.
+      </message>
+      <message name="IDS_ASH_FIRMWARE_UPDATE_NOTIFICATION_UPDATE_BUTTON_TEXT" desc="Notification button text, if the user clicks on the button it will redirect them to the Firmware Update app.">
+        Update
       </message>
     </messages>
   </release>

@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -84,8 +85,8 @@ void KioskAppDataBase::SaveToDictionary(DictionaryPrefUpdate& dict_update) {
   const std::string name_key = app_key + '.' + kKeyName;
   const std::string icon_path_key = app_key + '.' + kKeyIcon;
 
-  dict_update->SetString(name_key, name_);
-  dict_update->SetString(icon_path_key, icon_path_.value());
+  dict_update->SetStringPath(name_key, name_);
+  dict_update->SetStringPath(icon_path_key, icon_path_.value());
 }
 
 void KioskAppDataBase::SaveIconToDictionary(DictionaryPrefUpdate& dict_update) {
@@ -93,7 +94,7 @@ void KioskAppDataBase::SaveIconToDictionary(DictionaryPrefUpdate& dict_update) {
   const std::string app_key = std::string(kKeyApps) + '.' + app_id_;
   const std::string icon_path_key = app_key + '.' + kKeyIcon;
 
-  dict_update->SetString(icon_path_key, icon_path_.value());
+  dict_update->SetStringPath(icon_path_key, icon_path_.value());
 }
 
 bool KioskAppDataBase::LoadFromDictionary(const base::Value& dict,

@@ -18,6 +18,7 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
+import org.chromium.chrome.browser.bookmarks.PowerBookmarkMetrics.PriceTrackingState;
 import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.chrome.browser.power_bookmarks.ProductPrice;
 import org.chromium.chrome.browser.subscriptions.CommerceSubscription;
@@ -25,9 +26,9 @@ import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.browser_ui.widget.RoundedCornerOutlineProvider;
+import org.chromium.components.browser_ui.widget.chips.ChipView;
 import org.chromium.components.image_fetcher.ImageFetcher;
 import org.chromium.components.payments.CurrencyFormatter;
-import org.chromium.ui.widget.ChipView;
 
 import java.util.Arrays;
 import java.util.Locale;
@@ -72,8 +73,9 @@ public class PowerBookmarkShoppingItemRow extends BookmarkItemRow {
 
     // BookmarkItemRow overrides:
     @Override
-    BookmarkItem setBookmarkId(BookmarkId bookmarkId, @Location int location) {
-        BookmarkItem bookmarkItem = super.setBookmarkId(bookmarkId, location);
+    BookmarkItem setBookmarkId(
+            BookmarkId bookmarkId, @Location int location, boolean fromFilterView) {
+        BookmarkItem bookmarkItem = super.setBookmarkId(bookmarkId, location, fromFilterView);
         PowerBookmarkMeta meta = mBookmarkModel.getPowerBookmarkMeta(bookmarkId);
         assert meta != null;
 
@@ -135,6 +137,9 @@ public class PowerBookmarkShoppingItemRow extends BookmarkItemRow {
 
         setPriceInfoChip(originalPrice, currentPrice);
         setPriceTrackingButton(priceTrackingEnabled);
+        mTitleView.setLabelFor(mEndStartButtonView.getId());
+        PowerBookmarkMetrics.reportBookmarkShoppingItemRowPriceTrackingState(
+                PriceTrackingState.PRICE_TRACKING_SHOWN);
     }
 
     /** Sets up the chip that displays product price information. */
@@ -175,6 +180,9 @@ public class PowerBookmarkShoppingItemRow extends BookmarkItemRow {
     /** Sets up the button that allows you to un/subscribe to price-tracking updates. */
     private void setPriceTrackingButton(boolean priceTrackingEnabled) {
         mIsPriceTrackingEnabled = priceTrackingEnabled;
+        mEndStartButtonView.setContentDescription(getContext().getResources().getString(
+                priceTrackingEnabled ? R.string.disable_price_tracking_menu_item
+                                     : R.string.enable_price_tracking_menu_item));
         mEndStartButtonView.setVisibility(View.VISIBLE);
         updatePriceTrackingImageForCurrentState();
         Callback<Integer> subscriptionCallback = (status) -> {
@@ -188,6 +196,9 @@ public class PowerBookmarkShoppingItemRow extends BookmarkItemRow {
             if (mSubscriptionChangeInProgress) return;
             mSubscriptionChangeInProgress = true;
 
+            PowerBookmarkMetrics.reportBookmarkShoppingItemRowPriceTrackingState(
+                    !mIsPriceTrackingEnabled ? PriceTrackingState.PRICE_TRACKING_ENABLED
+                                             : PriceTrackingState.PRICE_TRACKING_DISABLED);
             PowerBookmarkUtils.setPriceTrackingEnabledWithSnackbars(mSubscriptionsManager,
                     mBookmarkModel, mBookmarkId, !mIsPriceTrackingEnabled, mSnackbarManager,
                     getContext().getResources(), subscriptionCallback);

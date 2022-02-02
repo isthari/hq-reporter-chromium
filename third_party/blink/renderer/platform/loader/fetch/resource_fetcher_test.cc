@@ -46,7 +46,7 @@
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/loader/fetch/console_logger.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_info.h"
@@ -704,7 +704,7 @@ TEST_F(ResourceFetcherTest, RevalidateWhileFinishingLoading) {
 }
 
 // TODO(crbug.com/850785): Reenable this.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_DontReuseMediaDataUrl DISABLED_DontReuseMediaDataUrl
 #else
 #define MAYBE_DontReuseMediaDataUrl DontReuseMediaDataUrl
@@ -1159,7 +1159,7 @@ TEST_F(ResourceFetcherTest, LinkPreloadResourceMultipleFetchersAndMove) {
 }
 
 // TODO(crbug.com/850785): Reenable this.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_ContentTypeDataURL DISABLED_ContentTypeDataURL
 #else
 #define MAYBE_ContentTypeDataURL ContentTypeDataURL
@@ -1383,7 +1383,7 @@ TEST_F(ResourceFetcherTest, Detach) {
 }
 
 // TODO(crbug.com/850785): Reenable this.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_SetIsExternalRequest DISABLED_SetIsExternalRequest
 #else
 #define MAYBE_SetIsExternalRequest SetIsExternalRequest

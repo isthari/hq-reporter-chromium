@@ -61,10 +61,12 @@ void WebKioskAppLauncher::ContinueWithNetworkReady() {
   delegate_->OnAppInstalling();
   DCHECK(!is_installed_);
   install_task_ = std::make_unique<web_app::WebAppInstallTask>(
-      profile_, /*os_integration_manager=*/nullptr,
+      profile_,
+      /*install_manager=*/nullptr,
+      /*os_integration_manager=*/nullptr,
       /*install_finalizer=*/nullptr, data_retriever_factory_.Run(),
       /*registrar=*/nullptr);
-  install_task_->LoadAndRetrieveWebApplicationInfoWithIcons(
+  install_task_->LoadAndRetrieveWebAppInstallInfoWithIcons(
       WebKioskAppManager::Get()->GetAppByAccountId(account_id_)->install_url(),
       url_loader_.get(),
       base::BindOnce(&WebKioskAppLauncher::OnAppDataObtained,
@@ -79,7 +81,7 @@ const WebKioskAppData* WebKioskAppLauncher::GetCurrentApp() const {
 }
 
 void WebKioskAppLauncher::OnAppDataObtained(
-    std::unique_ptr<WebApplicationInfo> app_info) {
+    std::unique_ptr<WebAppInstallInfo> app_info) {
   if (!app_info) {
     // Notify about failed installation, let the controller decide what to do.
     delegate_->OnLaunchFailed(KioskAppLaunchError::Error::kUnableToInstall);

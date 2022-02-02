@@ -9,13 +9,12 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
-#include "content/browser/attribution_reporting/storable_source.h"
+#include "content/browser/attribution_reporting/stored_source.h"
 #include "content/common/content_export.h"
 
 namespace sql {
@@ -28,7 +27,7 @@ class Origin;
 
 namespace content {
 
-class EventAttributionReport;
+class AttributionReport;
 
 struct AggregateHistogramContribution {
   std::string bucket;
@@ -55,19 +54,18 @@ class CONTENT_EXPORT RateLimitTable {
 
   // Creates the table in |db| if it doesn't exist.
   // Returns false on failure.
-  bool CreateTable(sql::Database* db) WARN_UNUSED_RESULT;
+  [[nodiscard]] bool CreateTable(sql::Database* db);
 
   // Adds a rate limit to the table for an event-level report.
   // Returns false on failure.
-  bool AddRateLimit(sql::Database* db,
-                    const EventAttributionReport& report) WARN_UNUSED_RESULT;
+  [[nodiscard]] bool AddRateLimit(sql::Database* db,
+                                  const AttributionReport& report);
 
   // Checks if the given attribution is allowed according to the data in the
   // table and policy as specified by the delegate.
-  AttributionAllowedStatus AttributionAllowed(
-      sql::Database* db,
-      const EventAttributionReport& report,
-      base::Time now) WARN_UNUSED_RESULT;
+  AttributionAllowedStatus AttributionAllowed(sql::Database* db,
+                                              const AttributionReport& report,
+                                              base::Time now);
 
   // Attempts to add a set of histogram contributions to the rate limit. Returns
   // `kAllowed` if the contributions were added, `kNotAllowed` if the reports
@@ -76,27 +74,22 @@ class CONTENT_EXPORT RateLimitTable {
   // tests.
   AttributionAllowedStatus AddAggregateHistogramContributionsForTesting(
       sql::Database* db,
-      const StorableSource& source,
-      const std::vector<AggregateHistogramContribution>& contributions)
-      WARN_UNUSED_RESULT;
+      const StoredSource& source,
+      const std::vector<AggregateHistogramContribution>& contributions);
 
   // These should be 1:1 with |AttributionStorageSql|'s |ClearData| functions.
   // Returns false on failure.
-  bool ClearAllDataInRange(sql::Database* db,
-                           base::Time delete_begin,
-                           base::Time delete_end) WARN_UNUSED_RESULT;
+  [[nodiscard]] bool ClearAllDataAllTime(sql::Database* db);
   // Returns false on failure.
-  bool ClearAllDataAllTime(sql::Database* db) WARN_UNUSED_RESULT;
-  // Returns false on failure.
-  bool ClearDataForOriginsInRange(
+  [[nodiscard]] bool ClearDataForOriginsInRange(
       sql::Database* db,
       base::Time delete_begin,
       base::Time delete_end,
-      base::RepeatingCallback<bool(const url::Origin&)> filter)
-      WARN_UNUSED_RESULT;
-  bool ClearDataForSourceIds(sql::Database* db,
-                             const std::vector<StorableSource::Id>& source_ids)
-      WARN_UNUSED_RESULT;
+      base::RepeatingCallback<bool(const url::Origin&)> filter);
+  // Returns false on failure.
+  [[nodiscard]] bool ClearDataForSourceIds(
+      sql::Database* db,
+      const std::vector<StoredSource::Id>& source_ids);
 
  private:
   // Returns the capacity for the given `attribution_type`, `impression_site`,
@@ -106,28 +99,34 @@ class CONTENT_EXPORT RateLimitTable {
                       AttributionStorage::AttributionType attribution_type,
                       const std::string& serialized_impression_site,
                       const std::string& serialized_conversion_destination,
-                      base::Time now)
-      VALID_CONTEXT_REQUIRED(sequence_checker_) WARN_UNUSED_RESULT;
+                      base::Time now) VALID_CONTEXT_REQUIRED(sequence_checker_);
 
-  bool AddRow(sql::Database* db,
-              AttributionStorage::AttributionType attribution_type,
-              StorableSource::Id source_id,
-              const std::string& serialized_impression_site,
-              const std::string& serialized_impression_origin,
-              const std::string& serialized_conversion_destination,
-              const std::string& serialized_conversion_origin,
-              base::Time time,
-              const std::string& bucket,
-              uint32_t value)
-      VALID_CONTEXT_REQUIRED(sequence_checker_) WARN_UNUSED_RESULT;
+  // Returns false on failure.
+  [[nodiscard]] bool AddRow(
+      sql::Database* db,
+      AttributionStorage::AttributionType attribution_type,
+      StoredSource::Id source_id,
+      const std::string& serialized_impression_site,
+      const std::string& serialized_impression_origin,
+      const std::string& serialized_conversion_destination,
+      const std::string& serialized_conversion_origin,
+      base::Time time,
+      const std::string& bucket,
+      uint32_t value) VALID_CONTEXT_REQUIRED(sequence_checker_);
+
+  // Returns false on failure.
+  [[nodiscard]] bool ClearAllDataInRange(sql::Database* db,
+                                         base::Time delete_begin,
+                                         base::Time delete_end)
+      VALID_CONTEXT_REQUIRED(sequence_checker_);
 
   // Deletes data in the table older than the window determined by
   // |delegate_->GetRateLimits()|.
   // Returns false on failure.
-  bool DeleteExpiredRateLimits(
+  [[nodiscard]] bool DeleteExpiredRateLimits(
       sql::Database* db,
       AttributionStorage::AttributionType attribution_type)
-      VALID_CONTEXT_REQUIRED(sequence_checker_) WARN_UNUSED_RESULT;
+      VALID_CONTEXT_REQUIRED(sequence_checker_);
 
   // Must outlive |this|.
   raw_ptr<const AttributionStorage::Delegate> delegate_

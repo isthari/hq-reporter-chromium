@@ -1341,7 +1341,7 @@ TEST_P(PaintArtifactCompositorTest, AncestorScrollNodes) {
   auto scroll_a = CreateScroll(ScrollPaintPropertyNode::Root(), ScrollState1(),
                                kNotScrollingOnMain, scroll_element_id_a);
   auto scroll_translation_a = CreateScrollTranslation(
-      t0(), 11, 13, *scroll_a, CompositingReason::kLayerForScrollingContents);
+      t0(), 11, 13, *scroll_a, CompositingReason::kOverflowScrolling);
 
   CompositorElementId scroll_element_id_b = ScrollElementId(3);
   auto scroll_b =
@@ -1948,7 +1948,7 @@ TEST_P(PaintArtifactCompositorTest, EffectWithElementIdWithAlias) {
 
 TEST_P(PaintArtifactCompositorTest, NonCompositedSimpleMask) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State masking_state;
   masking_state.local_transform_space = &t0();
   masking_state.output_clip = &c0();
@@ -1982,12 +1982,13 @@ TEST_P(PaintArtifactCompositorTest, NonCompositedSimpleMask) {
 
 TEST_P(PaintArtifactCompositorTest, CompositedMaskOneChild) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State masking_state;
   masking_state.local_transform_space = &t0();
   masking_state.output_clip = &c0();
   masking_state.blend_mode = SkBlendMode::kDstIn;
-  masking_state.direct_compositing_reasons = CompositingReason::kLayerForMask;
+  masking_state.direct_compositing_reasons =
+      CompositingReason::kMaskWithCompositedDescendants;
   auto masking =
       EffectPaintPropertyNode::Create(*masked, std::move(masking_state));
 
@@ -2015,7 +2016,7 @@ TEST_P(PaintArtifactCompositorTest, CompositedMaskOneChild) {
 
 TEST_P(PaintArtifactCompositorTest, CompositedMaskTwoChildren) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State masking_state;
   masking_state.local_transform_space = &t0();
   masking_state.output_clip = &c0();
@@ -2024,7 +2025,7 @@ TEST_P(PaintArtifactCompositorTest, CompositedMaskTwoChildren) {
       EffectPaintPropertyNode::Create(*masked, std::move(masking_state));
 
   auto child_of_masked = CreateOpacityEffect(
-      *masking, 1.0, CompositingReason::kIsolateCompositedDescendants);
+      *masking, 1.0, CompositingReason::kOpacityWithCompositedDescendants);
 
   TestPaintArtifact artifact;
   artifact.Chunk(t0(), c0(), *masked)
@@ -2052,7 +2053,7 @@ TEST_P(PaintArtifactCompositorTest, CompositedMaskTwoChildren) {
 
 TEST_P(PaintArtifactCompositorTest, NonCompositedSimpleExoticBlendMode) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State masking_state;
   masking_state.local_transform_space = &t0();
   masking_state.output_clip = &c0();
@@ -2079,7 +2080,7 @@ TEST_P(PaintArtifactCompositorTest, NonCompositedSimpleExoticBlendMode) {
 
 TEST_P(PaintArtifactCompositorTest, ForcedCompositedExoticBlendMode) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State masking_state;
   masking_state.local_transform_space = &t0();
   masking_state.output_clip = &c0();
@@ -2112,7 +2113,7 @@ TEST_P(PaintArtifactCompositorTest, ForcedCompositedExoticBlendMode) {
 TEST_P(PaintArtifactCompositorTest,
        CompositedExoticBlendModeOnTwoOpacityAnimationLayers) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   auto masked_child1 = CreateOpacityEffect(
       *masked, 1.0, CompositingReason::kActiveOpacityAnimation);
   auto masked_child2 = CreateOpacityEffect(
@@ -2150,7 +2151,7 @@ TEST_P(PaintArtifactCompositorTest,
 TEST_P(PaintArtifactCompositorTest,
        CompositedExoticBlendModeOnTwo3DTransformLayers) {
   auto masked = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   auto transform1 =
       CreateTransform(t0(), TransformationMatrix(), gfx::Point3F(),
                       CompositingReason::k3DTransform);
@@ -2189,7 +2190,7 @@ TEST_P(PaintArtifactCompositorTest,
 
 TEST_P(PaintArtifactCompositorTest, DecompositeExoticBlendModeWithoutBackdrop) {
   auto parent_effect = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State blend_state1;
   blend_state1.local_transform_space = &t0();
   blend_state1.blend_mode = SkBlendMode::kScreen;
@@ -2220,7 +2221,7 @@ TEST_P(PaintArtifactCompositorTest, DecompositeExoticBlendModeWithoutBackdrop) {
 TEST_P(PaintArtifactCompositorTest,
        DecompositeExoticBlendModeWithNonDrawingLayer) {
   auto parent_effect = CreateOpacityEffect(
-      e0(), 1.0, CompositingReason::kIsolateCompositedDescendants);
+      e0(), 1.0, CompositingReason::kOpacityWithCompositedDescendants);
   EffectPaintPropertyNode::State blend_state1;
   blend_state1.local_transform_space = &t0();
   blend_state1.blend_mode = SkBlendMode::kScreen;
@@ -2245,7 +2246,7 @@ TEST_P(PaintArtifactCompositorTest,
   ASSERT_EQ(2u, LayerCount());
   // This is the empty layer forced by |transform|.
   EXPECT_EQ(gfx::Size(33, 44), LayerAt(0)->bounds());
-  EXPECT_FALSE(LayerAt(0)->DrawsContent());
+  EXPECT_FALSE(LayerAt(0)->draws_content());
   // This is the layer containing the paint chunks with |blend_effect1| and
   // |blend_effect2| decomposited.
   EXPECT_EQ(gfx::Size(300, 300), LayerAt(1)->bounds());
@@ -2497,7 +2498,7 @@ TEST_P(PaintArtifactCompositorTest, EffectivelyInvisibleChunk) {
   UpdateWithEffectivelyInvisibleChunk(false, false);
   ASSERT_EQ(1u, LayerCount());
   EXPECT_EQ(gfx::Size(10, 10), LayerAt(0)->bounds());
-  EXPECT_FALSE(LayerAt(0)->DrawsContent());
+  EXPECT_FALSE(LayerAt(0)->draws_content());
   EXPECT_FALSE(LayerAt(0)->GetPicture());
 }
 
@@ -2506,7 +2507,7 @@ TEST_P(PaintArtifactCompositorTest,
   UpdateWithEffectivelyInvisibleChunk(true, false);
   ASSERT_EQ(1u, LayerCount());
   EXPECT_EQ(gfx::Size(20, 10), LayerAt(0)->bounds());
-  EXPECT_TRUE(LayerAt(0)->DrawsContent());
+  EXPECT_TRUE(LayerAt(0)->draws_content());
   EXPECT_THAT(LayerAt(0)->GetPicture(),
               Pointee(DrawsRectangles(
                   {RectWithColor(gfx::RectF(0, 0, 10, 10), Color::kBlack)})));
@@ -2517,7 +2518,7 @@ TEST_P(PaintArtifactCompositorTest,
   UpdateWithEffectivelyInvisibleChunk(false, true);
   ASSERT_EQ(1u, LayerCount());
   EXPECT_EQ(gfx::Size(20, 20), LayerAt(0)->bounds());
-  EXPECT_TRUE(LayerAt(0)->DrawsContent());
+  EXPECT_TRUE(LayerAt(0)->draws_content());
   EXPECT_THAT(LayerAt(0)->GetPicture(),
               Pointee(DrawsRectangles(
                   {RectWithColor(gfx::RectF(0, 10, 10, 10), Color::kWhite)})));
@@ -2528,7 +2529,7 @@ TEST_P(PaintArtifactCompositorTest,
   UpdateWithEffectivelyInvisibleChunk(true, true);
   ASSERT_EQ(1u, LayerCount());
   EXPECT_EQ(gfx::Size(20, 20), LayerAt(0)->bounds());
-  EXPECT_TRUE(LayerAt(0)->DrawsContent());
+  EXPECT_TRUE(LayerAt(0)->draws_content());
   EXPECT_THAT(LayerAt(0)->GetPicture(),
               Pointee(DrawsRectangles(
                   {RectWithColor(gfx::RectF(0, 0, 10, 10), Color::kBlack),
@@ -2638,7 +2639,7 @@ TEST_P(PaintArtifactCompositorTest, SynthesizedClipRotatedNotSupported) {
   EXPECT_TRUE(mask_isolation_0.HasRenderSurface());
 
   EXPECT_EQ(SynthesizedClipLayerAt(0), clip_mask0);
-  EXPECT_TRUE(clip_mask0->DrawsContent());
+  EXPECT_TRUE(clip_mask0->draws_content());
   EXPECT_TRUE(clip_mask0->HitTestable());
   EXPECT_EQ(gfx::Size(300, 200), clip_mask0->bounds());
   // c1 should be applied in the clip mask layer.
@@ -2731,7 +2732,7 @@ TEST_P(PaintArtifactCompositorTest,
   EXPECT_TRUE(mask_isolation_0.HasRenderSurface());
 
   EXPECT_EQ(SynthesizedClipLayerAt(0), clip_mask0);
-  EXPECT_TRUE(clip_mask0->DrawsContent());
+  EXPECT_TRUE(clip_mask0->draws_content());
   EXPECT_TRUE(clip_mask0->HitTestable());
   EXPECT_EQ(gfx::Size(300, 200), clip_mask0->bounds());
   EXPECT_EQ(c1_id, clip_mask0->clip_tree_index());
@@ -2743,7 +2744,7 @@ TEST_P(PaintArtifactCompositorTest,
 
   // The masks DrawsContent because it has content that it masks which also
   // DrawsContent.
-  EXPECT_TRUE(clip_mask0->DrawsContent());
+  EXPECT_TRUE(clip_mask0->draws_content());
 }
 
 TEST_P(
@@ -2761,7 +2762,7 @@ TEST_P(
       .RectDrawing(gfx::Rect(0, 0, 100, 100), Color::kBlack);
   Update(artifact.Build());
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   ASSERT_EQ(2u, LayerCount());
 #else
   ASSERT_EQ(1u, LayerCount());

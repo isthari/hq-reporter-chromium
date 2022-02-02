@@ -15,9 +15,9 @@
 //    Deprecated: #if defined(OS_WIN)
 //
 //  Operating System:
-//    IS_AIX / IS_ANDROID / IS_ASMJS / IS_FREEBSD / IS_FUCHSIA / IS_IOS /
-//    IS_LINUX / IS_MAC / IS_NACL / IS_NETBSD / IS_OPENBSD /
-//    IS_QNX / IS_SOLARIS / IS_WIN
+//    IS_AIX / IS_ANDROID / IS_ASMJS / IS_CHROMEOS / IS_FREEBSD / IS_FUCHSIA /
+//    IS_IOS / IS_LINUX / IS_MAC / IS_NACL / IS_NETBSD / IS_OPENBSD / IS_QNX /
+//    IS_SOLARIS / IS_WIN
 //  Operating System family:
 //    IS_APPLE: IOS or MAC
 //    IS_BSD: FREEBSD or NETBSD or OPENBSD
@@ -30,11 +30,13 @@
 //    COMPILER_MSVC / COMPILER_GCC
 //
 //  Processor:
-//    ARCH_CPU_ARM64 / ARCH_CPU_ARMEL / ARCH_CPU_MIPS / ARCH_CPU_MIPS64 /
-//    ARCH_CPU_MIPS64EL / ARCH_CPU_MIPSEL / ARCH_CPU_PPC64 / ARCH_CPU_S390 /
-//    ARCH_CPU_S390X / ARCH_CPU_X86 / ARCH_CPU_X86_64
+//    ARCH_CPU_ARM64 / ARCH_CPU_ARMEL / ARCH_CPU_LOONG32 / ARCH_CPU_LOONG64 /
+//    ARCH_CPU_MIPS / ARCH_CPU_MIPS64 / ARCH_CPU_MIPS64EL / ARCH_CPU_MIPSEL /
+//    ARCH_CPU_PPC64 / ARCH_CPU_S390 / ARCH_CPU_S390X / ARCH_CPU_X86 /
+//    ARCH_CPU_X86_64
 //  Processor family:
 //    ARCH_CPU_ARM_FAMILY: ARMEL or ARM64
+//    ARCH_CPU_LOONG_FAMILY: LOONG32 or LOONG64
 //    ARCH_CPU_MIPS_FAMILY: MIPS64EL or MIPSEL or MIPS64 or MIPS
 //    ARCH_CPU_PPC64_FAMILY: PPC64
 //    ARCH_CPU_S390_FAMILY: S390 or S390X
@@ -52,7 +54,6 @@
 #if defined(__native_client__)
 // __native_client__ must be first, so that other OS_ defines are not set.
 #define OS_NACL 1
-#define OS_NACL_SFI
 #elif defined(ANDROID)
 #define OS_ANDROID 1
 #elif defined(__APPLE__)
@@ -313,6 +314,16 @@
 #define ARCH_CPU_32_BITS 1
 #define ARCH_CPU_BIG_ENDIAN 1
 #endif
+#elif defined(__loongarch32)
+#define ARCH_CPU_LOONG_FAMILY 1
+#define ARCH_CPU_LOONG32 1
+#define ARCH_CPU_32_BITS 1
+#define ARCH_CPU_LITTLE_ENDIAN 1
+#elif defined(__loongarch64)
+#define ARCH_CPU_LOONG_FAMILY 1
+#define ARCH_CPU_LOONG64 1
+#define ARCH_CPU_64_BITS 1
+#define ARCH_CPU_LITTLE_ENDIAN 1
 #else
 #error Please add support for your architecture in build/build_config.h
 #endif

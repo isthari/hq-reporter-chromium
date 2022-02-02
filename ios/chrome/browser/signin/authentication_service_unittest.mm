@@ -25,6 +25,7 @@
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
 #include "ios/chrome/browser/content_settings/cookie_settings_factory.h"
 #include "ios/chrome/browser/content_settings/host_content_settings_map_factory.h"
+#import "ios/chrome/browser/policy/policy_util.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/prefs/browser_prefs.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
@@ -124,8 +125,8 @@ class AuthenticationServiceTest : public PlatformTest {
     authentication_service()->OnAccessTokenRefreshFailed(identity, user_info);
   }
 
-  void FireIdentityListChanged(bool keychain_reload) {
-    authentication_service()->OnIdentityListChanged(keychain_reload);
+  void FireIdentityListChanged(bool notify_user) {
+    authentication_service()->OnIdentityListChanged(notify_user);
   }
 
   void SetCachedMDMInfo(ChromeIdentity* identity, NSDictionary* user_info) {
@@ -335,7 +336,7 @@ TEST_F(AuthenticationServiceTest, AccountListApprovedByUser_AddedByUser) {
   authentication_service()->SignIn(identity(0));
 
   identity_service()->AddIdentities(@[ @"foo3" ]);
-  FireIdentityListChanged(/*keychain_reload=*/false);
+  FireIdentityListChanged(/*notify_user=*/false);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(authentication_service()->IsAccountListApprovedByUser());
 }
@@ -347,7 +348,7 @@ TEST_F(AuthenticationServiceTest, AccountListApprovedByUser_ChangedByKeychain) {
   authentication_service()->SignIn(identity(0));
 
   identity_service()->AddIdentities(@[ @"foo3" ]);
-  FireIdentityListChanged(/*keychain_reload=*/true);
+  FireIdentityListChanged(/*notify_user=*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(authentication_service()->IsAccountListApprovedByUser());
 }
@@ -360,14 +361,14 @@ TEST_F(AuthenticationServiceTest,
   authentication_service()->SignIn(identity(0));
 
   identity_service()->AddIdentities(@[ @"foo3" ]);
-  FireIdentityListChanged(/*keychain_reload=*/true);
+  FireIdentityListChanged(/*notify_user=*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(authentication_service()->IsAccountListApprovedByUser());
 
   // Simulate a switching to background, changing the accounts while in
   // background.
   identity_service()->AddIdentities(@[ @"foo4" ]);
-  FireIdentityListChanged(/*keychain_reload=*/true);
+  FireIdentityListChanged(/*notify_user=*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(authentication_service()->IsAccountListApprovedByUser());
 }
@@ -379,7 +380,7 @@ TEST_F(AuthenticationServiceTest,
   authentication_service()->SignIn(identity(0));
 
   identity_service()->AddIdentities(@[ @"foo3" ]);
-  FireIdentityListChanged(/*keychain_reload=*/true);
+  FireIdentityListChanged(/*notify_user=*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(authentication_service()->IsAccountListApprovedByUser());
 
@@ -739,5 +740,53 @@ TEST_F(AuthenticationServiceTest, TestHandleRestrictedIdentityPromptSignIn) {
   EXPECT_FALSE(authentication_service()->HasPrimaryIdentity(
       signin::ConsentLevel::kSignin));
   EXPECT_FALSE(authentication_service()->ShouldReauthPromptForSignInAndSync());
+  EXPECT_OCMOCK_VERIFY(observer_delegate);
+}
+
+// Tests AuthenticationService::GetServiceStatus() using
+// prefs::kBrowserSigninPolicy.
+TEST_F(AuthenticationServiceTest, TestGetServiceStatus) {
+  id<AuthenticationServiceObserving> observer_delegate =
+      OCMStrictProtocolMock(@protocol(AuthenticationServiceObserving));
+  AuthenticationServiceObserverBridge observer_bridge(authentication_service(),
+                                                      observer_delegate);
+
+  // Expect sign-in allowed by default.
+  EXPECT_EQ(AuthenticationService::ServiceStatus::SigninAllowed,
+            authentication_service()->GetServiceStatus());
+
+  // Expect onServiceStatus notification called.
+  OCMExpect([observer_delegate onServiceStatusChanged]);
+  browser_state_->GetPrefs()->SetBoolean(prefs::kSigninAllowed, false);
+  // Expect sign-in disabled by user.
+  EXPECT_EQ(AuthenticationService::ServiceStatus::SigninDisabledByUser,
+            authentication_service()->GetServiceStatus());
+
+  // Expect onServiceStatus notification called.
+  OCMExpect([observer_delegate onServiceStatusChanged]);
+  // Set sign-in disabled by policy.
+  local_state_.Get()->SetInteger(
+      prefs::kBrowserSigninPolicy,
+      static_cast<int>(BrowserSigninMode::kDisabled));
+  // Expect sign-in to be disabled by policy.
+  EXPECT_EQ(AuthenticationService::ServiceStatus::SigninDisabledByPolicy,
+            authentication_service()->GetServiceStatus());
+
+  // Expect onServiceStatus notification called.
+  OCMExpect([observer_delegate onServiceStatusChanged]);
+  // Set sign-in forced by policy.
+  local_state_.Get()->SetInteger(prefs::kBrowserSigninPolicy,
+                                 static_cast<int>(BrowserSigninMode::kForced));
+  // Expect sign-in to be forced by policy.
+  EXPECT_EQ(AuthenticationService::ServiceStatus::SigninForcedByPolicy,
+            authentication_service()->GetServiceStatus());
+
+  // Expect onServiceStatus notification called.
+  OCMExpect([observer_delegate onServiceStatusChanged]);
+  browser_state_->GetPrefs()->SetBoolean(prefs::kSigninAllowed, true);
+  // Expect sign-in to be still forced by policy.
+  EXPECT_EQ(AuthenticationService::ServiceStatus::SigninForcedByPolicy,
+            authentication_service()->GetServiceStatus());
+
   EXPECT_OCMOCK_VERIFY(observer_delegate);
 }

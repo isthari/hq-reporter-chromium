@@ -92,7 +92,6 @@
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/crash/core/app/crashpad.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/device_event_log/device_event_log.h"
@@ -136,7 +135,7 @@
 #include "net/http/http_transaction_factory.h"
 #include "net/net_buildflags.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/android/customtabs/origin_verifier.h"
 #include "chrome/browser/android/explore_sites/explore_sites_service_factory.h"
 #include "chrome/browser/android/oom_intervention/oom_intervention_decider.h"
@@ -151,7 +150,7 @@
 #include "components/installedapp/android/jni_headers/PackageHash_jni.h"
 #include "components/offline_pages/core/offline_page_feature.h"
 #include "components/offline_pages/core/offline_page_model.h"
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/activity_log/activity_log.h"
@@ -160,11 +159,11 @@
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "chrome/browser/ash/net/system_proxy_manager.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/attestation/attestation_client.h"
 #include "chromeos/dbus/attestation/interface.pb.h"
 #include "chromeos/dbus/constants/attestation_constants.h"  // nogncheck
@@ -172,13 +171,13 @@
 #include "components/user_manager/user.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "device/fido/mac/credential_store.h"
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "chrome/browser/media/cdm_document_service_impl.h"
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
 using base::UserMetricsAction;
 using content::BrowserContext;
@@ -249,7 +248,7 @@ bool DoesOriginMatchEmbedderMask(uint64_t origin_type_mask,
 ChromeBrowsingDataRemoverDelegate::ChromeBrowsingDataRemoverDelegate(
     BrowserContext* browser_context)
     : profile_(Profile::FromBrowserContext(browser_context))
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       ,
       webapp_registry_(std::make_unique<WebappRegistry>())
 #endif
@@ -508,7 +507,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
             delete_begin_),
         CreateTaskCompletionClosure(TracingDataType::kWebrtcLogs));
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     // Clear the history information (last launch time and origin URL) of any
     // registered webapps.
     webapp_registry_->ClearWebappHistoryForUrls(filter);
@@ -517,21 +516,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     // been verified and stores them in Android Preferences.
     customtabs::OriginVerifier::ClearBrowsingData();
 #endif
-
-    data_reduction_proxy::DataReductionProxySettings*
-        data_reduction_proxy_settings =
-            DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
-                profile_);
-    // |data_reduction_proxy_settings| is null if |profile_| is off the record.
-    if (data_reduction_proxy_settings) {
-      data_reduction_proxy::DataReductionProxyService*
-          data_reduction_proxy_service =
-              data_reduction_proxy_settings->data_reduction_proxy_service();
-      if (data_reduction_proxy_service) {
-        data_reduction_proxy_service->compression_stats()
-            ->DeleteBrowsingHistory(delete_begin_, delete_end_);
-      }
-    }
 
     heavy_ad_intervention::HeavyAdService* heavy_ad_service =
         HeavyAdServiceFactory::GetForBrowserContext(profile_);
@@ -551,7 +535,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
       prefetch_proxy_service->origin_decider()->OnBrowsingDataCleared();
     }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     OomInterventionDecider* oom_intervention_decider =
         OomInterventionDecider::GetForBrowserContext(profile_);
     if (oom_intervention_decider)
@@ -586,7 +570,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
 
     device_event_log::Clear(delete_begin_, delete_end_);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     explore_sites::ExploreSitesService* explore_sites_service =
         explore_sites::ExploreSitesServiceFactory::GetForBrowserContext(
             profile_);
@@ -602,7 +586,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     FindBarStateFactory::GetForBrowserContext(profile_)->SetLastSearchText(
         std::u16string());
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     if (auto* share_history = sharing::ShareHistory::Get(profile_))
       share_history->Clear(delete_begin_, delete_end_);
     if (auto* share_ranking = sharing::ShareRanking::Get(profile_))
@@ -655,7 +639,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
 
       MediaDeviceIDSalt::Reset(profile_->GetPrefs());
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       Java_PackageHash_onCookiesDeleted(
           base::android::AttachCurrentThread(),
           ProfileAndroid::FromProfile(profile_)->GetJavaObject());
@@ -691,11 +675,17 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         ContentSettingsType::PERMISSION_AUTOREVOCATION_DATA, delete_begin,
         delete_end, website_settings_filter);
 
-#if !defined(OS_ANDROID)
+    if (auto* privacy_sandbox_settings =
+            PrivacySandboxSettingsFactory::GetForProfile(profile_)) {
+      privacy_sandbox_settings->ClearFledgeJoiningAllowedSettings(delete_begin_,
+                                                                  delete_end_);
+    }
+
+#if !BUILDFLAG(IS_ANDROID)
     content::HostZoomMap* zoom_map =
         content::HostZoomMap::GetDefaultForBrowserContext(profile_);
     zoom_map->ClearZoomLevels(delete_begin, delete_end_);
-#endif  // !defined(OS_ANDROID)
+#endif  // !BUILDFLAG(IS_ANDROID)
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -762,7 +752,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         ContentSettingsType::APP_BANNER, base::Time(), base::Time::Max(),
         website_settings_filter);
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
         ContentSettingsType::INSTALLED_WEB_APP_METADATA, delete_begin_,
         delete_end_, website_settings_filter);
@@ -815,7 +805,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    if (chromeos::SystemProxyManager::Get()) {
+    if (ash::SystemProxyManager::Get()) {
       // Sends a request to the System-proxy daemon to clear the proxy user
       // credentials. System-proxy retrieves proxy username and password from
       // the NetworkService, but not the creation time of the credentials. The
@@ -823,16 +813,16 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
       // credentials. If credentials prior to |delete_begin_| are removed from
       // System-proxy, the daemon will send a D-Bus request to Chrome to fetch
       // them from the NetworkService when needed.
-      chromeos::SystemProxyManager::Get()->ClearUserCredentials();
+      ash::SystemProxyManager::Get()->ClearUserCredentials();
     }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     device::fido::mac::TouchIdCredentialStore(
         ChromeWebAuthenticationDelegate::TouchIdAuthenticatorConfigForProfile(
             profile_))
         .DeleteCredentials(delete_begin_, delete_end_);
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
   }
 
   if (remove_mask & constants::DATA_TYPE_ACCOUNT_PASSWORDS) {
@@ -957,7 +947,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         prerender::NoStatePrefetchManagerFactory::GetForBrowserContext(
             profile_));
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #if BUILDFLAG(ENABLE_FEED_V2)
     // Don't bridge through if the service isn't present, which means we're
     // probably running in a native unit test.
@@ -968,9 +958,9 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     }
 #endif  // BUILDFLAG(ENABLE_FEED_V2)
 
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     // For now we're considering offline pages as cache, so if we're removing
     // cache we should remove offline pages as well.
     if (remove_mask & content::BrowsingDataRemover::DATA_TYPE_CACHE) {
@@ -1039,7 +1029,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     // clearing only a specified set of sites.
     if (filter_builder->GetMode() != BrowsingDataFilterBuilder::Mode::kDelete) {
       const user_manager::User* user =
-          chromeos::ProfileHelper::Get()->GetUserByProfile(profile_);
+          ash::ProfileHelper::Get()->GetUserByProfile(profile_);
       if (!user) {
         LOG(WARNING) << "Failed to find user for current profile.";
       } else {
@@ -1068,17 +1058,17 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     cdm::MediaDrmStorageImpl::ClearMatchingLicenses(
         prefs, delete_begin_, delete_end, nullable_filter,
         CreateTaskCompletionClosure(TracingDataType::kCdmLicenses));
-#endif  // defined(OS_ANDROID);
+#endif  // BUILDFLAG(IS_ANDROID)
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     CdmDocumentServiceImpl::ClearCdmData(
         profile_, delete_begin, delete_end, nullable_filter,
         CreateTaskCompletionClosure(TracingDataType::kCdmLicenses));
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1172,7 +1162,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
 
 //////////////////////////////////////////////////////////////////////////////
 // DATA_TYPE_WEB_APP_DATA
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Clear all data associated with registered webapps.
   if (remove_mask & constants::DATA_TYPE_WEB_APP_DATA)
     webapp_registry_->UnregisterWebappsForUrls(filter);
@@ -1310,7 +1300,7 @@ void ChromeBrowsingDataRemoverDelegate::RecordUnfinishedSubTasks() {
   }
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void ChromeBrowsingDataRemoverDelegate::OverrideWebappRegistryForTesting(
     std::unique_ptr<WebappRegistry> webapp_registry) {
   webapp_registry_ = std::move(webapp_registry);

@@ -83,6 +83,7 @@ class SearchControllerImplNew : public SearchController {
       ResultsChangedCallback callback) override;
   std::u16string get_query() override;
   base::Time session_start() override;
+  void disable_ranking_for_test() override;
 
   void set_ranker_delegate_for_test(
       std::unique_ptr<RankerDelegate> ranker_delegate) {
@@ -103,6 +104,8 @@ class SearchControllerImplNew : public SearchController {
   void SetZeroStateResults(const SearchProvider* provider);
 
   void OnZeroStateTimedOut();
+
+  void OnBurnInPeriodElapsed();
 
   Profile* profile_;
 
@@ -135,6 +138,8 @@ class SearchControllerImplNew : public SearchController {
   // Top-level result ranker.
   std::unique_ptr<RankerDelegate> ranker_;
 
+  bool disable_ranking_for_test_ = false;
+
   // Storage for all search results for the current query.
   ResultsMap results_;
 
@@ -153,14 +158,15 @@ class SearchControllerImplNew : public SearchController {
   // Counter for burn-in iterations. Useful for query search only.
   //
   // Zero signifies pre-burn-in state. After burn-in period has elapsed, counter
-  // is incremented by one each time SetResults() is called. This information is
-  // useful because:
+  // is incremented by one each time SetResults() is called. This burn-in
+  // iteration number is used for individual results as well as overall
+  // categories.
   //
-  // (1) It allows post-burn-in results to be ranked by different rules to
-  // pre-burn-in results, for normal categories as well as special categories
-  // such as Best Match.
-  // (2) It allows for sorting stability across multiple post-burn-in result
-  // updates.
+  // This information is useful because it allows for:
+  //
+  // (1) Results and categories to be ranked by different rules depending on
+  // whether the information arrived pre- or post-burn-in.
+  // (2) Sorting stability across multiple post-burn-in updates.
   int burnin_iteration_counter_ = 0;
 
   // Store the ID of each result we encounter in a given query, along with the

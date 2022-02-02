@@ -1249,11 +1249,10 @@ void AccessibilityManager::OnActiveOutputNodeChanged() {
   }
 
   const auto& account_ids = user_manager::known_user::GetKnownAccountIds();
-  for (size_t i = 0; i < account_ids.size(); ++i) {
-    bool val;
-    if (user_manager::known_user::GetBooleanPref(
-            account_ids[i], kUserSpokenFeedbackEnabled, &val) &&
-        val) {
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  for (const auto& account_id : account_ids) {
+    if (known_user.FindBoolPath(account_id, kUserSpokenFeedbackEnabled)
+            .value_or(false)) {
       PlayEarcon(Sound::kStartup, PlaySoundOption::kAlways);
       break;
     }
@@ -1886,12 +1885,12 @@ bool AccessibilityManager::GetStartupSoundEnabled() const {
   if (user_list.empty())
     return false;
 
+  user_manager::KnownUser known_user(g_browser_process->local_state());
   // |user_list| is sorted by last log in date. Take the most recent user to
   // log in.
-  bool val;
-  return user_manager::known_user::GetBooleanPref(
-             user_list[0]->GetAccountId(), kUserStartupSoundEnabled, &val) &&
-         val;
+  return known_user
+      .FindBoolPath(user_list[0]->GetAccountId(), kUserStartupSoundEnabled)
+      .value_or(false);
 }
 
 void AccessibilityManager::SetStartupSoundEnabled(bool value) const {
@@ -1910,14 +1909,12 @@ const std::string AccessibilityManager::GetBluetoothBrailleDisplayAddress()
   if (user_list.empty())
     return std::string();
 
+  user_manager::KnownUser known_user(g_browser_process->local_state());
   // |user_list| is sorted by last log in date. Take the most recent user to
   // log in.
-  std::string val;
-  return user_manager::known_user::GetStringPref(
-             user_list[0]->GetAccountId(), kUserBluetoothBrailleDisplayAddress,
-             &val)
-             ? val
-             : std::string();
+  const std::string* val = known_user.FindStringPath(
+      user_list[0]->GetAccountId(), kUserBluetoothBrailleDisplayAddress);
+  return val ? *val : std::string();
 }
 
 void AccessibilityManager::UpdateBluetoothBrailleDisplayAddress(
@@ -1961,7 +1958,7 @@ void AccessibilityManager::SetSwitchAccessKeysForTest(
     const std::set<int>& action_keys,
     const std::string& pref_name) {
   DictionaryPrefUpdate pref_update(profile_->GetPrefs(), pref_name);
-  base::ListValue devices;
+  base::Value devices(base::Value::Type::LIST);
   devices.Append(kSwitchAccessInternalDevice);
   devices.Append(kSwitchAccessUsbDevice);
   devices.Append(kSwitchAccessBluetoothDevice);

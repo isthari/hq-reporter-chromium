@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_AUTOFILL_CAPTURED_SITES_TEST_UTILS_H_
 
 #include <fstream>
-#include <list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/strcat.h"
+#include "base/types/strong_alias.h"
 #include "base/values.h"
 #include "chrome/browser/ui/browser.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
@@ -284,6 +284,8 @@ class TestRecipeReplayer {
                                    const gfx::Point& point);
 
  private:
+  using IgnoreCase = base::StrongAlias<struct IgnoreCaseTag, bool>;
+
   static bool GetIFrameOffsetFromIFramePath(
       const std::vector<std::string>& iframe_path,
       content::RenderFrameHost* frame,
@@ -370,13 +372,13 @@ class TestRecipeReplayer {
                           const std::string& element_xpath,
                           const std::string& get_property_function_body,
                           std::string* property);
-  bool ExpectElementPropertyEquals(
+  bool ExpectElementPropertyEqualsAnyOf(
       const content::ToRenderFrameHost& frame,
       const std::string& element_xpath,
       const std::string& get_property_function_body,
-      const std::string& expected_value,
+      const std::vector<std::string>& expected_value,
       const std::string& validation_field,
-      const bool ignoreCase = false);
+      IgnoreCase ignore_case = IgnoreCase(false));
   void SimulateKeyPressWrapper(content::WebContents* web_contents,
                                ui::DomKey key);
   void NavigateAwayAndDismissBeforeUnloadDialog();

@@ -35,7 +35,7 @@ bool DeviceHasEnoughMemoryForPrerender() {
   // Use the same default threshold as the back/forward cache. See comments in
   // DeviceHasEnoughMemoryForBackForwardCache().
   static constexpr int kDefaultMemoryThresholdMb =
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       1700;
 #else
       0;
@@ -112,7 +112,7 @@ int PrerenderHostRegistry::CreateAndStartHost(
     // skip the same-origin check.
     if (!attributes.IsBrowserInitiated() &&
         !attributes.initiator_origin.value().IsSameOriginWith(
-            url::Origin::Create(attributes.prerendering_url))) {
+            attributes.prerendering_url)) {
       RecordPrerenderHostFinalStatus(
           PrerenderHost::FinalStatus::kCrossOriginNavigation,
           attributes.trigger_type, attributes.embedder_histogram_suffix);
@@ -127,8 +127,7 @@ int PrerenderHostRegistry::CreateAndStartHost(
 
     // TODO(crbug.com/1197133): Cancel the started prerender and start a new
     // one if the score of the new candidate is higher than the started one's.
-    if (prerender_host_by_frame_tree_node_id_.size() ==
-        kMaxNumOfRunningPrerenders) {
+    if (!IsAllowedToStartPrerenderingForTrigger(attributes.trigger_type)) {
       RecordPrerenderHostFinalStatus(
           PrerenderHost::FinalStatus::kMaxNumOfRunningPrerendersExceeded,
           attributes.trigger_type, attributes.embedder_histogram_suffix);
@@ -161,7 +160,7 @@ int PrerenderHostRegistry::CreateAndStartHost(
   return frame_tree_node_id;
 }
 
-void PrerenderHostRegistry::CancelHost(
+bool PrerenderHostRegistry::CancelHost(
     int frame_tree_node_id,
     PrerenderHost::FinalStatus final_status) {
   TRACE_EVENT1("navigation", "PrerenderHostRegistry::CancelHost",
@@ -178,7 +177,7 @@ void PrerenderHostRegistry::CancelHost(
   // record the cancellation reason.
   auto iter = prerender_host_by_frame_tree_node_id_.find(frame_tree_node_id);
   if (iter == prerender_host_by_frame_tree_node_id_.end())
-    return;
+    return false;
 
   // Remove the prerender host from the host map so that it's not used for
   // activation during asynchronous deletion.
@@ -187,6 +186,7 @@ void PrerenderHostRegistry::CancelHost(
 
   // Asynchronously delete the prerender host.
   ScheduleToDeleteAbandonedHost(std::move(prerender_host), final_status);
+  return true;
 }
 
 void PrerenderHostRegistry::CancelAllHosts(
@@ -466,6 +466,34 @@ const std::string& PrerenderHostRegistry::GetPrerenderEmbedderHistogramSuffix(
   DCHECK(prerender_host);
 
   return prerender_host->embedder_histogram_suffix();
+}
+
+bool PrerenderHostRegistry::IsAllowedToStartPrerenderingForTrigger(
+    PrerenderTriggerType trigger_type) {
+  // Currently the number prerenders is limited to two per WebContentsImpl.
+  const size_t kMaxNumOfRunningPrerenders = 2;
+
+  if (prerender_host_by_frame_tree_node_id_.size() ==
+      kMaxNumOfRunningPrerenders)
+    return false;
+
+  int trigger_type_count = 0;
+  DCHECK_LT(prerender_host_by_frame_tree_node_id_.size(),
+            kMaxNumOfRunningPrerenders);
+  for (const auto& host_by_id : prerender_host_by_frame_tree_node_id_) {
+    if (host_by_id.second->trigger_type() == trigger_type)
+      ++trigger_type_count;
+  }
+
+  switch (trigger_type) {
+    case PrerenderTriggerType::kSpeculationRule:
+      // Speculation Rules trigger is allowed to start only one prerender.
+      return trigger_type_count < 1;
+    case PrerenderTriggerType::kEmbedder:
+      // Embedder triggers are allowed to start at most 2 concurrent
+      // prerenders.
+      return trigger_type_count < 2;
+  }
 }
 
 }  // namespace content

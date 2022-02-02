@@ -24,7 +24,6 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/loader/previews_state.h"
 #include "third_party/blink/public/common/navigation/navigation_policy.h"
 
 namespace net {
@@ -186,7 +185,9 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
 
   // network::mojom::URLLoaderClient implementation:
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override;
-  void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
+  void OnReceiveResponse(
+      network::mojom::URLResponseHeadPtr head,
+      mojo::ScopedDataPipeConsumerHandle response_body) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle response_body) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
@@ -211,8 +212,7 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   void FollowRedirect(
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
-      const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      blink::PreviewsState new_previews_state) override;
+      const net::HttpRequestHeaders& modified_cors_exempt_headers) override;
   bool SetNavigationTimeout(base::TimeDelta timeout) override;
 
   raw_ptr<NavigationURLLoaderDelegate> delegate_;

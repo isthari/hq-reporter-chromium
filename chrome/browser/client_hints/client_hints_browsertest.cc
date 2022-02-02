@@ -755,7 +755,7 @@ class ClientHintsBrowserTest : public policy::PolicyTest,
             request.headers.find("viewport-width")->second, &value));
         EXPECT_TRUE(
             IsSimilarToIntABNF(request.headers.find("viewport-width")->second));
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
         EXPECT_EQ(980, value);
@@ -766,7 +766,7 @@ class ClientHintsBrowserTest : public policy::PolicyTest,
             request.headers.find("sec-ch-viewport-width")->second, &value));
         EXPECT_TRUE(IsSimilarToIntABNF(
             request.headers.find("sec-ch-viewport-width")->second));
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
         EXPECT_EQ(980, value);
@@ -822,12 +822,12 @@ class ClientHintsBrowserTest : public policy::PolicyTest,
             request.headers.find("viewport-width")->second, &value));
         EXPECT_TRUE(
             IsSimilarToIntABNF(request.headers.find("viewport-width")->second));
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
         EXPECT_EQ(980, value);
 #endif
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
         // TODO(tbansal): https://crbug.com/825892: Viewport width on main
         // frame requests may be incorrect when the Chrome window is not
         // maximized.
@@ -840,12 +840,12 @@ class ClientHintsBrowserTest : public policy::PolicyTest,
             request.headers.find("sec-ch-viewport-width")->second, &value));
         EXPECT_TRUE(IsSimilarToIntABNF(
             request.headers.find("sec-ch-viewport-width")->second));
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
         EXPECT_EQ(980, value);
 #endif
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
         // TODO(tbansal): https://crbug.com/825892: Viewport width on main
         // frame requests may be incorrect when the Chrome window is not
         // maximized.
@@ -899,6 +899,14 @@ class ClientHintsBrowserTest : public policy::PolicyTest,
       // `Sec-CH-UA-Reduced` is tested via UaReducedOriginTrialBrowserTest
       // below.
       if (header == "sec-ch-ua-reduced") {
+        continue;
+      }
+
+      // TODO(crbug.com/1286857): Skip over the `Sec-CH-UA-Full` client hint
+      // because it is only added in the presence of a valid
+      // "UserAgentDeprecation" Origin Trial token. Need to add `Sec-CH-UA-Full`
+      // corresponding tests.
+      if (header == "sec-ch-ua-full") {
         continue;
       }
 
@@ -1282,9 +1290,7 @@ IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTest,
   // Copy the client hints setting for localhost to foo.com.
   host_content_settings_map->SetWebsiteSettingDefaultScope(
       GURL("https://foo.com/"), GURL(), ContentSettingsType::CLIENT_HINTS,
-
-      std::make_unique<base::Value>(
-          client_hints_settings.at(0).setting_value.Clone()));
+      client_hints_settings.at(0).setting_value.Clone());
 
   // Verify that client hints for the two hosts has been saved.
   host_content_settings_map =
@@ -1324,7 +1330,7 @@ IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTest,
   metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
   // The device-memory and dprheader is attached to the main frame request.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   EXPECT_EQ(expected_client_hints_number, count_client_hints_headers_seen());
 #else
   EXPECT_EQ(expected_client_hints_number * 3,
@@ -1548,6 +1554,7 @@ IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTestWithThirdPartyDelegation,
             third_party_client_hints_count_seen());
 }
 
+// Flaky on all platforms. https://crbug.com/1285479.
 IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTest, DelegateToFoo_MetaName) {
   // Go to a page which delegates hints to `foo.com`.
   GURL gurl = meta_name_accept_ch_delegation_foo();
@@ -1560,9 +1567,8 @@ IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTest, DelegateToFoo_MetaName) {
   EXPECT_EQ(expected_default_third_party_client_hints_number * 7,
             third_party_client_hints_count_seen());
 }
-// Flaky on all platforms. https://crbug.com/1285479.
 IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTestWithThirdPartyDelegation,
-                       DISABLED_DelegateToFoo_MetaName) {
+                       DelegateToFoo_MetaName) {
   // Go to a page which delegates hints to `foo.com`.
   GURL gurl = meta_name_accept_ch_delegation_foo();
   SetClientHintExpectationsOnMainFrame(false);
@@ -2518,7 +2524,7 @@ IN_PROC_BROWSER_TEST_P(ClientHintsBrowserTest,
                                    std::move(client_hints_list));
   host_content_settings_map->SetWebsiteSettingDefaultScope(
       without_accept_ch_url(), GURL(), ContentSettingsType::CLIENT_HINTS,
-      std::make_unique<base::Value>(client_hints_dictionary->Clone()));
+      client_hints_dictionary->Clone());
 
   // Reading the settings should now return one setting.
   host_content_settings_map->GetSettingsForOneType(
@@ -2880,115 +2886,6 @@ IN_PROC_BROWSER_TEST_F(ClientHintsWebHoldbackBrowserTest,
             count_client_hints_headers_seen());
   EXPECT_EQ(0u, third_party_request_count_seen());
   EXPECT_EQ(0u, third_party_client_hints_count_seen());
-}
-
-class AcceptCHFrameObserverInterceptor {
- public:
-  AcceptCHFrameObserverInterceptor()
-      : interceptor_(base::BindRepeating(
-            &AcceptCHFrameObserverInterceptor::InterceptURLRequest,
-            base::Unretained(this))) {}
-
-  void set_accept_ch_frame(
-      std::vector<network::mojom::WebClientHintsType> frame) {
-    accept_ch_frame_ = frame;
-  }
-
- private:
-  bool InterceptURLRequest(URLLoaderInterceptor::RequestParams* params) {
-    if (!accept_ch_frame_ || !params->url_request.trusted_params ||
-        !params->url_request.trusted_params->accept_ch_frame_observer) {
-      return false;
-    }
-
-    std::vector<network::mojom::WebClientHintsType> hints;
-    for (auto hint : accept_ch_frame_.value()) {
-      std::string header = network::GetClientHintToNameMap().at(hint);
-      if (!params->url_request.headers.HasHeader(header))
-        hints.push_back(hint);
-    }
-
-    if (hints.empty())
-      return false;
-
-    mojo::Remote<network::mojom::AcceptCHFrameObserver> remote(std::move(
-        params->url_request.trusted_params->accept_ch_frame_observer));
-    remote->OnAcceptCHFrameReceived(params->url_request.url, hints,
-                                    base::DoNothing());
-    // At this point it's expected that either the remote's callback will be
-    // called or the URLLoader will be destroyed to make way for a new one.
-    // As this is essentially unobservable, RunUntilIdle must be used.
-    base::RunLoop().RunUntilIdle();
-    return false;
-  }
-
-  URLLoaderInterceptor interceptor_;
-  absl::optional<std::vector<network::mojom::WebClientHintsType>>
-      accept_ch_frame_;
-};
-
-// Replace the request interceptor with an AcceptCHFrameObserverInterceptor.
-class ClientHintsAcceptCHFrameObserverBrowserTest
-    : public ClientHintsBrowserTest {
- public:
-  void SetUpOnMainThread() override {
-    host_resolver()->AddRule("*", "127.0.0.1");
-    accept_ch_frame_observer_interceptor_ =
-        std::make_unique<AcceptCHFrameObserverInterceptor>();
-  }
-
-  void TearDownOnMainThread() override {
-    accept_ch_frame_observer_interceptor_.reset();
-  }
-
-  void set_accept_ch_frame(
-      std::vector<network::mojom::WebClientHintsType> frame) {
-    accept_ch_frame_observer_interceptor_->set_accept_ch_frame(frame);
-  }
-
-  std::vector<network::mojom::WebClientHintsType> all_client_hints_types() {
-    std::vector<network::mojom::WebClientHintsType> hints;
-    for (const auto& elem : network::GetClientHintToNameMap()) {
-      const auto& type = elem.first;
-      hints.push_back(type);
-    }
-    return hints;
-  }
-
- private:
-  std::unique_ptr<AcceptCHFrameObserverInterceptor>
-      accept_ch_frame_observer_interceptor_;
-};
-
-#if defined(OS_CHROMEOS)
-// Flaky: https://crbug.com/1195790
-#define MAYBE_AcceptCHFrame DISABLED_AcceptCHFrame
-#else
-#define MAYBE_AcceptCHFrame AcceptCHFrame
-#endif
-
-// Ensure that client hints are sent when the ACCEPT_CH frame observer is
-// notified.
-IN_PROC_BROWSER_TEST_F(ClientHintsAcceptCHFrameObserverBrowserTest,
-                       MAYBE_AcceptCHFrame) {
-  const GURL gurl = without_accept_ch_url();
-  set_accept_ch_frame(all_client_hints_types());
-  SetClientHintExpectationsOnMainFrame(true);
-  SetClientHintExpectationsOnSubresources(false);
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), gurl));
-}
-
-// Ensure that client hints are *not* sent when the observer is notified but
-// client hints would normally not be sent (e.g. when JS is disabled for the
-// frame).
-IN_PROC_BROWSER_TEST_F(ClientHintsAcceptCHFrameObserverBrowserTest,
-                       AcceptCHFrameJSDisabled) {
-  const GURL gurl = without_accept_ch_url();
-  set_accept_ch_frame(all_client_hints_types());
-  SetJsEnabledForActiveView(false);
-  SetClientHintExpectationsOnMainFrame(false);
-  SetClientHintExpectationsOnSubresources(false);
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), gurl));
 }
 
 IN_PROC_BROWSER_TEST_P(ClientHintsBrowserTest, UseCounter_HttpEquiv) {
@@ -3440,6 +3337,8 @@ class SameOriginUaReducedOriginTrialBrowserTest
     return url_loader_interceptor_->GetLastRequestURL();
   }
 
+  void VerifyNonAcceptCHNotAddedToHeader() {}
+
   void NavigateTwiceAndCheckHeader(const GURL& url,
                                    const bool ch_ua_reduced_expected,
                                    const bool critical_ch_ua_reduced_expected) {
@@ -3476,6 +3375,11 @@ class SameOriginUaReducedOriginTrialBrowserTest
     // client hint sent on the second request, if Sec-CH-UA-Reduced is set and
     // the Origin Trial token is valid.
     NavigateAndCheckHeaders(url, ch_ua_reduced_expected);
+    // Make sure non-default client hints are not added to the request headers
+    // of subresource requests. Here, we just use Sec-CH-UA-Bitness as a high
+    // entropy hint to check against.
+    ASSERT_FALSE(url_loader_interceptor_->GetLastRequestHeaders().HasHeader(
+        "sec-ch-ua-bitness"));
     if (ch_ua_reduced_expected) {
       ++reduced_count;
     } else {
@@ -3515,7 +3419,7 @@ IN_PROC_BROWSER_TEST_F(SameOriginUaReducedOriginTrialBrowserTest,
       /*expected_user_agent_reduced=*/true);
   // Instead of checking all platform types, just check one that has a
   // difference between the full and reduced versions.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   EXPECT_EQ("Linux x86_64",
             content::EvalJs(web_contents, "navigator.platform"));
 #endif
@@ -3541,7 +3445,7 @@ IN_PROC_BROWSER_TEST_F(SameOriginUaReducedOriginTrialBrowserTest,
       /*expected_user_agent_reduced=*/false);
   // Instead of checking all platform types, just check one that has a
   // difference between the full and reduced versions.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   EXPECT_NE("Linux x86_64",
             content::EvalJs(web_contents, "navigator.platform"));
 #endif

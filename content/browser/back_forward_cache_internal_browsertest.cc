@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/raw_ptr.h"
 #include "content/browser/back_forward_cache_browsertest.h"
 
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/metrics_hashes.h"
 #include "base/test/bind.h"
 #include "base/test/test_mock_time_task_runner.h"
@@ -22,6 +22,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/mock_web_contents_observer.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_content_browser_client.h"
@@ -248,7 +249,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
-                       NavigationsAreFullyCommitted) {
+                       DISABLED_NavigationsAreFullyCommitted) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // During a navigation, the document being navigated *away from* can either be
@@ -327,8 +328,15 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
   ExpectRestored(FROM_HERE);
 }
 
+// Disabled due to flakiness on Linux and Mac https://crbug.com/1287467
+// Disabled on Chrome OS due to flakiness https://crbug.com/1290834
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_ProxiesAreStoredAndRestored DISABLED_ProxiesAreStoredAndRestored
+#else
+#define MAYBE_ProxiesAreStoredAndRestored ProxiesAreStoredAndRestored
+#endif
 IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
-                       ProxiesAreStoredAndRestored) {
+                       MAYBE_ProxiesAreStoredAndRestored) {
   // This test makes assumption about where iframe processes live.
   if (!AreAllSitesIsolatedForTesting())
     return;
@@ -540,7 +548,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
 
   // Disable the BackForwardCache.
   web_contents()->GetController().GetBackForwardCache().DisableForTesting(
-      BackForwardCacheImpl::TEST_ASSUMES_NO_CACHING);
+      BackForwardCacheImpl::TEST_REQUIRES_NO_CACHING);
 
   // Navigate to a page that would normally be cacheable.
   EXPECT_TRUE(NavigateToURL(
@@ -1959,7 +1967,7 @@ class BackForwardCacheDisabledThroughCommandLineBrowserTest
     BackForwardCacheBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kDisableBackForwardCache);
     EnableFeatureAndSetParams(blink::features::kLoadingTasksUnfreezable,
-                              "max_buffered_bytes", "1000");
+                              "max_buffered_bytes_per_process", "1000");
   }
 };
 
@@ -2144,7 +2152,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
   EXPECT_EQ(rfh_a, current_frame_host());
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
                        ChildImportanceTestForBackForwardCachedPagesTest) {
   web_contents()->SetPrimaryMainFrameImportance(
@@ -3400,7 +3408,16 @@ IN_PROC_BROWSER_TEST_F(
   // 2) Navigate to B, and inject a blank subframe just before it commits.
   {
     InjectCreateChildFrame injector(shell()->web_contents(), url_b);
-    ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+    TestNavigationObserver navigation_observer(shell()->web_contents(), 1);
+    shell()->LoadURL(url_b);
+    navigation_observer.Wait();
+    // We cannot use NavigateToURL which will automatically wait for particular
+    // url in the navigation above because running a nested message loop in the
+    // injector confuses TestNavigationObserver by changing the order of
+    // notifications.
+    EXPECT_EQ(url_b, shell()->web_contents()->GetLastCommittedURL());
+
     EXPECT_TRUE(injector.was_called());
   }
 

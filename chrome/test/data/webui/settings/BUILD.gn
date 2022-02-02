@@ -12,6 +12,7 @@ preprocessed_files = [
   "appearance_page_test.ts",
   "clear_browsing_data_test.ts",
   "downloads_page_test.ts",
+  "password_edit_dialog_test.ts",
   "people_page_test.ts",
   "people_page_sync_page_test.ts",
   "personalization_options_test.ts",
@@ -28,7 +29,10 @@ preprocessed_files = [
 ]
 
 if (!is_chromeos_ash) {
-  preprocessed_files += [ "test_languages_browser_proxy.ts" ]
+  preprocessed_files += [
+    "test_languages_browser_proxy.ts",
+    "languages_page_tests.ts",
+  ]
 }
 
 # Test files that do not require preprocessing. If adding // <if expr> to any
@@ -59,7 +63,6 @@ non_preprocessed_files = [
   "do_not_track_toggle_test.ts",
   "dropdown_menu_tests.ts",
   "extension_controlled_indicator_tests.ts",
-  "fake_language_settings_private.js",
   "fake_settings_private.js",
   "help_page_test.ts",
   "idle_load_tests.ts",
@@ -67,10 +70,9 @@ non_preprocessed_files = [
   "multi_store_password_ui_entry_test.js",
   "on_startup_page_tests.ts",
   "password_check_test.js",
-  "password_edit_dialog_test.js",
   "passwords_and_autofill_fake_data.ts",
-  "passwords_device_section_test.js",
-  "passwords_export_test.js",
+  "passwords_device_section_test.ts",
+  "passwords_export_test.ts",
   "passwords_section_test.js",
   "payments_section_interactive_test.ts",
   "payments_section_test.ts",
@@ -92,6 +94,7 @@ non_preprocessed_files = [
   "secure_dns_interactive_test.ts",
   "secure_dns_test.ts",
   "security_keys_subpage_test.ts",
+  "security_keys_phones_subpage_test.ts",
   "settings_animated_pages_test.ts",
   "settings_category_default_radio_group_tests.ts",
   "settings_main_test.ts",
@@ -152,11 +155,11 @@ if (is_chromeos_ash) {
   ]
 } else {
   non_preprocessed_files += [
-    "languages_page_metrics_test_browser.js",
-    "languages_page_tests.js",
-    "languages_subpage_details_tests.js",
-    "languages_subpage_tests.js",
-    "languages_tests.js",
+    "fake_language_settings_private.ts",
+    "languages_page_metrics_test_browser.ts",
+    "languages_subpage_details_tests.ts",
+    "languages_subpage_tests.ts",
+    "languages_tests.ts",
     "metrics_reporting_tests.ts",
     "people_page_manage_profile_test.ts",
     "relaunch_confirmation_dialog_test.ts",

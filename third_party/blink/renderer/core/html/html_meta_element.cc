@@ -51,7 +51,8 @@ HTMLMetaElement::HTMLMetaElement(Document& document,
                                  const CreateElementFlags flags)
     : HTMLElement(html_names::kMetaTag, document),
       is_being_created_by_parser_with_sync_flag_(
-          flags.IsCreatedByParser() && !flags.IsAsyncCustomElements()) {}
+          flags.IsCreatedByParser() && !flags.IsAsyncCustomElements() &&
+          !document.IsInDocumentWrite()) {}
 
 static bool IsInvalidSeparator(UChar c) {
   return c == ';';
@@ -496,6 +497,8 @@ void HTMLMetaElement::NameRemoved(const AtomicString& name_value) {
     GetDocument().ColorSchemeMetaChanged();
   } else if (EqualIgnoringASCIICase(name_value, "battery-savings")) {
     GetDocument().BatterySavingsMetaChanged();
+  } else if (EqualIgnoringASCIICase(name_value, "supports-reduced-motion")) {
+    GetDocument().SupportsReducedMotionMetaChanged();
   }
 }
 
@@ -582,6 +585,11 @@ void HTMLMetaElement::ProcessContent() {
   }
   if (EqualIgnoringASCIICase(name_value, "battery-savings")) {
     GetDocument().BatterySavingsMetaChanged();
+    return;
+  }
+
+  if (EqualIgnoringASCIICase(name_value, "supports-reduced-motion")) {
+    GetDocument().SupportsReducedMotionMetaChanged();
     return;
   }
 

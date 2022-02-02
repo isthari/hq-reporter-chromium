@@ -122,6 +122,10 @@ enum class BlendMode {
   kSaturation,
   kColor,
   kLuminosity,
+  // The following is only used in CSS mix-blend-mode, and maps to a composite
+  // operator. Canvas uses the same enum but the kPlusLighter is not a valid
+  // canvas value. We should consider splitting the enums.
+  kPlusLighter,
 };
 
 enum OpacityMode {
@@ -208,10 +212,16 @@ enum WindRule {
   RULE_EVENODD = static_cast<int>(SkPathFillType::kEvenOdd)
 };
 
-PLATFORM_EXPORT String CompositeOperatorName(CompositeOperator, BlendMode);
-PLATFORM_EXPORT bool ParseCompositeAndBlendMode(const String&,
-                                                CompositeOperator&,
-                                                BlendMode&);
+// Note that this is only appropriate to use in canvas globalCompositeOperator
+// cases.
+// TODO(vmpstr): Move these functions to near where they are used.
+PLATFORM_EXPORT String CanvasCompositeOperatorName(CompositeOperator,
+                                                   BlendMode);
+PLATFORM_EXPORT bool ParseCanvasCompositeAndBlendMode(const String&,
+                                                      CompositeOperator&,
+                                                      BlendMode&);
+
+PLATFORM_EXPORT String BlendModeToString(BlendMode);
 
 PLATFORM_EXPORT String ImageEncodingMimeTypeName(ImageEncodingMimeType);
 PLATFORM_EXPORT bool ParseImageEncodingMimeType(const String&,

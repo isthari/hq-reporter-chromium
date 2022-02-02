@@ -71,8 +71,7 @@ void VideoPainter::PaintReplaced(const PaintInfo& paint_info,
   // Video frames are only painted in software for printing or capturing node
   // images via web APIs.
   bool force_software_video_paint =
-      paint_info.GetGlobalPaintFlags() & kGlobalPaintFlattenCompositingLayers &&
-      !force_video_poster;
+      paint_info.ShouldOmitCompositingInfo() && !force_video_poster;
 
   bool paint_with_foreign_layer = paint_info.phase == PaintPhase::kForeground &&
                                   !should_display_poster &&
@@ -98,7 +97,7 @@ void VideoPainter::PaintReplaced(const PaintInfo& paint_info,
     ImagePainter(layout_video_)
         .PaintIntoRect(context, replaced_rect, content_box_rect);
   } else {
-    PaintFlags video_flags = context.FillFlags();
+    cc::PaintFlags video_flags = context.FillFlags();
     video_flags.setColor(SK_ColorBLACK);
     layout_video_.VideoElement()->PaintCurrentFrame(
         context.Canvas(), snapped_replaced_rect, &video_flags);

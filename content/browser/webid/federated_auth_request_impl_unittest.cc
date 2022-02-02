@@ -12,7 +12,10 @@
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "components/ukm/test_ukm_recorder.h"
+#include "content/browser/webid/fedcm_metrics.h"
 #include "content/browser/webid/federated_auth_request_service.h"
 #include "content/browser/webid/id_token_request_callback_data.h"
 #include "content/browser/webid/test/mock_active_session_permission_delegate.h"
@@ -22,8 +25,11 @@
 #include "content/browser/webid/test/mock_sharing_permission_delegate.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/identity_request_dialog_controller.h"
-#include "content/public/test/test_renderer_host.h"
+#include "content/public/common/content_features.h"
+#include "content/test/test_render_frame_host.h"
+#include "content/test/test_render_view_host.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -37,6 +43,7 @@ using blink::mojom::LogoutStatus;
 using blink::mojom::RequestIdTokenStatus;
 using blink::mojom::RequestMode;
 using blink::mojom::RevokeStatus;
+using Entry = ukm::builders::Blink_FedCm;
 using FetchStatus = content::IdpNetworkRequestManager::FetchStatus;
 using LogoutResponse = content::IdpNetworkRequestManager::LogoutResponse;
 using SigninResponse = content::IdpNetworkRequestManager::SigninResponse;
@@ -45,6 +52,8 @@ using UserApproval = content::IdentityRequestDialogController::UserApproval;
 using AccountList = content::IdpNetworkRequestManager::AccountList;
 using LoginState = content::IdentityRequestAccount::LoginState;
 using SignInMode = content::IdentityRequestAccount::SignInMode;
+using IdTokenStatus = content::FedCmRequestIdTokenStatus;
+using RevokeStatusForMetrics = content::FedCmRevokeStatus;
 using ::testing::_;
 using ::testing::Invoke;
 using ::testing::NiceMock;
@@ -114,6 +123,7 @@ typedef struct {
   absl::optional<FetchStatus> accounts_response;
   AccountList accounts;
   absl::optional<FetchStatus> token_response;
+  absl::optional<bool> customized_dialog;
 } MockMediatedConfiguration;
 
 typedef struct {
@@ -453,11 +463,11 @@ LogoutRequestPtr MakeLogoutRequest(const std::string& endpoint,
 
 }  // namespace
 
-class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
+class FederatedAuthRequestImplTest : public RenderViewHostImplTestHarness {
  protected:
-  FederatedAuthRequestImplTest()
-      : RenderViewHostTestHarness(
-            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+  FederatedAuthRequestImplTest() {
+    ukm_recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
+  }
   ~FederatedAuthRequestImplTest() override = default;
 
   FederatedAuthRequestImpl& CreateAuthRequest(const GURL& provider) {
@@ -583,7 +593,7 @@ class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
     }
 
     if (conf.accounts_response == FetchStatus::kSuccess &&
-        !prefer_auto_sign_in) {
+        !prefer_auto_sign_in && !conf.customized_dialog) {
       // Expects a dialog if prefer_auto_sign_in is not set by RP. However,
       // even though the bit is set we may not exercise the AutoSignIn flow.
       // e.g. for sign up flow, multiple accounts, user opt-out etc. In this
@@ -601,7 +611,8 @@ class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
                       on_selected) {
                 displayed_accounts_ =
                     AccountList(accounts.begin(), accounts.end());
-                std::move(on_selected).Run(accounts[0].account_id);
+                std::move(on_selected)
+                    .Run(accounts[0].account_id, /*is_sign_in=*/false);
               }));
     }
 
@@ -615,6 +626,7 @@ class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
                   IdpNetworkRequestManager::TokenRequestCallback callback) {
                 std::move(callback).Run(*conf.token_response, delivered_token);
               }));
+      task_environment()->FastForwardBy(base::Seconds(3));
     }
   }
 
@@ -704,6 +716,70 @@ class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
     return mock_dialog_controller_;
   }
 
+  ukm::TestAutoSetUkmRecorder* ukm_recorder() { return ukm_recorder_.get(); }
+
+  void ExpectRequestIdTokenStatusUKM(IdTokenStatus status) {
+    auto entries = ukm_recorder()->GetEntriesByName(Entry::kEntryName);
+
+    if (entries.empty())
+      FAIL() << "No RequestIdTokenStatus was recorded";
+
+    // There are multiple types of metrics under the same FedCM UKM. We need to
+    // make sure that the metric only includes the expected one.
+    for (const auto* const entry : entries) {
+      const int64_t* metric =
+          ukm_recorder()->GetEntryMetric(entry, "Status_RequestIdToken");
+      if (metric && *metric != static_cast<int>(status))
+        FAIL() << "Unexpected status was recorded";
+    }
+
+    SUCCEED();
+  }
+
+  void ExpectRevokeStatusUKM(RevokeStatusForMetrics status) {
+    auto entries = ukm_recorder()->GetEntriesByName(Entry::kEntryName);
+
+    if (entries.empty())
+      FAIL() << "No RevokeStatus was recorded";
+
+    // There are multiple types of metrics under the same FedCM UKM. We need to
+    // make sure that the metric only includes the expected one.
+    for (const auto* const entry : entries) {
+      const int64_t* metric =
+          ukm_recorder()->GetEntryMetric(entry, "Status_Revoke");
+      if (metric && *metric != static_cast<int>(status))
+        FAIL() << "Unexpected status was recorded";
+    }
+
+    SUCCEED();
+  }
+
+  void ExpectTimingUKM(const std::string& metric_name) {
+    auto entries = ukm_recorder()->GetEntriesByName(Entry::kEntryName);
+
+    ASSERT_FALSE(entries.empty());
+
+    for (const auto* const entry : entries) {
+      if (ukm_recorder()->GetEntryMetric(entry, metric_name)) {
+        SUCCEED();
+        return;
+      }
+    }
+    FAIL() << "Expected UKM was not recorded";
+  }
+
+  void ExpectNoTimingUKM(const std::string& metric_name) {
+    auto entries = ukm_recorder()->GetEntriesByName(Entry::kEntryName);
+
+    ASSERT_FALSE(entries.empty());
+
+    for (const auto* const entry : entries) {
+      if (ukm_recorder()->GetEntryMetric(entry, metric_name))
+        FAIL() << "Unexpected UKM was recorded";
+    }
+    SUCCEED();
+  }
+
  protected:
   mojo::Remote<blink::mojom::FederatedAuthRequest> request_remote_;
   // Note: `auth_request_service_` owns itself, and will generally be deleted
@@ -731,6 +807,9 @@ class FederatedAuthRequestImplTest : public RenderViewHostTestHarness {
   AccountList displayed_accounts_;
 
   GURL provider_;
+
+ private:
+  std::unique_ptr<ukm::TestAutoSetUkmRecorder> ukm_recorder_;
 };
 
 class BasicFederatedAuthRequestImplTest
@@ -757,6 +836,18 @@ TEST_P(BasicFederatedAuthRequestImplTest, FederatedAuthRequests) {
       test_case.inputs.prefer_auto_sign_in);
   EXPECT_EQ(auth_response.first, test_case.expected.return_status);
   EXPECT_EQ(auth_response.second, test_case.expected.token);
+}
+
+TEST_P(BasicFederatedAuthRequestImplTest, FederatedAuthRequestIssue) {
+  AuthRequestTestCase test_case = GetParam();
+  CreateAuthRequest(GURL(test_case.inputs.provider));
+  SetMockExpectations(test_case);
+  auto auth_response = PerformAuthRequest(
+      test_case.inputs.client_id, test_case.inputs.nonce, test_case.inputs.mode,
+      test_case.inputs.prefer_auto_sign_in);
+  EXPECT_EQ(
+      main_test_rfh()->GetFederatedAuthRequestIssueCount(auth_response.first),
+      auth_response.first == RequestIdTokenStatus::kSuccess ? 0 : 1);
 }
 
 // Test Logout method success with multiple relying parties.
@@ -940,6 +1031,11 @@ TEST_F(BasicFederatedAuthRequestImplTest,
 }
 
 TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForReturningUser) {
+  base::test::ScopedFeatureList list;
+  list.InitAndEnableFeatureWithParameters(
+      features::kFedCm,
+      {{features::kFedCmAutoSigninFieldTrialParamName, "true"}});
+
   AccountList displayed_accounts;
   const auto& test_case = kSuccessfulMediatedAutoSignInTestCase;
   auto& auth_request = CreateAuthRequest(GURL(test_case.inputs.provider));
@@ -972,7 +1068,8 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForReturningUser) {
                   on_selected) {
             EXPECT_EQ(sign_in_mode, SignInMode::kAuto);
             displayed_accounts = AccountList(accounts.begin(), accounts.end());
-            std::move(on_selected).Run(accounts[0].account_id);
+            std::move(on_selected)
+                .Run(accounts[0].account_id, /*is_sign_in=*/true);
           }));
 
   EXPECT_EQ(test_case.config.Mediated_conf.accounts.size(), 1u);
@@ -986,6 +1083,11 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForReturningUser) {
 }
 
 TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForFirstTimeUser) {
+  base::test::ScopedFeatureList list;
+  list.InitAndEnableFeatureWithParameters(
+      features::kFedCm,
+      {{features::kFedCmAutoSigninFieldTrialParamName, "true"}});
+
   AccountList displayed_accounts;
   const auto& test_case = kSuccessfulMediatedAutoSignInTestCase;
   CreateAuthRequest(GURL(test_case.inputs.provider));
@@ -1002,7 +1104,8 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForFirstTimeUser) {
                   on_selected) {
             EXPECT_EQ(sign_in_mode, SignInMode::kExplicit);
             displayed_accounts = AccountList(accounts.begin(), accounts.end());
-            std::move(on_selected).Run(accounts[0].account_id);
+            std::move(on_selected)
+                .Run(accounts[0].account_id, /*is_sign_in=*/true);
           }));
 
   SetMockExpectations(test_case);
@@ -1016,6 +1119,11 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInForFirstTimeUser) {
 }
 
 TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInWithScreenReader) {
+  base::test::ScopedFeatureList list;
+  list.InitAndEnableFeatureWithParameters(
+      features::kFedCm,
+      {{features::kFedCmAutoSigninFieldTrialParamName, "true"}});
+
   content::BrowserAccessibilityState::GetInstance()->AddAccessibilityModeFlags(
       ui::AXMode::kScreenReader);
 
@@ -1052,7 +1160,8 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInWithScreenReader) {
             // Auto sign in replaced by explicit sign in if screen reader is on.
             EXPECT_EQ(sign_in_mode, SignInMode::kExplicit);
             displayed_accounts = AccountList(accounts.begin(), accounts.end());
-            std::move(on_selected).Run(accounts[0].account_id);
+            std::move(on_selected)
+                .Run(accounts[0].account_id, /*is_sign_in=*/true);
           }));
 
   EXPECT_EQ(test_case.config.Mediated_conf.accounts.size(), 1u);
@@ -1066,6 +1175,7 @@ TEST_F(BasicFederatedAuthRequestImplTest, AutoSignInWithScreenReader) {
 }
 
 TEST_F(FederatedAuthRequestImplTest, Revoke) {
+  base::HistogramTester histogram_tester;
   constexpr char kAccountId[] = "foo@bar.com";
 
   auto& auth_request = CreateAuthRequest(GURL(kIdpEndpoint));
@@ -1097,11 +1207,26 @@ TEST_F(FederatedAuthRequestImplTest, Revoke) {
         EXPECT_EQ(kAccountId, account_id);
         std::move(callback).Run(RevokeResponse::kSuccess);
       }));
+
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
   auto status = PerformRevokeRequest(kAccountId);
   EXPECT_EQ(RevokeStatus::kSuccess, status);
+
+  ukm_loop.Run();
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Status.Revoke", 1);
+  histogram_tester.ExpectBucketCount("Blink.FedCm.Status.Revoke",
+                                     RevokeStatusForMetrics::kSuccess, 1);
+
+  ExpectRevokeStatusUKM(RevokeStatusForMetrics::kSuccess);
 }
 
 TEST_F(FederatedAuthRequestImplTest, RevokeNoPermission) {
+  base::HistogramTester histogram_tester;
+
   constexpr char kAccountId[] = "foo@bar.com";
 
   auto& auth_request = CreateAuthRequest(GURL(kIdpEndpoint));
@@ -1114,8 +1239,187 @@ TEST_F(FederatedAuthRequestImplTest, RevokeNoPermission) {
       HasRequestPermission(_, url::Origin::Create(GURL(kIdpTestOrigin))))
       .WillOnce(Return(false));
 
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
   auto status = PerformRevokeRequest(kAccountId);
   EXPECT_EQ(RevokeStatus::kError, status);
+
+  ukm_loop.Run();
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Status.Revoke", 1);
+  histogram_tester.ExpectBucketCount("Blink.FedCm.Status.Revoke",
+                                     RevokeStatusForMetrics::kNoAccountToRevoke,
+                                     1);
+
+  ExpectRevokeStatusUKM(RevokeStatusForMetrics::kNoAccountToRevoke);
+}
+
+TEST_F(BasicFederatedAuthRequestImplTest, MetricsForSuccessfulSignUpCase) {
+  base::HistogramTester histogram_tester;
+
+  const auto& test_case = kSuccessfulMediatedSignUpTestCase;
+  auto& auth_request = CreateAuthRequest(GURL(test_case.inputs.provider));
+  SetMockExpectations(test_case);
+  // Sets specific expectations for sharing permission.
+  NiceMock<MockSharingPermissionDelegate> mock_sharing_permission_delegate;
+  auth_request.SetSharingPermissionDelegateForTests(
+      &mock_sharing_permission_delegate);
+
+  EXPECT_EQ(test_case.config.Mediated_conf.accounts.size(), 1u);
+
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
+  auto auth_response = PerformAuthRequest(
+      test_case.inputs.client_id, test_case.inputs.nonce, test_case.inputs.mode,
+      test_case.inputs.prefer_auto_sign_in);
+  EXPECT_EQ(auth_response.second.value(), kToken);
+
+  ukm_loop.Run();
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ShowAccountsDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ContinueOnDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.CancelOnDialog", 0);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.IdTokenResponse", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.TurnaroundTime", 1);
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Status.RequestIdToken", 1);
+  histogram_tester.ExpectBucketCount("Blink.FedCm.Status.RequestIdToken",
+                                     IdTokenStatus::kSuccess, 1);
+
+  ExpectTimingUKM("Timing.ShowAccountsDialog");
+  ExpectTimingUKM("Timing.ContinueOnDialog");
+  ExpectTimingUKM("Timing.IdTokenResponse");
+  ExpectTimingUKM("Timing.TurnaroundTime");
+  ExpectNoTimingUKM("Timing.CancelOnDialog");
+
+  ExpectRequestIdTokenStatusUKM(IdTokenStatus::kSuccess);
+}
+
+TEST_F(BasicFederatedAuthRequestImplTest, MetricsForSuccessfulSignInCase) {
+  base::HistogramTester histogram_tester;
+
+  const auto& test_case = kSuccessfulMediatedSignUpTestCase;
+  auto& auth_request = CreateAuthRequest(GURL(test_case.inputs.provider));
+  SetMockExpectations(test_case);
+  // Sets specific expectations for sharing permission.
+  NiceMock<MockSharingPermissionDelegate> mock_sharing_permission_delegate;
+  auth_request.SetSharingPermissionDelegateForTests(
+      &mock_sharing_permission_delegate);
+
+  // Pretends that the sharing permission has been granted for this account.
+  EXPECT_CALL(mock_sharing_permission_delegate,
+              HasSharingPermissionForAccount(
+                  url::Origin::Create(GURL(kIdpTestOrigin)), _, "1234"))
+      .WillOnce(Return(true));
+
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
+  auto auth_response = PerformAuthRequest(
+      test_case.inputs.client_id, test_case.inputs.nonce, test_case.inputs.mode,
+      test_case.inputs.prefer_auto_sign_in);
+  EXPECT_EQ(LoginState::kSignIn, displayed_accounts()[0].login_state);
+
+  ukm_loop.Run();
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ShowAccountsDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ContinueOnDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.CancelOnDialog", 0);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.IdTokenResponse", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.TurnaroundTime", 1);
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Status.RequestIdToken", 1);
+  histogram_tester.ExpectBucketCount("Blink.FedCm.Status.RequestIdToken",
+                                     IdTokenStatus::kSuccess, 1);
+
+  ExpectTimingUKM("Timing.ShowAccountsDialog");
+  ExpectTimingUKM("Timing.ContinueOnDialog");
+  ExpectTimingUKM("Timing.IdTokenResponse");
+  ExpectTimingUKM("Timing.TurnaroundTime");
+  ExpectNoTimingUKM("Timing.CancelOnDialog");
+
+  ExpectRequestIdTokenStatusUKM(IdTokenStatus::kSuccess);
+}
+
+TEST_F(BasicFederatedAuthRequestImplTest, MetricsForNotSelectingAccount) {
+  base::HistogramTester histogram_tester;
+
+  AccountList displayed_accounts;
+  const AuthRequestTestCase test_case = {
+      "Failed mediated flow due to user not selecting an account",
+      {kIdpTestOrigin, kClientId, kNonce, RequestMode::kMediated,
+       kNotPreferAutoSignIn},
+      {RequestIdTokenStatus::kSuccess, kToken},
+      {kToken,
+       absl::nullopt,
+       FetchStatus::kSuccess,
+       kSuccessfulClientId,
+       "",
+       kAccountsEndpoint,
+       kTokenEndpoint,
+       kClientIdMetadataEndpoint,
+       kPermissionNoop,
+       {FetchStatus::kSuccess, kAccounts, absl::nullopt,
+        /*customized_dialog=*/true}}};
+  auto& auth_request = CreateAuthRequest(GURL(test_case.inputs.provider));
+  SetMockExpectations(test_case);
+  // Sets specific expectations for sharing permission:
+  NiceMock<MockSharingPermissionDelegate> mock_sharing_permission_delegate;
+  auth_request.SetSharingPermissionDelegateForTests(
+      &mock_sharing_permission_delegate);
+
+  EXPECT_CALL(*mock_dialog_controller(),
+              ShowAccountsDialog(_, _, _, _, _, _, _, _))
+      .WillOnce(Invoke(
+          [&](content::WebContents* rp_web_contents,
+              content::WebContents* idp_web_contents,
+              const GURL& idp_signin_url,
+              base::span<const content::IdentityRequestAccount> accounts,
+              const IdentityProviderMetadata& idp_metadata,
+              const ClientIdData& client_id_data, SignInMode sign_in_mode,
+              IdentityRequestDialogController::AccountSelectionCallback
+                  on_selected) {
+            displayed_accounts = AccountList(accounts.begin(), accounts.end());
+            // Pretends that the user did not select any account.
+            std::move(on_selected).Run("", /*is_sign_in=*/false);
+          }));
+
+  EXPECT_EQ(test_case.config.Mediated_conf.accounts.size(), 1u);
+
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
+  auto auth_response = PerformAuthRequest(
+      test_case.inputs.client_id, test_case.inputs.nonce, test_case.inputs.mode,
+      test_case.inputs.prefer_auto_sign_in);
+
+  ukm_loop.Run();
+
+  ASSERT_FALSE(displayed_accounts.empty());
+  EXPECT_EQ(displayed_accounts[0].login_state, LoginState::kSignUp);
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ShowAccountsDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.ContinueOnDialog", 0);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.CancelOnDialog", 1);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.IdTokenResponse", 0);
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Timing.TurnaroundTime", 0);
+
+  histogram_tester.ExpectTotalCount("Blink.FedCm.Status.RequestIdToken", 1);
+  histogram_tester.ExpectBucketCount("Blink.FedCm.Status.RequestIdToken",
+                                     IdTokenStatus::kNotSelectAccount, 1);
+
+  ExpectTimingUKM("Timing.ShowAccountsDialog");
+  ExpectTimingUKM("Timing.CancelOnDialog");
+  ExpectNoTimingUKM("Timing.ContinueOnDialog");
+  ExpectNoTimingUKM("Timing.IdTokenResponse");
+  ExpectNoTimingUKM("Timing.TurnaroundTime");
+
+  ExpectRequestIdTokenStatusUKM(IdTokenStatus::kNotSelectAccount);
 }
 
 }  // namespace content

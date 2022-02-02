@@ -37,6 +37,7 @@
 #include "base/dcheck_is_on.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink-forward.h"
@@ -644,8 +645,6 @@ class CORE_EXPORT Document : public ContainerNode,
   void IncLayoutCallsCounterNG() { ++layout_calls_counter_ng_; }
   void IncLayoutBlockCounter() { ++layout_blocks_counter_; }
   void IncLayoutBlockCounterNG() { ++layout_blocks_counter_ng_; }
-  void IncLayoutFlexboxCounterNG() { ++layout_flexbox_counter_ng_; }
-  void IncLayoutGridCounterNG() { ++layout_grid_counter_ng_; }
 
   scoped_refptr<const ComputedStyle> StyleForPage(uint32_t page_index);
 
@@ -839,6 +838,11 @@ class CORE_EXPORT Document : public ContainerNode,
     return printing_ == kPrinting || printing_ == kFinishingPrinting;
   }
   void SetPrinting(PrintingState);
+  // Call this if printing is about to begin, so that any unloaded resources
+  // (such as lazy-loaded images) necessary for printing are requested and
+  // marked as blocking load. Returns whether any resources have started
+  // loading as a result.
+  bool WillPrintSoon();
 
   enum PaintPreviewState {
     // A paint preview is not in the process of being captured.
@@ -1081,6 +1085,7 @@ class CORE_EXPORT Document : public ContainerNode,
   void OverrideLastModified(const AtomicString& modified) {
     override_last_modified_ = modified;
   }
+  absl::optional<base::Time> lastModifiedTime() const;
   String lastModified() const;
 
   // The cookieURL is used to query the cookie database for this document's
@@ -1243,11 +1248,12 @@ class CORE_EXPORT Document : public ContainerNode,
   // there is no such element.
   HTMLLinkElement* LinkCanonical() const;
 
-  void UpdateFocusAppearanceAfterLayout();
-  void CancelFocusAppearanceUpdate();
-  // Return true after UpdateFocusAppearanceAfterLayout() call and before
-  // updating focus appearance.
-  bool WillUpdateFocusAppearance() const;
+  void SetShouldUpdateSelectionAfterLayout(bool flag) {
+    should_update_selection_after_layout_ = flag;
+  }
+  bool ShouldUpdateSelectionAfterLayout() const {
+    return should_update_selection_after_layout_;
+  }
 
   void SendFocusNotification(Element*, mojom::blink::FocusType);
 
@@ -1429,7 +1435,6 @@ class CORE_EXPORT Document : public ContainerNode,
   }
 
   void AttachCompositorTimeline(CompositorAnimationTimeline*) const;
-  void DetachCompositorTimeline(CompositorAnimationTimeline*) const;
 
   void AddToTopLayer(Element*, const Element* before = nullptr);
   void RemoveFromTopLayer(Element*);
@@ -1646,6 +1651,10 @@ class CORE_EXPORT Document : public ContainerNode,
   // Re-collect the META values that apply and pass to LayerTreeHost.
   void BatterySavingsMetaChanged();
 
+  // A META element with name=supports-reduced-motion was added, removed, or
+  // modified. Re-collect the META values.
+  void SupportsReducedMotionMetaChanged();
+
   // Use counter related functions.
   void CountUse(mojom::WebFeature feature) final;
   void CountDeprecation(mojom::WebFeature feature) final;
@@ -1755,6 +1764,16 @@ class CORE_EXPORT Document : public ContainerNode,
   void ObserveForIntrinsicSize(Element* element);
   void UnobserveForIntrinsicSize(Element* element);
 
+  // Returns true if motion should be forcibly reduced in animations on this
+  // document. This returns true if all of the following conditions are true:
+  // 1. The user prefers reduced motion.
+  // 2. The document does not contain a meta tag indicating it supports and uses
+  //    prefers-reduced-motion media queries.
+  // 3. The ForceReduceMotion feature is enabled.
+  // For more details and explanation, see
+  // https://github.com/flackr/reduce-motion/blob/main/explainer.md
+  bool ShouldForceReduceMotion() const;
+
  protected:
   void ClearXMLVersion() { xml_version_ = String(); }
 
@@ -1784,6 +1803,8 @@ class CORE_EXPORT Document : public ContainerNode,
   friend class HasMatchedCacheScope;
   friend class CanvasRenderingAPIUkmMetricsTest;
   friend class OffscreenCanvasRenderingAPIUkmMetricsTest;
+  FRIEND_TEST_ALL_PREFIXES(LazyLoadAutomaticImagesTest,
+                           LoadAllImagesIfPrinting);
   FRIEND_TEST_ALL_PREFIXES(FrameFetchContextSubresourceFilterTest,
                            DuringOnFreeze);
   FRIEND_TEST_ALL_PREFIXES(DocumentTest, FindInPageUkm);
@@ -1875,7 +1896,7 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void UpdateTitle(const String&);
   void DispatchDidReceiveTitle();
-  void UpdateFocusAppearance();
+  void UpdateSelectionAfterLayout();
   void UpdateBaseURL();
 
   void ExecuteScriptsWaitingForResources();
@@ -2100,7 +2121,7 @@ class CORE_EXPORT Document : public ContainerNode,
   Member<AXObjectCache> ax_object_cache_;
   Member<DocumentMarkerController> markers_;
 
-  bool update_focus_appearance_after_layout_ = false;
+  bool should_update_selection_after_layout_ = false;
 
   Member<Element> css_target_;
 
@@ -2277,12 +2298,6 @@ class CORE_EXPORT Document : public ContainerNode,
   // The number of LayoutNGMixin<LayoutBlock> instances
   uint32_t layout_blocks_counter_ng_ = 0;
 
-  // The number of LayoutNGFlexibleBox instances
-  uint32_t layout_flexbox_counter_ng_ = 0;
-
-  // The number of LayoutNGGrid instances
-  uint32_t layout_grid_counter_ng_ = 0;
-
   bool deferred_compositor_commit_is_allowed_ = false;
 
   // True when the document was created (in DomImplementation) for specific MIME
@@ -2347,6 +2362,10 @@ class CORE_EXPORT Document : public ContainerNode,
   // call or potential user prompt.
   bool expressly_denied_storage_access_ = false;
 
+  // True if the developer supplied a media query indicating that
+  // the site has support for reduced motion.
+  bool supports_reduced_motion_ = false;
+
   Member<FontPreloadManager> font_preload_manager_;
 
   int async_script_count_ = 0;
@@ -2363,6 +2382,9 @@ class CORE_EXPORT Document : public ContainerNode,
   HeapVector<Member<HTMLMetaElement>> meta_theme_color_elements_;
 
   Member<ResizeObserver> intrinsic_size_observer_;
+
+  // Whether any resource loads that block printing are happening.
+  bool loading_for_print_ = false;
 
   // If you want to add new data members to blink::Document, please reconsider
   // if the members really should be in blink::Document.  document.h is a very

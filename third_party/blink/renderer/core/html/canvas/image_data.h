@@ -40,7 +40,7 @@
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
 #include "ui/gfx/geometry/size.h"
@@ -213,7 +213,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
 
   void Trace(Visitor*) const override;
 
-  WARN_UNUSED_RESULT v8::Local<v8::Object> AssociateWithWrapper(
+  [[nodiscard]] v8::Local<v8::Object> AssociateWithWrapper(
       v8::Isolate* isolate,
       const WrapperTypeInfo* wrapper_type_info,
       v8::Local<v8::Object> wrapper) override;

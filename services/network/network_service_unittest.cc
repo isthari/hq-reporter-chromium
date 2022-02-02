@@ -155,7 +155,7 @@ TEST_F(NetworkServiceTest, CreateContextWithoutChannelID) {
 }
 
 // Platforms where Negotiate can be used.
-#if BUILDFLAG(USE_KERBEROS) && !defined(OS_ANDROID)
+#if BUILDFLAG(USE_KERBEROS) && !BUILDFLAG(IS_ANDROID)
 // Returns the negotiate factory, if one exists, to query its configuration.
 net::HttpAuthHandlerNegotiate::Factory* GetNegotiateFactory(
     NetworkContext* network_context) {
@@ -184,52 +184,28 @@ TEST_F(NetworkServiceTest, AuthDefaultParams) {
   EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
   EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
 
-#if BUILDFLAG(USE_KERBEROS) && !defined(OS_ANDROID)
+#if BUILDFLAG(USE_KERBEROS) && !BUILDFLAG(IS_ANDROID)
   ASSERT_TRUE(GetNegotiateFactory(&network_context));
-#if defined(OS_POSIX) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_EQ("",
             GetNegotiateFactory(&network_context)->GetLibraryNameForTesting());
 #endif
-#endif  // BUILDFLAG(USE_KERBEROS) && !defined(OS_ANDROID)
+#endif  // BUILDFLAG(USE_KERBEROS) && !BUILDFLAG(IS_ANDROID)
 
   EXPECT_FALSE(auth_handler_factory->http_auth_preferences()
                    ->NegotiateDisableCnameLookup());
   EXPECT_FALSE(
       auth_handler_factory->http_auth_preferences()->NegotiateEnablePort());
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   EXPECT_TRUE(auth_handler_factory->http_auth_preferences()->NtlmV2Enabled());
-#endif  // defined(OS_POSIX) || defined(OS_FUCHSIA)
-#if defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
+#if BUILDFLAG(IS_ANDROID)
   EXPECT_EQ("", auth_handler_factory->http_auth_preferences()
                     ->AuthAndroidNegotiateAccountType());
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
-TEST_F(NetworkServiceTest, AuthSchemesDigestAndNtlmOnly) {
-  mojom::HttpAuthStaticParamsPtr auth_params =
-      mojom::HttpAuthStaticParams::New();
-  auth_params->supported_schemes.push_back("digest");
-  auth_params->supported_schemes.push_back("ntlm");
-  service()->SetUpHttpAuth(std::move(auth_params));
-
-  mojo::Remote<mojom::NetworkContext> network_context_remote;
-  NetworkContext network_context(
-      service(), network_context_remote.BindNewPipeAndPassReceiver(),
-      CreateContextParams());
-  net::HttpAuthHandlerRegistryFactory* auth_handler_factory =
-      reinterpret_cast<net::HttpAuthHandlerRegistryFactory*>(
-          network_context.url_request_context()->http_auth_handler_factory());
-  ASSERT_TRUE(auth_handler_factory);
-
-  EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
-  EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
-  EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
-  EXPECT_FALSE(
-      auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
-}
-
-TEST_F(NetworkServiceTest, AuthSchemesNone) {
-  // An empty list means to support no schemes.
+TEST_F(NetworkServiceTest, AuthSchemesDynamicallyChanging) {
   service()->SetUpHttpAuth(mojom::HttpAuthStaticParams::New());
 
   mojo::Remote<mojom::NetworkContext> network_context_remote;
@@ -241,6 +217,78 @@ TEST_F(NetworkServiceTest, AuthSchemesNone) {
           network_context.url_request_context()->http_auth_handler_factory());
   ASSERT_TRUE(auth_handler_factory);
 
+  EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
+  EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
+  EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
+#if BUILDFLAG(USE_KERBEROS) && !BUILDFLAG(IS_ANDROID)
+  EXPECT_TRUE(
+      auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+#else
+  EXPECT_FALSE(
+      auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+#endif
+  {
+    mojom::HttpAuthDynamicParamsPtr auth_params =
+        mojom::HttpAuthDynamicParams::New();
+    auth_params->allowed_schemes = std::vector<std::string>{};
+    service()->ConfigureHttpAuthPrefs(std::move(auth_params));
+
+    EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
+    EXPECT_FALSE(
+        auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
+    EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
+    EXPECT_FALSE(
+        auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+  }
+  {
+    mojom::HttpAuthDynamicParamsPtr auth_params =
+        mojom::HttpAuthDynamicParams::New();
+    auth_params->allowed_schemes =
+        std::vector<std::string>{net::kDigestAuthScheme, net::kNtlmAuthScheme};
+    service()->ConfigureHttpAuthPrefs(std::move(auth_params));
+
+    EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
+    EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
+    EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
+    EXPECT_FALSE(
+        auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+  }
+  {
+    mojom::HttpAuthDynamicParamsPtr auth_params =
+        mojom::HttpAuthDynamicParams::New();
+    service()->ConfigureHttpAuthPrefs(std::move(auth_params));
+
+    EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
+    EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
+    EXPECT_TRUE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
+#if BUILDFLAG(USE_KERBEROS) && !BUILDFLAG(IS_ANDROID)
+    EXPECT_TRUE(
+        auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+#else
+    EXPECT_FALSE(
+        auth_handler_factory->GetSchemeFactory(net::kNegotiateAuthScheme));
+#endif
+  }
+}
+
+TEST_F(NetworkServiceTest, AuthSchemesNone) {
+  service()->SetUpHttpAuth(mojom::HttpAuthStaticParams::New());
+
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
+  net::HttpAuthHandlerRegistryFactory* auth_handler_factory =
+      reinterpret_cast<net::HttpAuthHandlerRegistryFactory*>(
+          network_context.url_request_context()->http_auth_handler_factory());
+  ASSERT_TRUE(auth_handler_factory);
+
+  // An empty list means to support no schemes.
+  mojom::HttpAuthDynamicParamsPtr auth_params =
+      mojom::HttpAuthDynamicParams::New();
+  auth_params->allowed_schemes = std::vector<std::string>{};
+  service()->ConfigureHttpAuthPrefs(std::move(auth_params));
+
   EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kBasicAuthScheme));
   EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kDigestAuthScheme));
   EXPECT_FALSE(auth_handler_factory->GetSchemeFactory(net::kNtlmAuthScheme));
@@ -249,11 +297,16 @@ TEST_F(NetworkServiceTest, AuthSchemesNone) {
 #if BUILDFLAG(USE_EXTERNAL_GSSAPI)
 TEST_F(NetworkServiceTest, AuthGssapiLibraryName) {
   const std::string kGssapiLibraryName = "Jim";
-  mojom::HttpAuthStaticParamsPtr auth_params =
+  mojom::HttpAuthStaticParamsPtr static_auth_params =
       mojom::HttpAuthStaticParams::New();
-  auth_params->supported_schemes.push_back("negotiate");
-  auth_params->gssapi_library_name = kGssapiLibraryName;
-  service()->SetUpHttpAuth(std::move(auth_params));
+  static_auth_params->gssapi_library_name = kGssapiLibraryName;
+  service()->SetUpHttpAuth(std::move(static_auth_params));
+
+  mojom::HttpAuthDynamicParamsPtr dynamic_auth_params =
+      mojom::HttpAuthDynamicParams::New();
+  dynamic_auth_params->allowed_schemes =
+      std::vector<std::string>{net::kNegotiateAuthScheme};
+  service()->ConfigureHttpAuthPrefs(std::move(dynamic_auth_params));
 
   mojo::Remote<mojom::NetworkContext> network_context_remote;
   NetworkContext network_context(
@@ -462,7 +515,7 @@ TEST_F(NetworkServiceTest, AuthEnableNegotiatePort) {
 }
 
 // DnsClient isn't supported on iOS.
-#if !defined(OS_IOS)
+#if !BUILDFLAG(IS_IOS)
 
 TEST_F(NetworkServiceTest, DnsClientEnableDisable) {
   // Create valid DnsConfig.
@@ -785,10 +838,10 @@ TEST_F(NetworkServiceTest, DohProbe_ContextRemovedAfterTimeout) {
   EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
 }
 
-#endif  // !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_IOS)
 
 // |ntlm_v2_enabled| is only supported on POSIX platforms.
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 TEST_F(NetworkServiceTest, AuthNtlmV2Enabled) {
   // Set |ntlm_v2_enabled| to false before creating any NetworkContexts.
   mojom::HttpAuthDynamicParamsPtr auth_params =
@@ -821,10 +874,10 @@ TEST_F(NetworkServiceTest, AuthNtlmV2Enabled) {
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
   EXPECT_FALSE(auth_handler_factory->http_auth_preferences()->NtlmV2Enabled());
 }
-#endif  // defined(OS_POSIX)
+#endif  // BUILDFLAG(IS_POSIX)
 
 // |android_negotiate_account_type| is only supported on Android.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 TEST_F(NetworkServiceTest, AuthAndroidNegotiateAccountType) {
   const char kInitialAccountType[] = "Scorpio";
   const char kFinalAccountType[] = "Pisces";
@@ -855,7 +908,7 @@ TEST_F(NetworkServiceTest, AuthAndroidNegotiateAccountType) {
   EXPECT_EQ(kFinalAccountType, auth_handler_factory->http_auth_preferences()
                                    ->AuthAndroidNegotiateAccountType());
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 static int GetGlobalMaxConnectionsPerProxy() {
   return net::ClientSocketPoolManager::max_sockets_per_proxy_server(
@@ -1240,7 +1293,7 @@ class NetworkChangeTest : public testing::Test {
 
 // mojom:NetworkChangeManager isn't supported on iOS.
 // See the same ifdef in CreateNetworkChangeNotifierIfNeeded.
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
 #define MAYBE_NetworkChangeManagerRequest DISABLED_NetworkChangeManagerRequest
 #else
 #define MAYBE_NetworkChangeManagerRequest NetworkChangeManagerRequest

@@ -32,6 +32,7 @@ import android.view.ViewGroup.LayoutParams;
 import android.view.ViewStub;
 import android.widget.ImageView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.CallSuper;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
@@ -79,6 +80,7 @@ import org.chromium.chrome.browser.accessibility.FontSizePrefs;
 import org.chromium.chrome.browser.app.appmenu.AppMenuPropertiesDelegateImpl;
 import org.chromium.chrome.browser.app.flags.ChromeCachedFlags;
 import org.chromium.chrome.browser.app.metrics.LaunchCauseMetrics;
+import org.chromium.chrome.browser.app.omnibox.OmniboxPedalDelegateImpl;
 import org.chromium.chrome.browser.app.tab_activity_glue.ReparentingDelegateFactory;
 import org.chromium.chrome.browser.app.tab_activity_glue.TabReparentingController;
 import org.chromium.chrome.browser.app.tabmodel.AsyncTabParamsManagerSingleton;
@@ -403,6 +405,13 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
     protected void onPreCreate() {
         CachedFeatureFlags.onStartOrResumeCheckpoint();
         super.onPreCreate();
+        OnBackPressedCallback callback = new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                ChromeActivity.this.handleOnBackPressed();
+            }
+        };
+        getOnBackPressedDispatcher().addCallback(this, callback);
     }
 
     @Override
@@ -519,7 +528,7 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
                 this::shouldShowOverviewPageOnStart, this::isWarmOnResume,
                 /* appMenuDelegate= */ this,
                 /* statusBarColorProvider= */ this, getIntentRequestTracker(),
-                mTabReparentingControllerSupplier, false);
+                mTabReparentingControllerSupplier, new OmniboxPedalDelegateImpl(this), false);
         // clang-format on
     }
 
@@ -645,10 +654,10 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
             mShareRegistrationCoordinator.registerShareType(PrintShareActivity.BROADCAST_ACTION,
                     () -> doPrintShare(this, mActivityTabProvider));
 
-            ShareDelegate shareDelegate =
-                    new ShareDelegateImpl(mRootUiCoordinator.getBottomSheetController(),
-                            getLifecycleDispatcher(), getActivityTabProvider(),
-                            new ShareDelegateImpl.ShareSheetDelegate(), isCustomTab());
+            ShareDelegate shareDelegate = new ShareDelegateImpl(
+                    mRootUiCoordinator.getBottomSheetController(), getLifecycleDispatcher(),
+                    getActivityTabProvider(), getTabModelSelectorSupplier(),
+                    new ShareDelegateImpl.ShareSheetDelegate(), isCustomTab());
             mShareDelegateSupplier.set(shareDelegate);
 
             // If onStart was called before postLayoutInflation (because inflation was done in a
@@ -2351,8 +2360,8 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
         return true;
     }
 
-    @Override
-    public final void onBackPressed() {
+    /** Handles back press events for Chrome in various states. */
+    protected final void handleOnBackPressed() {
         if (mNativeInitialized) RecordUserAction.record("SystemBack");
 
         TextBubble.dismissBubbles();
@@ -2373,9 +2382,7 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
             return;
         }
 
-        if (handleBackPressed()) return;
-
-        super.onBackPressed();
+        handleBackPressed();
     }
 
     @Override
@@ -2546,13 +2553,13 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
         }
 
         if (id == R.id.disable_price_tracking_menu_id) {
-            // TODO(crbug.com/1266881): Add event here to support IPH.
             // TODO(crbug.com/1268976): Extract this code into a one-liner.
-            BookmarkId bookmarkId =
-                    mBookmarkBridgeSupplier.get().getUserBookmarkIdForTab(currentTab);
+            List<BookmarkId> bookmarkIds =
+                    PowerBookmarkUtils.getBookmarkIdsWithSharedClusterIdForTab(
+                            currentTab, mBookmarkBridgeSupplier.get());
             PowerBookmarkUtils.setPriceTrackingEnabledWithSnackbars(mSubscriptionsManager,
-                    mBookmarkBridgeSupplier.get(), bookmarkId,
-                    /*enabled=*/false, mSnackbarManager, getResources(), (status) -> {});
+                    mBookmarkBridgeSupplier.get(), bookmarkIds,
+                    /*enabled=*/false, mSnackbarManager, getResources());
             RecordUserAction.record("MobileMenuDisablePriceTracking");
             return true;
         }

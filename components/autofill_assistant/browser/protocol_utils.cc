@@ -70,11 +70,44 @@ std::string ProtocolUtils::CreateGetScriptsRequest(
   script_proto.set_url(url.spec());
   *script_proto.mutable_client_context() = client_context;
   *script_proto.mutable_script_parameters() =
-      script_parameters.ToProto(/* only_trigger_script_allowlisted = */ false);
+      script_parameters.ToProto(/* only_non_sensitive_allowlisted = */ false);
   std::string serialized_script_proto;
   bool success = script_proto.SerializeToString(&serialized_script_proto);
   DCHECK(success);
   return serialized_script_proto;
+}
+
+// static
+std::string ProtocolUtils::CreateCapabilitiesByHashRequest(
+    uint32_t hash_prefix_length,
+    const std::vector<uint64_t>& hash_prefix,
+    const ClientContextProto& client_context,
+    const ScriptParameters& script_parameters) {
+  GetCapabilitiesByHashPrefixRequestProto request;
+  request.set_hash_prefix_length(hash_prefix_length);
+  for (uint64_t prefix : hash_prefix) {
+    request.add_hash_prefix(prefix);
+  }
+  *request.mutable_script_parameters() =
+      script_parameters.ToProto(/* only_non_sensitive_allowlisted = */ true);
+
+  ClientContextProto non_sensitive_context;
+  if (client_context.has_locale()) {
+    non_sensitive_context.set_locale(client_context.locale());
+  }
+  if (client_context.has_country()) {
+    non_sensitive_context.set_country(client_context.country());
+  }
+  if (client_context.chrome().has_chrome_version()) {
+    non_sensitive_context.mutable_chrome()->set_chrome_version(
+        client_context.chrome().chrome_version());
+  }
+  *request.mutable_client_context() = non_sensitive_context;
+
+  std::string serialized_request;
+  bool success = request.SerializeToString(&serialized_request);
+  DCHECK(success);
+  return serialized_request;
 }
 
 // static
@@ -126,7 +159,7 @@ std::string ProtocolUtils::CreateInitialScriptActionsRequest(
   query->set_policy(PolicyType::SCRIPT);
   *request_proto.mutable_client_context() = client_context;
   *initial_request_proto->mutable_script_parameters() =
-      script_parameters.ToProto(/* only_trigger_script_allowlisted = */ false);
+      script_parameters.ToProto(/* only_non_sensitive_allowlisted = */ false);
   if (!global_payload.empty()) {
     request_proto.set_global_payload(global_payload);
   }
@@ -455,7 +488,7 @@ std::string ProtocolUtils::CreateGetTriggerScriptsRequest(
   request_proto.set_url(url.spec());
   *request_proto.mutable_client_context() = client_context;
   *request_proto.mutable_script_parameters() =
-      script_parameters.ToProto(/* only_trigger_script_allowlisted = */ true);
+      script_parameters.ToProto(/* only_non_sensitive_allowlisted = */ true);
 
   std::string serialized_request_proto;
   bool success = request_proto.SerializeToString(&serialized_request_proto);

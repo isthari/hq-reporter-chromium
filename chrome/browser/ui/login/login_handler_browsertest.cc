@@ -1632,7 +1632,7 @@ IN_PROC_BROWSER_TEST_P(LoginPromptBrowserTest,
 // the omnibox.
 
 // Fails occasionally on Mac. http://crbug.com/852703
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_CancelLoginInterstitialOnRedirect \
   DISABLED_CancelLoginInterstitialOnRedirect
 #else
@@ -1978,7 +1978,8 @@ IN_PROC_BROWSER_TEST_P(LoginPromptBrowserTest, PromptWithOnlyInitialEntry) {
   content::WebContents* opened_contents =
       browser()->tab_strip_model()->GetWebContentsAt(1);
   NavigationController* opened_controller = &opened_contents->GetController();
-  ASSERT_TRUE(opened_controller->GetVisibleEntry()->IsInitialEntry());
+  ASSERT_TRUE(!opened_controller->GetVisibleEntry() ||
+              opened_controller->GetVisibleEntry()->IsInitialEntry());
   LoginPromptBrowserTestObserver observer;
   observer.Register(content::Source<NavigationController>(opened_controller));
   WindowedAuthNeededObserver auth_needed_waiter(opened_controller);
@@ -2109,7 +2110,7 @@ IN_PROC_BROWSER_TEST_P(LoginPromptBrowserTest,
 }
 
 // Tests that basic proxy auth works as expected, for HTTPS pages.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 // TODO(https://crbug.com/1000446): Re-enable this test.
 #define MAYBE_ProxyAuthHTTPS DISABLED_ProxyAuthHTTPS
 #else

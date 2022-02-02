@@ -298,6 +298,16 @@ bool LayerTreeHost::IsImplThread() const {
   return task_runner_provider_ && task_runner_provider_->IsImplThread();
 }
 
+bool LayerTreeHost::IsOwnerThread() const {
+  return !task_runner_provider_->MainThreadTaskRunner() ||
+         task_runner_provider_->MainThreadTaskRunner()
+             ->RunsTasksInCurrentSequence();
+}
+
+bool LayerTreeHost::InProtectedSequence() const {
+  return in_commit();
+}
+
 SwapPromiseManager* LayerTreeHost::GetSwapPromiseManager() {
   DCHECK(IsMainThread());
   return &swap_promise_manager_;
@@ -391,13 +401,13 @@ std::unique_ptr<CommitState> LayerTreeHost::WillCommit(
     bool has_updates) {
   DCHECK(IsMainThread());
   DCHECK(!commit_completion_event_);
-  commit_completion_event_ = std::move(completion);
   std::unique_ptr<CommitState> result;
   if (has_updates)
     result = ActivateCommitState();
   swap_promise_manager_.WillCommit();
   client_->WillCommit(has_updates ? *result : *pending_commit_state());
   pending_commit_state()->source_frame_number++;
+  commit_completion_event_ = std::move(completion);
   return result;
 }
 
@@ -422,7 +432,13 @@ std::unique_ptr<CommitState> LayerTreeHost::ActivateCommitState() {
   return active_commit_state;
 }
 
-void LayerTreeHost::WaitForCommitCompletion() {
+void LayerTreeHost::WaitForProtectedSequenceCompletion() const {
+  if (compositor_mode_ == CompositorMode::SINGLE_THREADED)
+    return;
+  WaitForCommitCompletion();
+}
+
+void LayerTreeHost::WaitForCommitCompletion() const {
   DCHECK(IsMainThread());
   if (commit_completion_event_) {
     TRACE_EVENT0("cc", "LayerTreeHost::WaitForCommitCompletion");
@@ -433,9 +449,12 @@ void LayerTreeHost::WaitForCommitCompletion() {
 
 void LayerTreeHost::UpdateDeferMainFrameUpdateInternal() {
   DCHECK(IsMainThread());
-  proxy_->SetDeferMainFrameUpdate(
-      defer_main_frame_update_count_ > 0 ||
-      !pending_commit_state()->local_surface_id_from_parent.is_valid());
+  proxy_->SetDeferMainFrameUpdate(MainFrameUpdatesAreDeferred());
+}
+
+bool LayerTreeHost::MainFrameUpdatesAreDeferred() const {
+  return defer_main_frame_update_count_ > 0 ||
+         !pending_commit_state()->local_surface_id_from_parent.is_valid();
 }
 
 bool LayerTreeHost::IsUsingLayerLists() const {
@@ -444,7 +463,7 @@ bool LayerTreeHost::IsUsingLayerLists() const {
 
 void LayerTreeHost::CommitComplete(const CommitTimestamps& commit_timestamps) {
   DCHECK(IsMainThread());
-  // This DCHECK ensures that WaitForCommitCompletion() will not block.
+  // This DCHECK ensures that commit_completion_event_.Wait() will not block.
   DCHECK(IsMainThread());
   DCHECK(!in_commit());
   WaitForCommitCompletion();
@@ -1159,7 +1178,7 @@ void LayerTreeHost::SetRootLayer(scoped_refptr<Layer> new_root_layer) {
     return;
 
   if (root_layer()) {
-    WaitForCommitCompletion();
+    WaitForProtectedSequenceCompletion();
     root_layer()->SetLayerTreeHost(nullptr);
   }
   thread_unsafe_commit_state().root_layer = new_root_layer;
@@ -1169,7 +1188,7 @@ void LayerTreeHost::SetRootLayer(scoped_refptr<Layer> new_root_layer) {
   }
 
   if (hud_layer()) {
-    WaitForCommitCompletion();
+    WaitForProtectedSequenceCompletion();
     hud_layer()->RemoveFromParent();
   }
 

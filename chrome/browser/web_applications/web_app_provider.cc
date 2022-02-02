@@ -200,6 +200,11 @@ OsIntegrationManager& WebAppProvider::os_integration_manager() {
   return *os_integration_manager_;
 }
 
+const OsIntegrationManager& WebAppProvider::os_integration_manager() const {
+  CheckIsConnected();
+  return *os_integration_manager_;
+}
+
 void WebAppProvider::Shutdown() {
   ui_manager_->Shutdown();
   externally_managed_app_manager_->Shutdown();
@@ -276,8 +281,8 @@ void WebAppProvider::CreateSubsystems(Profile* profile) {
         protocol_handler_manager.get());
 
     std::unique_ptr<UrlHandlerManager> url_handler_manager;
-#if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
+    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
     url_handler_manager = std::make_unique<UrlHandlerManagerImpl>(profile);
 #endif
 
@@ -298,8 +303,8 @@ void WebAppProvider::CreateSubsystems(Profile* profile) {
 void WebAppProvider::ConnectSubsystems() {
   DCHECK(!started_);
 
-  install_finalizer_->SetSubsystems(registrar_.get(), ui_manager_.get(),
-                                    sync_bridge_.get(),
+  install_finalizer_->SetSubsystems(install_manager_.get(), registrar_.get(),
+                                    ui_manager_.get(), sync_bridge_.get(),
                                     os_integration_manager_.get());
   install_manager_->SetSubsystems(registrar_.get(),
                                   os_integration_manager_.get(),

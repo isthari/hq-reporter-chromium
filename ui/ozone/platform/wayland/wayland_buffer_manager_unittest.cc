@@ -132,6 +132,8 @@ class WaylandBufferManagerTest : public WaylandTest {
   void SetTerminateCallbackExpectationAndDestroyChannel(
       MockTerminateGpuCallback* callback,
       bool fail) {
+    channel_destroyed_error_message_.clear();
+
     if (!fail) {
       // To avoid warning messages as "Expected to be never called, but has 0
       // WillOnce()s", split the expecations based on the expected call times.
@@ -139,7 +141,10 @@ class WaylandBufferManagerTest : public WaylandTest {
     } else {
       EXPECT_CALL(*callback, Run(_))
           .Times(1)
-          .WillRepeatedly(::testing::Invoke([this, callback](std::string) {
+          .WillRepeatedly(::testing::Invoke([this, callback](
+                                                std::string error_string) {
+            channel_destroyed_error_message_ = error_string;
+
             manager_host_->OnChannelDestroyed();
 
             manager_host_->SetTerminateGpuCallback(callback->Get());
@@ -237,6 +242,8 @@ class WaylandBufferManagerTest : public WaylandTest {
 
   MockTerminateGpuCallback callback_;
   WaylandBufferManagerHost* manager_host_;
+  // Error message that is received when the manager_host destroys the channel.
+  std::string channel_destroyed_error_message_;
 };
 
 TEST_P(WaylandBufferManagerTest, CreateDmabufBasedBuffers) {
@@ -463,15 +470,16 @@ TEST_P(WaylandBufferManagerTest, CommitOverlaysNonExistingBufferId) {
   std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       INT32_MIN, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, 1u,
-      kDefaultScale, window_->GetBounds(), gfx::RectF(), window_->GetBounds(),
-      false, 1.0f, gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone,
-      gfx::RRectF()));
+      kDefaultScale, gfx::RectF(window_->GetBounds()), gfx::RectF(),
+      window_->GetBounds(), false, 1.0f, gfx::GpuFenceHandle(),
+      gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
 
   // Non-existing buffer id
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, 2u, kDefaultScale,
-      window_->GetBounds(), gfx::RectF(), window_->GetBounds(), false, 1.0f,
-      gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
+      gfx::RectF(window_->GetBounds()), gfx::RectF(), window_->GetBounds(),
+      false, 1.0f, gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone,
+      gfx::RRectF()));
 
   buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
                                       std::move(overlay_configs));
@@ -489,12 +497,14 @@ TEST_P(WaylandBufferManagerTest, CommitOverlaysWithSameBufferId) {
   std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, 1u, kDefaultScale,
-      window_->GetBounds(), gfx::RectF(), window_->GetBounds(), false, 1.0f,
-      gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
+      gfx::RectF(window_->GetBounds()), gfx::RectF(), window_->GetBounds(),
+      false, 1.0f, gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone,
+      gfx::RRectF()));
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, 1u, kDefaultScale,
-      window_->GetBounds(), gfx::RectF(), window_->GetBounds(), false, 1.0f,
-      gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
+      gfx::RectF(window_->GetBounds()), gfx::RectF(), window_->GetBounds(),
+      false, 1.0f, gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone,
+      gfx::RRectF()));
 
   buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
                                       std::move(overlay_configs));
@@ -525,6 +535,41 @@ TEST_P(WaylandBufferManagerTest, CommitBufferNullWidget) {
                                     window_->GetBounds());
 
   Sync();
+}
+
+// Tests that committing overlays with bounds_rect containing NaN or infinity
+// values is illegal - the host terminates the gpu process.
+TEST_P(WaylandBufferManagerTest, CommitOverlaysNonsensicalBoundsRect) {
+  const std::vector<gfx::RectF> bounds_rect_test_data = {
+      gfx::RectF(std::nanf(""), window_->GetBounds().y(), std::nanf(""),
+                 window_->GetBounds().height()),
+      gfx::RectF(window_->GetBounds().x(),
+                 std::numeric_limits<float>::infinity(),
+                 window_->GetBounds().width(),
+                 std::numeric_limits<float>::infinity())};
+
+  for (const auto& bounds_rect : bounds_rect_test_data) {
+    CreateDmabufBasedBufferAndSetTerminateExpectation(false /*fail*/, 1u);
+    ProcessCreatedBufferResourcesWithExpectation(1u /* expected size */,
+                                                 false /* fail */);
+
+    // Can't commit for bounds rect containing NaN
+    SetTerminateCallbackExpectationAndDestroyChannel(&callback_, true /*fail*/);
+
+    std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
+    overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
+        1u, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, 1u, kDefaultScale,
+        bounds_rect, gfx::RectF(), window_->GetBounds(), false, 1.0f,
+        gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
+
+    buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
+                                        std::move(overlay_configs));
+
+    Sync();
+
+    EXPECT_EQ("Overlay bounds_rect is invalid (NaN or infinity).",
+              channel_destroyed_error_message_);
+  }
 }
 
 TEST_P(WaylandBufferManagerTest, EnsureCorrectOrderOfCallbacks) {
@@ -1739,15 +1784,15 @@ TEST_P(WaylandBufferManagerTest, RootSurfaceIsCommittedLast) {
   std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       INT32_MIN, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, kBufferId1,
-      kDefaultScale, bounds, gfx::RectF(), bounds, false, 1.0f,
+      kDefaultScale, gfx::RectF(bounds), gfx::RectF(), bounds, false, 1.0f,
       gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, kBufferId2,
-      kDefaultScale, bounds, gfx::RectF(), bounds, false, 1.0f,
+      kDefaultScale, gfx::RectF(bounds), gfx::RectF(), bounds, false, 1.0f,
       gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       1, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, kBufferId3,
-      kDefaultScale, bounds, gfx::RectF(), bounds, false, 1.0f,
+      kDefaultScale, gfx::RectF(bounds), gfx::RectF(), bounds, false, 1.0f,
       gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone, gfx::RRectF()));
   buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
                                       std::move(overlay_configs));
@@ -2000,8 +2045,8 @@ TEST_P(WaylandBufferManagerTest, CanSubmitOverlayPriority) {
       overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
           id == 1 ? INT32_MIN : id,
           gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, id, kDefaultScale,
-          window_->GetBounds(), gfx::RectF(), window_->GetBounds(), false, 1.0f,
-          gfx::GpuFenceHandle(), priority.first, gfx::RRectF()));
+          gfx::RectF(window_->GetBounds()), gfx::RectF(), window_->GetBounds(),
+          false, 1.0f, gfx::GpuFenceHandle(), priority.first, gfx::RRectF()));
     }
 
     buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
@@ -2076,9 +2121,9 @@ TEST_P(WaylandBufferManagerTest, CanSetRoundedCorners) {
           overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
               id == 1 ? INT32_MIN : id,
               gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, id, scale_factor,
-              window_->GetBounds(), gfx::RectF(), window_->GetBounds(), false,
-              1.0f, gfx::GpuFenceHandle(), gfx::OverlayPriorityHint::kNone,
-              rounded_corners));
+              gfx::RectF(window_->GetBounds()), gfx::RectF(),
+              window_->GetBounds(), false, 1.0f, gfx::GpuFenceHandle(),
+              gfx::OverlayPriorityHint::kNone, rounded_corners));
         }
 
         buffer_manager_gpu_->CommitOverlays(window_->GetWidget(),
@@ -2207,6 +2252,38 @@ TEST_P(WaylandBufferManagerTest, FeedbacksAreDiscardedIfClientMisbehaves) {
 
   DestroyBufferAndSetTerminateExpectation(widget, kBufferId1, false /*fail*/);
   DestroyBufferAndSetTerminateExpectation(widget, kBufferId2, false /*fail*/);
+}
+
+TEST_P(WaylandBufferManagerTest, ExecutesTasksAfterInitialization) {
+  // Unbind the pipe.
+  manager_host_->OnChannelDestroyed();
+
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(buffer_manager_gpu_->remote_host_);
+  EXPECT_TRUE(buffer_manager_gpu_->pending_tasks_.empty());
+
+  constexpr uint32_t kDmabufBufferId = 1;
+  CreateDmabufBasedBufferAndSetTerminateExpectation(false /*fail*/,
+                                                    kDmabufBufferId);
+  buffer_manager_gpu_->CommitBuffer(window_->GetWidget(), kDmabufBufferId,
+                                    window_->GetBounds(), kDefaultScale,
+                                    window_->GetBounds());
+  DestroyBufferAndSetTerminateExpectation(gfx::kNullAcceleratedWidget,
+                                          kDmabufBufferId, false /*fail*/);
+
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(3u, buffer_manager_gpu_->pending_tasks_.size());
+
+  auto interface_ptr = manager_host_->BindInterface();
+  buffer_manager_gpu_->Initialize(
+      std::move(interface_ptr), {}, false, true, false,
+      /*supports_non_backed_solid_color_buffers*/ false);
+
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(buffer_manager_gpu_->pending_tasks_.empty());
 }
 
 INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,

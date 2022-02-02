@@ -14,10 +14,12 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_manager.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/send_result.h"
+#include "content/browser/attribution_reporting/stored_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
@@ -65,10 +67,10 @@ class AttributionInternalsWebUiBrowserTest : public ContentBrowserTest {
  public:
   AttributionInternalsWebUiBrowserTest() {
     ON_CALL(manager_, GetActiveSourcesForWebUI)
-        .WillByDefault(InvokeCallback<std::vector<StorableSource>>({}));
+        .WillByDefault(InvokeCallback<std::vector<StoredSource>>({}));
 
     ON_CALL(manager_, GetPendingReportsForWebUI)
-        .WillByDefault(InvokeCallback<std::vector<EventAttributionReport>>({}));
+        .WillByDefault(InvokeCallback<std::vector<AttributionReport>>({}));
   }
 
   void ClickRefreshButton() {
@@ -223,22 +225,22 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
   // with `Number.MAX_SAFE_INTEGER`.
 
   ON_CALL(manager_, GetActiveSourcesForWebUI)
-      .WillByDefault(InvokeCallback<std::vector<StorableSource>>(
+      .WillByDefault(InvokeCallback<std::vector<StoredSource>>(
           {SourceBuilder(now)
                .SetSourceEventId(std::numeric_limits<uint64_t>::max())
-               .SetAttributionLogic(StorableSource::AttributionLogic::kNever)
-               .Build(),
+               .SetAttributionLogic(CommonSourceInfo::AttributionLogic::kNever)
+               .BuildStored(),
            SourceBuilder(now + base::Hours(1))
-               .SetSourceType(StorableSource::SourceType::kEvent)
+               .SetSourceType(CommonSourceInfo::SourceType::kEvent)
                .SetPriority(std::numeric_limits<int64_t>::max())
                .SetDedupKeys({13, 17})
-               .Build()}));
+               .BuildStored()}));
 
   manager_.NotifySourceDeactivated(
-      DeactivatedSource(SourceBuilder(now + base::Hours(2)).Build(),
+      DeactivatedSource(SourceBuilder(now + base::Hours(2)).BuildStored(),
                         DeactivatedSource::Reason::kReplacedByNewerSource));
   manager_.NotifySourceDeactivated(
-      DeactivatedSource(SourceBuilder(now + base::Hours(3)).Build(),
+      DeactivatedSource(SourceBuilder(now + base::Hours(3)).BuildStored(),
                         DeactivatedSource::Reason::kReachedAttributionLimit));
 
   static constexpr char wait_script[] = R"(
@@ -339,48 +341,49 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
 
   OverrideWebUIAttributionManager();
 
-  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).Build())
+  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).BuildStored())
                                 .SetReportTime(now + base::Hours(3))
                                 .Build(),
                             SendResult(SendResult::Status::kSent,
                                        /*http_response_code=*/200));
-  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).Build())
+  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).BuildStored())
                                 .SetReportTime(now + base::Hours(4))
                                 .SetPriority(-1)
                                 .Build(),
                             SendResult(SendResult::Status::kDropped,
                                        /*http_response_code=*/0));
-  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).Build())
+  manager_.NotifyReportSent(ReportBuilder(SourceBuilder(now).BuildStored())
                                 .SetReportTime(now + base::Hours(5))
                                 .SetPriority(-2)
                                 .Build(),
                             SendResult(SendResult::Status::kFailure,
                                        /*http_response_code=*/0));
   ON_CALL(manager_, GetPendingReportsForWebUI)
-      .WillByDefault(InvokeCallback<std::vector<EventAttributionReport>>(
-          {ReportBuilder(SourceBuilder(now)
-                             .SetSourceType(StorableSource::SourceType::kEvent)
-                             .SetAttributionLogic(
-                                 StorableSource::AttributionLogic::kFalsely)
-                             .Build())
+      .WillByDefault(InvokeCallback<std::vector<AttributionReport>>(
+          {ReportBuilder(
+               SourceBuilder(now)
+                   .SetSourceType(CommonSourceInfo::SourceType::kEvent)
+                   .SetAttributionLogic(
+                       CommonSourceInfo::AttributionLogic::kFalsely)
+                   .BuildStored())
                .SetReportTime(now)
                .SetPriority(13)
                .Build()}));
   manager_.NotifyReportDropped(AttributionStorage::CreateReportResult(
       CreateReportStatus::kPriorityTooLow,
-      ReportBuilder(SourceBuilder(now).Build())
+      ReportBuilder(SourceBuilder(now).BuildStored())
           .SetReportTime(now + base::Hours(1))
           .SetPriority(11)
           .Build()));
   manager_.NotifyReportDropped(AttributionStorage::CreateReportResult(
       CreateReportStatus::kDroppedForNoise,
-      ReportBuilder(SourceBuilder(now).Build())
+      ReportBuilder(SourceBuilder(now).BuildStored())
           .SetReportTime(now + base::Hours(2))
           .SetPriority(12)
           .Build()));
   manager_.NotifyReportDropped(AttributionStorage::CreateReportResult(
       CreateReportStatus::kRateLimited,
-      ReportBuilder(SourceBuilder(now).Build())
+      ReportBuilder(SourceBuilder(now).BuildStored())
           .SetReportTime(now + base::Hours(6))
           .SetPriority(-3)
           .Build()));
@@ -495,12 +498,12 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
 
   OverrideWebUIAttributionManager();
 
-  EventAttributionReport report = ReportBuilder(SourceBuilder(now).Build())
-                                      .SetReportTime(now)
-                                      .SetPriority(7)
-                                      .Build();
+  AttributionReport report = ReportBuilder(SourceBuilder(now).BuildStored())
+                                 .SetReportTime(now)
+                                 .SetPriority(7)
+                                 .Build();
   EXPECT_CALL(manager_, GetPendingReportsForWebUI)
-      .WillOnce(InvokeCallback<std::vector<EventAttributionReport>>({report}));
+      .WillOnce(InvokeCallback<std::vector<AttributionReport>>({report}));
 
   report.set_report_time(report.report_time() + base::Hours(1));
   manager_.NotifyReportSent(report, SendResult(SendResult::Status::kSent,
@@ -548,11 +551,11 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
   base::Time now = base::Time::Now();
 
   ON_CALL(manager_, GetActiveSourcesForWebUI)
-      .WillByDefault(InvokeCallback<std::vector<StorableSource>>(
-          {SourceBuilder(now).SetSourceEventId(5).Build()}));
+      .WillByDefault(InvokeCallback<std::vector<StoredSource>>(
+          {SourceBuilder(now).SetSourceEventId(5).BuildStored()}));
 
   manager_.NotifySourceDeactivated(DeactivatedSource(
-      SourceBuilder(now + base::Hours(2)).SetSourceEventId(6).Build(),
+      SourceBuilder(now + base::Hours(2)).SetSourceEventId(6).BuildStored(),
       DeactivatedSource::Reason::kReplacedByNewerSource));
 
   EXPECT_CALL(manager_, ClearData)
@@ -603,17 +606,19 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kAttributionInternalsUrl)));
 
   EXPECT_CALL(manager_, GetPendingReportsForWebUI)
-      .WillOnce(InvokeCallback<std::vector<EventAttributionReport>>(
-          {ReportBuilder(SourceBuilder().Build())
+      .WillOnce(InvokeCallback<std::vector<AttributionReport>>(
+          {ReportBuilder(SourceBuilder().BuildStored())
                .SetPriority(7)
-               .SetReportId(EventAttributionReport::Id(5))
+               .SetReportId(AttributionReport::EventLevelData::Id(5))
                .Build()}))
-      .WillOnce(InvokeCallback<std::vector<EventAttributionReport>>({}));
+      .WillOnce(InvokeCallback<std::vector<AttributionReport>>({}));
 
-  EXPECT_CALL(manager_, SendReportsForWebUI(
-                            ElementsAre(EventAttributionReport::Id(5)), _))
-      .WillOnce([](const std::vector<EventAttributionReport::Id>& ids,
-                   base::OnceClosure done) { std::move(done).Run(); });
+  EXPECT_CALL(manager_,
+              SendReportsForWebUI(
+                  ElementsAre(AttributionReport::EventLevelData::Id(5)), _))
+      .WillOnce(
+          [](const std::vector<AttributionReport::EventLevelData::Id>& ids,
+             base::OnceClosure done) { std::move(done).Run(); });
 
   OverrideWebUIAttributionManager();
 

@@ -1,0 +1,34 @@
+<style include="os-feedback-shared">
+  textarea {
+    height: 162px;
+    width: 514px;
+  }
+
+  #helpContentFrame {
+    display: flex;
+  }
+</style>
+<!--TODO(xiangdongkong): use localized strings -->
+<div id="container">
+  <div id="header">
+    <h1 id="title">Send feedback</h1>
+  </div>
+  <div id="content">
+    <div id="descriptionPane">
+      <p id="descriptionTitle">Description</p>
+      <textarea id="descriptionText" aria-labelledby="descriptionTitle"
+          aria-required="true" on-input="handleInputChanged_">
+      </textarea>
+      <p id="descriptionEmptyError" aria-hidden="true" hidden>
+        Description is required
+      </p>
+    </div>
+    <!-- TODO(xiangdongkong): Move help content to inside a untrusted context
+         before wiring the real mojo api. -->
+    <help-content id="helpContentFrame" help-content-list="[[helpContentList_]]">
+    </help-content>
+  </div>
+  <div id="navButtons">
+    <cr-button id="btnContinue" class="action-button">Continue</cr-button>
+  </div>
+</div>

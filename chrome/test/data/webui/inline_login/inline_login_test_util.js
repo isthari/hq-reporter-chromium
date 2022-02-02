@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {InlineLoginBrowserProxy} from 'chrome://chrome-signin/inline_login_browser_proxy.js';
+import {Account, InlineLoginBrowserProxy} from 'chrome://chrome-signin/inline_login_browser_proxy.js';
 import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
-
+// <if expr="chromeos">
+import {AccountAdditionOptions} from 'chrome://chrome-signin/inline_login_util.js';
+// </if>
 import {TestBrowserProxy} from '../test_browser_proxy.js';
 
 /** @return {!Array<string>} */
@@ -86,9 +88,37 @@ export class TestInlineLoginBrowserProxy extends TestBrowserProxy {
       'dialogClose',
       // <if expr="chromeos">
       'skipWelcomePage',
+      'getAccountsNotAvailableInArc',
+      'makeAvailableInArc',
+      'getDialogArguments',
       // </if>
     ]);
+
+    // <if expr="chromeos">
+    /**
+     * @private {?AccountAdditionOptions}
+     */
+    this.dialogArguments_ = null;
+    /** @private */
+    this.accountsNotAvailableInArc_ = [];
+    // </if>
   }
+
+  // <if expr="chromeos">
+  /**
+   * @param {?AccountAdditionOptions} dialogArguments
+   */
+  setDialogArguments(dialogArguments) {
+    this.dialogArguments_ = dialogArguments;
+  }
+
+  /**
+   * @param {!Array<Account>} accountsNotAvailableInArc
+   */
+  setAccountsNotAvailableInArc(accountsNotAvailableInArc) {
+    this.accountsNotAvailableInArc_ = accountsNotAvailableInArc;
+  }
+  // </if>
 
   /** @override */
   initialize() {
@@ -140,6 +170,22 @@ export class TestInlineLoginBrowserProxy extends TestBrowserProxy {
   /** @override */
   skipWelcomePage(skip) {
     this.methodCalled('skipWelcomePage', skip);
+  }
+
+  /** @override */
+  getAccountsNotAvailableInArc() {
+    this.methodCalled('getAccountsNotAvailableInArc');
+    return Promise.resolve(this.accountsNotAvailableInArc_);
+  }
+
+  /** @override */
+  makeAvailableInArc(account) {
+    this.methodCalled('makeAvailableInArc', account);
+  }
+
+  /** @override */
+  getDialogArguments() {
+    return JSON.stringify(this.dialogArguments_);
   }
   // </if>
 }

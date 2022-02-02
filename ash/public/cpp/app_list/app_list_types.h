@@ -56,6 +56,13 @@ enum class AppListConfigType {
   kDense,
 };
 
+// Item types supported by SearchResultTextItem.
+enum class SearchResultTextItemType {
+  kString,      // Styled text.
+  kIconCode,    // Built in vector icons.
+  kCustomIcon,  // Vector icons provided by the search model.
+};
+
 // A structure holding an item icon' color information.
 class ASH_PUBLIC_EXPORT IconColor {
  public:
@@ -188,8 +195,22 @@ enum class AppListState {
   kStateLast = kInvalidState,  // Don't use over IPC
 };
 
+ASH_PUBLIC_EXPORT std::ostream& operator<<(std::ostream& os,
+                                           AppListState state);
+
 // Sub-pages of the app list bubble (with ProductivityLauncher).
-enum class AppListBubblePage { kApps, kSearch, kAssistant };
+enum class AppListBubblePage {
+  // Used at startup and when the app list bubble is not visible. Allows
+  // detection of transitions like hidden -> apps or hidden -> assistant,
+  // avoiding unnecessary page hide animations.
+  kNone = 0,
+  // The apps grid, as well as continue tasks and recent apps.
+  kApps,
+  // The search page.
+  kSearch,
+  // The assistant page.
+  kAssistant
+};
 
 ASH_PUBLIC_EXPORT std::ostream& operator<<(std::ostream& os,
                                            AppListBubblePage page);
@@ -244,12 +265,13 @@ enum class AppListLaunchedFrom {
 // from the apps grid.
 enum class AppListLaunchType { kSearchResult, kAppSearchResult, kApp };
 
-// Type of the search result, which is set in Chrome. These values are persisted
-// to logs. Entries should not be renumbered and numeric values should never be
-// reused.
+// Type of the search result, which is set in Chrome.
 //
-// TODO(crbug.com/1258415): kFileChip and kDriveChip can be deprecated once the
-// new launcher is launched.
+// This should not be used for metrics. Please use ash::SearchResultType in
+// ash/public/cpp/app_list/app_list_metrics.h instead.
+//
+// TODO(crbug.com/1258415): kFileChip and kDriveChip can be removed once the
+// productivity launcher is launched.
 enum class AppListSearchResultType {
   kUnknown,       // Unknown type. Don't use over IPC
   kInstalledApp,  // Installed apps.
@@ -385,6 +407,8 @@ struct ASH_PUBLIC_EXPORT SearchResultTag {
     URL = 1 << 0,
     MATCH = 1 << 1,
     DIM = 1 << 2,
+    GREEN = 1 << 3,
+    RED = 1 << 4,
   };
 
   SearchResultTag();
@@ -416,6 +440,39 @@ struct ASH_PUBLIC_EXPORT SearchResultAction {
 };
 using SearchResultActions = std::vector<SearchResultAction>;
 
+// A structure holding a search result's text with support for embedded icon.
+class ASH_PUBLIC_EXPORT SearchResultTextItem {
+ public:
+  SearchResultTextItem(SearchResultTextItemType type);
+  SearchResultTextItem(const SearchResultTextItem&);
+  SearchResultTextItem& operator=(const SearchResultTextItem&);
+  ~SearchResultTextItem();
+
+  SearchResultTextItemType GetType() const;
+
+  const std::u16string& GetText() const;
+  SearchResultTextItem& SetText(std::u16string text);
+
+  const SearchResultTags& GetTextTags() const;
+  SearchResultTextItem& SetTextTags(SearchResultTags tags);
+
+  gfx::ImageSkia GetIconFromCode() const;
+  SearchResultTextItem& SetIconCode(int icon_code);
+
+  gfx::ImageSkia GetIcon() const;
+  SearchResultTextItem& SetIcon(gfx::ImageSkia icon);
+
+ private:
+  SearchResultTextItemType item_type;
+  // used for type SearchResultTextItemType::kString.
+  absl::optional<std::u16string> raw_text;
+  absl::optional<SearchResultTags> text_tags;
+  // used for type SearchResultTextItemType::kIconCode.
+  absl::optional<int> icon_code;
+  // used for type SearchResultTextItemType::kCustomIcon.
+  absl::optional<gfx::ImageSkia> raw_icon;
+};
+
 // A structure holding the common information which is sent from chrome to ash,
 // representing a search result.
 struct ASH_PUBLIC_EXPORT SearchResultMetadata {
@@ -427,21 +484,35 @@ struct ASH_PUBLIC_EXPORT SearchResultMetadata {
   std::string id;
 
   // The title of the result, e.g. an app's name, an autocomplete query, etc.
+  // TODO (crbug/1216097): deprecate title text.
   std::u16string title;
 
   // A detail string of this result.
+  // TODO (crbug/1216097): deprecate details text.
   std::u16string details;
-
-  // An text to be announced by a screen reader app.
-  std::u16string accessible_name;
 
   // How the title matches the query. See the SearchResultTag section for more
   // details.
+  // TODO (crbug/1216097): deprecate title_tags.
   std::vector<SearchResultTag> title_tags;
 
   // How the details match the query. See the SearchResultTag section for more
   // details.
+  // TODO (crbug/1216097): deprecate details_tags.
   std::vector<SearchResultTag> details_tags;
+
+  // The title of the result, e.g. an app's name, an autocomplete query, etc.
+  // Supports embedded icons.
+  std::vector<SearchResultTextItem> title_vector;
+
+  // The details of the result, supports embedded icons.
+  std::vector<SearchResultTextItem> details_vector;
+
+  // Big title text to be displayed prominently on an answer card.
+  std::vector<SearchResultTextItem> big_title_vector;
+
+  // Text to be announced by a screen reader app.
+  std::u16string accessible_name;
 
   // Actions that can be performed on this result. See the SearchResultAction
   // section for more details.

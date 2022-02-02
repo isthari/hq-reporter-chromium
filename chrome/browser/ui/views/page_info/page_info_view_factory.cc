@@ -12,6 +12,7 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/page_info/page_info_about_this_site_content_view.h"
+#include "chrome/browser/ui/views/page_info/page_info_ad_personalization_content_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_main_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_navigation_handler.h"
 #include "chrome/browser/ui/views/page_info/page_info_permission_content_view.h"
@@ -143,6 +144,14 @@ std::unique_ptr<views::View> PageInfoViewFactory::CreateAboutThisSitePageView(
                                                          ui_delegate_, info));
 }
 
+std::unique_ptr<views::View>
+PageInfoViewFactory::CreateAdPersonalizationPageView() {
+  return std::make_unique<PageInfoSubpageView>(
+      CreateSubpageHeader(u"Lorem ipsum dolor"),
+      std::make_unique<PageInfoAdPersonalizationContentView>(presenter_,
+                                                             ui_delegate_));
+}
+
 std::unique_ptr<views::View> PageInfoViewFactory::CreateSubpageHeader(
     std::u16string title) {
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
@@ -240,7 +249,7 @@ const ui::ImageModel PageInfoViewFactory::GetPermissionIcon(
     case ContentSettingsType::AUTOMATIC_DOWNLOADS:
       icon = &vector_icons::kFileDownloadIcon;
       break;
-#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_WIN)
     case ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER:
       icon = &vector_icons::kProtectedContentIcon;
       break;
@@ -400,6 +409,12 @@ const ui::ImageModel PageInfoViewFactory::GetOpenSubpageIcon() {
 const ui::ImageModel PageInfoViewFactory::GetAboutThisSiteIcon() {
   return ui::ImageModel::FromVectorIcon(views::kInfoIcon, ui::kColorIcon,
                                         GetIconSize());
+}
+
+// static
+const ui::ImageModel PageInfoViewFactory::GetHistoryIcon() {
+  return ui::ImageModel::FromVectorIcon(vector_icons::kHistoryIcon,
+                                        ui::kColorIcon, GetIconSize());
 }
 
 // static

@@ -374,7 +374,7 @@ void UnsentLogStore::WriteToMetricsPref(
     return;
 
   DictionaryPrefUpdate update(local_state_, metadata_pref_name_);
-  base::DictionaryValue* pref_data = update.Get();
+  base::Value* pref_data = update.Get();
   pref_data->SetKey(kLogUnsentCountKey, base::Value(unsent_samples_count));
   pref_data->SetKey(kLogSentCountKey, base::Value(sent_samples_count));
   // Round up to kb.

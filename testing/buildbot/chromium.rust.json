@@ -3,6 +3,7 @@
   "AAAAA2 See generate_buildbot_json.py to make changes": {},
   "android-rust-arm-rel": {
     "additional_compile_targets": [
+      "mojo_rust",
       "rust_build_tests"
     ],
     "gtest_tests": [
@@ -11,9 +12,31 @@
           "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "MMB29Q"
+            }
+          ],
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
+        "test": "base_unittests",
+        "test_id_prefix": "ninja://base:base_unittests/"
+      },
+      {
+        "merge": {
+          "args": [],
+          "script": "//testing/merge_scripts/standard_gtest_merge.py"
+        },
         "name": "test_cpp_including_rust_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "MMB29Q"
+            }
+          ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "test_cpp_including_rust_unittests",
@@ -27,6 +50,11 @@
         "name": "test_serde_jsonrc",
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "MMB29Q"
+            }
+          ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "test_serde_jsonrc",
@@ -36,9 +64,24 @@
   },
   "linux-rust-x64-rel": {
     "additional_compile_targets": [
+      "mojo_rust",
+      "mojo_rust_extra_tests",
+      "mojo_rust_unittests",
       "rust_build_tests"
     ],
     "gtest_tests": [
+      {
+        "merge": {
+          "args": [],
+          "script": "//testing/merge_scripts/standard_gtest_merge.py"
+        },
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
+        "test": "base_unittests",
+        "test_id_prefix": "ninja://base:base_unittests/"
+      },
       {
         "merge": {
           "args": [],

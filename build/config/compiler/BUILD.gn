@@ -552,11 +552,22 @@ config("compiler") {
     }
 
     # TODO(crbug.com/1235145): Investigate why/if this should be needed.
-    if (is_win) {
-      cflags += [ "/clang:-ffp-contract=off" ]
-    } else {
+    if (is_android) {
       cflags += [ "-ffp-contract=off" ]
     }
+
+    # TODO(crbug.com/1290191): Some ios tests fail without this.
+    if (is_ios) {
+      cflags += [
+        "-Xclang",
+        "-disable-noundef-analysis",
+      ]
+    }
+  }
+
+  # Rust compiler setup (for either clang or rustc).
+  if (enable_rust) {
+    defines += [ "RUST_ENABLED" ]
   }
 
   # C11/C++11 compiler flags setup.
@@ -598,6 +609,7 @@ config("compiler") {
       cflags_cc += [ "-std=${standard_prefix}++17" ]
     }
   } else if (is_win) {
+    cflags_c += [ "/std:c11" ]
     cflags_cc += [ "/std:c++17" ]
   } else if (!is_nacl) {
     # TODO(mcgrathr) - the NaCl GCC toolchain doesn't support either gnu11/gnu++11
@@ -2038,7 +2050,7 @@ config("optimize") {
     } else {
       cflags = [ "-Os" ] + common_optimize_on_cflags
     }
-  } else if (is_chromeos_ash) {
+  } else if (is_chromeos) {
     # TODO(gbiv): This is partially favoring size over speed. CrOS exclusively
     # uses clang, and -Os in clang is more of a size-conscious -O2 than "size at
     # any cost" (AKA -Oz). It'd be nice to:
@@ -2307,6 +2319,10 @@ config("symbols") {
       # clang defaults to DWARF2 on macOS unless mac_deployment_target is
       # at least 10.11.
       # TODO(thakis): Remove this once mac_deployment_target is 10.11.
+      cflags += [ "-gdwarf-4" ]
+    } else if (!use_dwarf5 && !is_nacl) {
+      # Recent clang versions default to DWARF5 on Linux, and Android is about
+      # to switch. TODO: Adopt that in controlled way.
       cflags += [ "-gdwarf-4" ]
     }
 

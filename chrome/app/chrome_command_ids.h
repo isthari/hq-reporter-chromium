@@ -66,7 +66,7 @@
 #define IDC_NAME_WINDOW                 34049
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define IDC_USE_SYSTEM_TITLE_BAR        34051
 #define IDC_RESTORE_WINDOW              34052
 #endif
@@ -126,6 +126,7 @@
 #define IDC_SHARING_HUB_MENU            35029
 #define IDC_VIRTUAL_CARD_MANUAL_FALLBACK 35030
 #define IDC_SHARING_HUB_SCREENSHOT      35031
+#define IDC_VIRTUAL_CARD_ENROLL         35032
 
 // Page-manipulation commands that target a specified tab, which may not be the
 // active one.

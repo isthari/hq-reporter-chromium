@@ -118,8 +118,8 @@ void ScrollableAreaPainter::DrawPlatformResizerImage(
                   resizer_corner_rect.height() * 3 / 4);
   points[3].set_y(points[1].y());
 
-  PaintFlags paint_flags;
-  paint_flags.setStyle(PaintFlags::kStroke_Style);
+  cc::PaintFlags paint_flags;
+  paint_flags.setStyle(cc::PaintFlags::kStroke_Style);
   paint_flags.setStrokeWidth(std::ceil(paint_scale));
 
   SkPathBuilder line_path;
@@ -157,11 +157,21 @@ void ScrollableAreaPainter::PaintOverflowControls(
       box.StyleRef().Visibility() != EVisibility::kVisible)
     return;
 
-  // Overlay overflow controls are painted in the dedicated paint phase, and
-  // normal overflow controls are painted in the background paint phase.
+  // Overflow controls are painted in the following paint phases:
+  // - Overlay overflow controls of self-painting layers or reordered overlay
+  //   overflow controls are painted in PaintPhase::kOverlayOverflowControls,
+  //   called from PaintLayerPainter::PaintChildren().
+  // - Non-reordered overlay overflow controls of non-self-painting-layer
+  //   scrollers are painted in PaintPhase::kForeground.
+  // - Non-overlay overflow controls are painted in PaintPhase::kBackground.
   if (GetScrollableArea().ShouldOverflowControlsPaintAsOverlay()) {
-    if (paint_info.phase != PaintPhase::kOverlayOverflowControls)
+    if (box.HasSelfPaintingLayer() ||
+        box.Layer()->NeedsReorderOverlayOverflowControls()) {
+      if (paint_info.phase != PaintPhase::kOverlayOverflowControls)
+        return;
+    } else if (paint_info.phase != PaintPhase::kForeground) {
       return;
+    }
   } else if (!ShouldPaintSelfBlockBackground(paint_info.phase)) {
     return;
   }

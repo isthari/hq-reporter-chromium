@@ -10,6 +10,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/chrome_switches.h"
 #import "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_cells_constants.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_constants.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 #import "ios/chrome/browser/ui/content_suggestions/new_tab_page_app_interface.h"
@@ -442,13 +443,13 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   // Tap the promo.
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   @"ContentSuggestionsWhatsNewIdentifier")]
+                                   kContentSuggestionsWhatsNewIdentifier)]
       performAction:grey_tap()];
 
   // Promo dismissed.
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   @"ContentSuggestionsWhatsNewIdentifier")]
+                                   kContentSuggestionsWhatsNewIdentifier)]
       assertWithMatcher:grey_not(grey_sufficientlyVisible())];
 
   [NewTabPageAppInterface resetWhatsNewPromo];
@@ -831,11 +832,18 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPCollectionView()]
       assertWithMatcher:grey_notVisible()];
 
-  // Open tools menu and reload page, then check if incognito view is still
-  // visible.
-  [ChromeEarlGreyUI openToolsMenu];
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(kToolsMenuReload)]
-      performAction:grey_tap()];
+  // Reload page, then check if incognito view is still visible.
+  if ([ChromeEarlGrey isNewOverflowMenuEnabled] &&
+      UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+    // In the new
+    // overflow menu on iPad, the reload button is only on the toolbar.
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::ReloadButton()]
+        performAction:grey_tap()];
+  } else {
+    [ChromeEarlGreyUI openToolsMenu];
+    [[EarlGrey selectElementWithMatcher:grey_accessibilityID(kToolsMenuReload)]
+        performAction:grey_tap()];
+  }
   [[EarlGrey selectElementWithMatcher:chrome_test_util::NTPIncognitoView()]
       assertWithMatcher:grey_sufficientlyVisible()];
 }

@@ -15,6 +15,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/viz/common/features.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
@@ -110,7 +111,7 @@ class WindowTreeHost::HideHelper {
   explicit HideHelper(WindowTreeHost* host)
       : host_(host),
         compositor_root_layer_(
-            ccLayerFromUiLayer(host->window()->layer())->parent()),
+            ccLayerFromUiLayer(host->window()->layer())->mutable_parent()),
         layer_for_transition_(
             std::make_unique<ui::Layer>(ui::LAYER_SOLID_COLOR)) {
     layer_for_transition_->SetColor(SK_ColorWHITE);
@@ -503,8 +504,8 @@ WindowTreeHost::WindowTreeHost(std::unique_ptr<Window> window)
     window_ = new Window(nullptr);
   auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(window_);
   device_scale_factor_ = display.device_scale_factor();
-#if defined(OS_WIN)
-  // The feature state is neccessary but not sufficient for checking if
+#if BUILDFLAG(IS_WIN)
+  // The feature state is necessary but not sufficient for checking if
   // occlusion is enabled. It may be disabled by other means (e.g., policy).
   native_window_occlusion_enabled_ =
       !base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kHeadless) &&
@@ -550,8 +551,7 @@ void WindowTreeHost::DestroyCompositor() {
   if (!compositor_)
     return;
 
-  if (ShouldThrottleWhenOccluded())
-    HostFrameRateThrottler::GetInstance().RemoveHost(this);
+  HostFrameRateThrottler::GetInstance().RemoveHost(this);
 
   // Explicitly delete the HideHelper early as it makes use of `compositor_`
   // and `window_`.
@@ -655,7 +655,11 @@ void WindowTreeHost::OnHostResizedInPixels(
 
   display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(window());
-  device_scale_factor_ = display.device_scale_factor();
+  // If we don't have the actual display, don't overwrite the scale factor with
+  // the default value. See https://crbug.com/1285476 for details.
+  if (display.is_valid())
+    device_scale_factor_ = display.device_scale_factor();
+
   UpdateRootWindowSizeInPixels();
 
   // Passing |new_size_in_pixels| to set compositor size. It could be different
@@ -770,7 +774,7 @@ bool WindowTreeHost::CalculateCompositorVisibilityFromOcclusionState() const {
 }
 
 bool WindowTreeHost::ShouldReleaseResourcesWhenHidden() const {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (!base::FeatureList::IsEnabled(
           features::kApplyNativeOcclusionToCompositor) ||
       !IsNativeWindowOcclusionEnabled()) {
@@ -787,7 +791,7 @@ bool WindowTreeHost::ShouldReleaseResourcesWhenHidden() const {
 }
 
 bool WindowTreeHost::ShouldThrottleWhenOccluded() const {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (!base::FeatureList::IsEnabled(
           features::kApplyNativeOcclusionToCompositor) ||
       !IsNativeWindowOcclusionEnabled()) {

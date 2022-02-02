@@ -16,6 +16,7 @@
 #include "base/notreached.h"
 #include "components/exo/data_source.h"
 #include "components/exo/surface.h"
+#include "components/exo/wm_helper.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -104,6 +105,9 @@ class ExtendedDragSource::DraggedWindowHolder : public aura::WindowObserver {
 
     toplevel_window_ = surface_->window()->GetToplevelWindow();
     toplevel_window_->AddObserver(this);
+
+    // Disable visibility change animations on the dragged window.
+    toplevel_window_->SetProperty(aura::client::kAnimationsDisabledKey, true);
     return true;
   }
 
@@ -255,9 +259,6 @@ void ExtendedDragSource::StartDrag(aura::Window* toplevel,
   event_blocker_ =
       std::make_unique<aura::ScopedWindowEventTargetingBlocker>(toplevel);
 
-  // Disable visibility change animations on the dragged window.
-  toplevel->SetProperty(aura::client::kAnimationsDisabledKey, true);
-
   DVLOG(1) << "Starting drag. pointer_loc=" << pointer_location.ToString();
   auto* toplevel_handler = ash::Shell::Get()->toplevel_window_event_handler();
   auto move_source = drag_event_source_ == ui::mojom::DragEventSource::kTouch
@@ -322,7 +323,18 @@ void ExtendedDragSource::OnDraggedWindowVisibilityChanged(bool visible) {
   // it's about to be mapped. Calculate and set its position based on
   // |drag_offset_| and |pointer_location_| before starting the actual drag.
   auto screen_location = CalculateOrigin(toplevel);
-  toplevel->SetBounds({screen_location, toplevel->bounds().size()});
+
+  auto toplevel_bounds =
+      gfx::Rect({screen_location, toplevel->bounds().size()});
+  toplevel->SetBounds(toplevel_bounds);
+
+  if (WMHelper::GetInstance()->InTabletMode()) {
+    // The bounds that is stored in ash::kRestoreBoundsOverrideKey will be used
+    // by DragDetails to calculate the detached window bounds during dragging
+    // when detaching in tablet mode to ensure the detached window is correctly
+    // placed under the pointer/finger.
+    toplevel->SetProperty(ash::kRestoreBoundsOverrideKey, toplevel_bounds);
+  }
 
   DVLOG(1) << "Dragged window mapped. toplevel=" << toplevel
            << " origin=" << screen_location.ToString();

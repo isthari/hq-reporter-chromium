@@ -31,6 +31,9 @@ namespace test {
 
 class ScopedServer;
 
+// Returns the path to the updater executable (in the build output directory).
+base::FilePath GetSetupExecutablePath();
+
 // Prints the updater.log file to stdout.
 void PrintLog(UpdaterScope scope);
 
@@ -80,6 +83,10 @@ void Uninstall(UpdaterScope scope);
 // `exit_code`. The server should exit a few seconds after.
 void RunWake(UpdaterScope scope, int exit_code);
 
+// As RunWake, but runs the wake client for whatever version of the server is
+// active, rather than kUpdaterVersion.
+void RunWakeActive(UpdaterScope scope, int exit_code);
+
 // Invokes the active instance's UpdateService::Update (via RPC) for an app.
 void Update(UpdaterScope scope, const std::string& app_id);
 
@@ -107,6 +114,10 @@ void SetupFakeUpdaterInstallFolder(UpdaterScope scope,
 
 // Sets up a fake updater on the system at a version lower than the test.
 void SetupFakeUpdaterLowerVersion(UpdaterScope scope);
+
+// Sets up a real updater on the system at a version lower than the test. The
+// exact version of the updater is not defined.
+void SetupRealUpdaterLowerVersion(UpdaterScope scope);
 
 // Sets up a fake updater on the system at a version higher than the test.
 void SetupFakeUpdaterHigherVersion(UpdaterScope scope);
@@ -140,7 +151,7 @@ void RegisterApp(UpdaterScope scope, const std::string& app_id);
 
 void WaitForUpdaterExit(UpdaterScope scope);
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 void ExpectInterfacesRegistered(UpdaterScope scope);
 void ExpectLegacyUpdate3WebSucceeds(UpdaterScope scope,
                                     const std::string& app_id,
@@ -157,7 +168,7 @@ void InvokeTestServiceFunction(
     const base::flat_map<std::string, base::Value>& arguments);
 
 void RunUninstallCmdLine(UpdaterScope scope);
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
 // Returns the number of files in the directory, not including directories,
 // links, or dot dot.
@@ -166,6 +177,8 @@ int CountDirectoryFiles(const base::FilePath& dir);
 // Returns true if the `request_body_regex` partially matches `request_body`.
 bool RequestMatcherRegex(const std::string& request_body_regex,
                          const std::string& request_body);
+
+void ExpectSelfUpdateSequence(UpdaterScope scope, ScopedServer* test_server);
 
 void ExpectUpdateSequence(UpdaterScope scope,
                           ScopedServer* test_server,
@@ -178,6 +191,13 @@ void StressUpdateService(UpdaterScope scope);
 void CallServiceUpdate(UpdaterScope updater_scope,
                        const std::string& app_id,
                        bool same_version_update_allowed);
+
+void SetupFakeLegacyUpdaterData(UpdaterScope scope);
+void ExpectLegacyUpdaterDataMigrated(UpdaterScope scope);
+
+void ExpectLastChecked(UpdaterScope scope);
+
+void ExpectLastStarted(UpdaterScope scope);
 
 }  // namespace test
 }  // namespace updater

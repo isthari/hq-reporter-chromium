@@ -35,7 +35,7 @@ void TextureLayer::ClearClient() {
   DCHECK(IsMutationAllowed());
   client_ = nullptr;
   ClearTexture();
-  UpdateDrawsContent(HasDrawableContent());
+  SetDrawsContent(HasDrawableContent());
 }
 
 void TextureLayer::ClearTexture() {
@@ -44,7 +44,7 @@ void TextureLayer::ClearTexture() {
 }
 
 std::unique_ptr<LayerImpl> TextureLayer::CreateLayerImpl(
-    LayerTreeImpl* tree_impl) {
+    LayerTreeImpl* tree_impl) const {
   return TextureLayerImpl::Create(tree_impl, id());
 }
 
@@ -121,7 +121,7 @@ void TextureLayer::SetTransferableResourceInternal(
   else
     SetNeedsPushProperties();
 
-  UpdateDrawsContent(HasDrawableContent());
+  SetDrawsContent(HasDrawableContent());
 }
 
 void TextureLayer::SetTransferableResource(

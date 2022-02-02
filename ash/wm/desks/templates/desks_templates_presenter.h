@@ -8,10 +8,12 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "base/guid.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "components/desks_storage/core/desk_model.h"
 #include "components/desks_storage/core/desk_model_observer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
 
@@ -52,8 +54,10 @@ class ASH_EXPORT DesksTemplatesPresenter : desks_storage::DeskModelObserver {
   // Calls the DeskModel to delete the template with the provided uuid.
   void DeleteEntry(const std::string& template_uuid);
 
-  // Launches the desk template with 'template_uuid' as a new desk.
-  void LaunchDeskTemplate(const std::string& template_uuid);
+  // Launches the desk template with 'template_uuid' as a new desk. `delay` is
+  // the time between each app launch, used for debugging.
+  void LaunchDeskTemplate(const std::string& template_uuid,
+                          base::TimeDelta delay);
 
   // Calls the DeskModel to capture the active desk as a template entry, with a
   // callback to `OnAddOrUpdateEntry`. If there are unsupported apps on the
@@ -89,6 +93,7 @@ class ASH_EXPORT DesksTemplatesPresenter : desks_storage::DeskModelObserver {
 
   // Launches DeskTemplate after retrieval from storage.
   void OnGetTemplateForDeskLaunch(
+      base::TimeDelta delay,
       desks_storage::DeskModel::GetEntryByUuidStatus status,
       std::unique_ptr<DeskTemplate> entry);
 
@@ -110,6 +115,12 @@ class ASH_EXPORT DesksTemplatesPresenter : desks_storage::DeskModelObserver {
   // Test closure that runs after the UI has been updated async after a call to
   // the model.
   base::OnceClosure on_update_ui_closure_for_testing_;
+
+  // A cache of the last saved `DeskTemplate` UUID, used to name nudge the last
+  // saved template on `GetAllEntries`.
+  // TODO(crbug.com/1266552): Investigate if this is needed once we aren't
+  // recreating the grid every time.
+  absl::optional<base::GUID> cached_saved_template_uuid_;
 
   base::WeakPtrFactory<DesksTemplatesPresenter> weak_ptr_factory_{this};
 };

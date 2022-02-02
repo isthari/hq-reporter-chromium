@@ -27,7 +27,7 @@
 
 namespace media {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 namespace {
 bool IsSupported(const ImageProcessorBackend::PortConfig& config) {
   if (!config.fourcc.ToVAFourCC())
@@ -67,7 +67,7 @@ std::unique_ptr<ImageProcessorBackend> VaapiImageProcessorBackend::Create(
     ErrorCB error_cb,
     scoped_refptr<base::SequencedTaskRunner> backend_task_runner) {
 // VaapiImageProcessorBackend supports ChromeOS only.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
   return nullptr;
 #else
   if (!IsSupported(input_config) || !IsSupported(output_config))
@@ -271,6 +271,7 @@ void VaapiImageProcessorBackend::Process(scoped_refptr<VideoFrame> input_frame,
       // the compositor should not try to render the frame we output here
       // anyway.
       output_frame->set_timestamp(input_frame->timestamp());
+      output_frame->set_color_space(input_frame->ColorSpace());
       std::move(cb).Run(std::move(output_frame));
       return;
     }
@@ -280,6 +281,8 @@ void VaapiImageProcessorBackend::Process(scoped_refptr<VideoFrame> input_frame,
   }
 
   output_frame->set_timestamp(input_frame->timestamp());
+  output_frame->set_color_space(input_frame->ColorSpace());
+
   std::move(cb).Run(std::move(output_frame));
 }
 

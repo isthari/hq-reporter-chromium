@@ -142,11 +142,13 @@ TEST_F(PrefProviderTest, Observer) {
   pref_content_settings_provider.ShutdownOnUIThread();
 }
 
-// Tests that fullscreen and mouselock content settings are cleared.
+// Tests that fullscreen, obsolete NFC (with the old semantics, see
+// crbug.com/1275576), and mouselock content settings are cleared.
 TEST_F(PrefProviderTest, DiscardObsoletePreferences) {
   static const char kFullscreenPrefPath[] =
       "profile.content_settings.exceptions.fullscreen";
-#if !defined(OS_ANDROID)
+  static const char kNfcPrefPath[] = "profile.content_settings.exceptions.nfc";
+#if !BUILDFLAG(IS_ANDROID)
   static const char kMouselockPrefPath[] =
       "profile.content_settings.exceptions.mouselock";
   const char kObsoletePluginsExceptionsPref[] =
@@ -163,20 +165,18 @@ TEST_F(PrefProviderTest, DiscardObsoletePreferences) {
 
   // Set some pref data. Each content setting type has the following value:
   // {"[*.]example.com": {"setting": 1}}
-  base::DictionaryValue pref_data;
-
-  base::DictionaryValue plugins_data_pref;
-  auto dict = std::make_unique<base::DictionaryValue>();
+  base::Value plugins_data_pref(base::Value::Type::DICTIONARY);
   constexpr char kFlagKey[] = "flashPreviouslyChanged";
   plugins_data_pref.SetKey(kFlagKey,
-                           base::Value::FromUniquePtrValue(std::move(dict)));
+                           base::Value(base::Value::Type::DICTIONARY));
 
-  auto data_for_pattern = std::make_unique<base::DictionaryValue>();
-  data_for_pattern->SetInteger("setting", CONTENT_SETTING_ALLOW);
-  pref_data.SetKey(
-      kPattern, base::Value::FromUniquePtrValue(std::move(data_for_pattern)));
+  base::Value data_for_pattern(base::Value::Type::DICTIONARY);
+  data_for_pattern.SetIntKey("setting", CONTENT_SETTING_ALLOW);
+  base::Value pref_data(base::Value::Type::DICTIONARY);
+  pref_data.SetKey(kPattern, std::move(data_for_pattern));
   prefs->Set(kFullscreenPrefPath, pref_data);
-#if !defined(OS_ANDROID)
+  prefs->Set(kNfcPrefPath, pref_data);
+#if !BUILDFLAG(IS_ANDROID)
   prefs->Set(kMouselockPrefPath, pref_data);
   prefs->Set(kObsoletePluginsExceptionsPref, pref_data);
   prefs->Set(kObsoletePluginsDataExceptionsPref, plugins_data_pref);
@@ -190,9 +190,10 @@ TEST_F(PrefProviderTest, DiscardObsoletePreferences) {
                         /*restore_session=*/false);
   provider.ShutdownOnUIThread();
 
-  // Check that fullscreen and mouselock have been deleted.
+  // Check that fullscreen, nfc, and mouselock have been deleted.
   EXPECT_FALSE(prefs->HasPrefPath(kFullscreenPrefPath));
-#if !defined(OS_ANDROID)
+  EXPECT_FALSE(prefs->HasPrefPath(kNfcPrefPath));
+#if !BUILDFLAG(IS_ANDROID)
   EXPECT_FALSE(prefs->HasPrefPath(kMouselockPrefPath));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsExceptionsPref));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsDataExceptionsPref));
@@ -386,8 +387,9 @@ TEST_F(PrefProviderTest, Deadlock) {
   DeadlockCheckerObserver observer(&prefs, &provider);
   {
     DictionaryPrefUpdate update(&prefs, info->pref_name());
-    base::DictionaryValue* mutable_settings = update.Get();
-    mutable_settings->SetKey("www.example.com,*", base::DictionaryValue());
+    base::Value* mutable_settings = update.Get();
+    mutable_settings->SetKey("www.example.com,*",
+                             base::Value(base::Value::Type::DICTIONARY));
   }
   EXPECT_TRUE(observer.notification_received());
 
@@ -498,7 +500,7 @@ TEST_F(PrefProviderTest, ClearAllContentSettingsRules) {
   ContentSettingsPattern pattern =
       ContentSettingsPattern::FromString("google.com");
   ContentSettingsPattern wildcard = ContentSettingsPattern::FromString("*");
-  std::unique_ptr<base::Value> value(new base::Value(CONTENT_SETTING_ALLOW));
+  base::Value value(CONTENT_SETTING_ALLOW);
 
   PrefProvider provider(&prefs, /*off_the_record=*/false,
                         /*store_last_modified=*/true,
@@ -507,21 +509,20 @@ TEST_F(PrefProviderTest, ClearAllContentSettingsRules) {
   // Non-empty pattern, syncable, empty resource identifier.
   provider.SetWebsiteSetting(pattern, wildcard, ContentSettingsType::JAVASCRIPT,
 
-                             value->Clone(), {});
+                             value.Clone(), {});
 
   // Non-empty pattern, non-syncable, empty resource identifier.
   provider.SetWebsiteSetting(
-      pattern, wildcard, ContentSettingsType::GEOLOCATION, value->Clone(), {});
+      pattern, wildcard, ContentSettingsType::GEOLOCATION, value.Clone(), {});
 
   // Non-empty pattern, syncable, empty resource identifier.
   provider.SetWebsiteSetting(pattern, wildcard, ContentSettingsType::COOKIES,
 
-                             value->Clone(), {});
+                             value.Clone(), {});
 
   // Non-empty pattern, non-syncable, empty resource identifier.
-  provider.SetWebsiteSetting(pattern, wildcard,
-                             ContentSettingsType::NOTIFICATIONS, value->Clone(),
-                             {});
+  provider.SetWebsiteSetting(
+      pattern, wildcard, ContentSettingsType::NOTIFICATIONS, value.Clone(), {});
 
   // Test that the preferences for images, geolocation and plugins get cleared.
   WebsiteSettingsRegistry* registry = WebsiteSettingsRegistry::GetInstance();
@@ -533,7 +534,7 @@ TEST_F(PrefProviderTest, ClearAllContentSettingsRules) {
   // Expect the prefs are not empty before we trigger clearing them.
   for (const char* pref : cleared_prefs) {
     DictionaryPrefUpdate update(&prefs, pref);
-    const base::DictionaryValue* dictionary = update.Get();
+    const base::Value* dictionary = update.Get();
     ASSERT_FALSE(dictionary->DictEmpty());
   }
 
@@ -543,7 +544,7 @@ TEST_F(PrefProviderTest, ClearAllContentSettingsRules) {
   // Ensure they become empty afterwards.
   for (const char* pref : cleared_prefs) {
     DictionaryPrefUpdate update(&prefs, pref);
-    const base::DictionaryValue* dictionary = update.Get();
+    const base::Value* dictionary = update.Get();
     EXPECT_TRUE(dictionary->DictEmpty());
   }
 
@@ -555,7 +556,7 @@ TEST_F(PrefProviderTest, ClearAllContentSettingsRules) {
 
   for (const char* pref : nonempty_prefs) {
     DictionaryPrefUpdate update(&prefs, pref);
-    const base::DictionaryValue* dictionary = update.Get();
+    const base::Value* dictionary = update.Get();
     EXPECT_EQ(1u, dictionary->DictSize());
   }
 

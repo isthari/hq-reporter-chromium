@@ -227,8 +227,9 @@ void CreateOrAppendSiteGroupEntry(
     return;
   }
   // Case 2:
-  if (etld_plus1_cookie_url)
+  if (etld_plus1_cookie_url && !is_partitioned) {
     return;
+  }
   // Case 3:
   if (url_is_origin_with_cookies) {
     // Cookies ignore schemes, so try and see if a https schemed version
@@ -381,7 +382,7 @@ int GetNumCookieExceptionsOfTypes(HostContentSettingsMap* map,
       output.begin(), output.end(),
       [types](const ContentSettingPatternSource setting) {
         return types.count(
-            content_settings::ValueToContentSetting(&setting.setting_value));
+            content_settings::ValueToContentSetting(setting.setting_value));
       });
 }
 
@@ -678,7 +679,28 @@ void SiteSettingsHandler::OnGetUsageInfo() {
     int64_t size = site->InclusiveSize();
     if (size != 0)
       usage_string = base::UTF16ToUTF8(ui::FormatBytes(size));
-    int num_cookies = site->NumberOfCookies();
+
+    // Usage info only includes unpartitioned cookies, so each cookie must be
+    // inspected.
+    // TODO (crbug.com/1271155): This is slow, the replacement for the
+    // CookiesTreeModel should improve this significantly.
+    int num_cookies = 0;
+    for (const auto& site_child : site->children()) {
+      if (site_child->GetDetailedInfo().node_type !=
+          CookieTreeNode::DetailedInfo::TYPE_COOKIES) {
+        continue;
+      }
+
+      num_cookies += base::ranges::count_if(
+          site_child->children(),
+          [](const std::unique_ptr<CookieTreeNode>& cookie) {
+            const auto& detailed_info = cookie->GetDetailedInfo();
+            DCHECK(detailed_info.node_type ==
+                   CookieTreeNode::DetailedInfo::TYPE_COOKIE);
+            DCHECK(detailed_info.cookie);
+            return !detailed_info.cookie->IsPartitioned();
+          });
+    }
     if (num_cookies != 0) {
       cookie_string = base::UTF16ToUTF8(l10n_util::GetPluralStringFUTF16(
           IDS_SETTINGS_SITE_SETTINGS_NUM_COOKIES, num_cookies));
@@ -766,7 +788,8 @@ void SiteSettingsHandler::HandleFetchUsageTotal(const base::ListValue* args) {
   usage_host_ = args->GetList()[0].GetString();
 
   update_site_details_ = true;
-  if (cookies_tree_model_ && !send_sites_list_) {
+  if (cookies_tree_model_ && !send_sites_list_ &&
+      !tree_model_set_for_testing_) {
     cookies_tree_model_->RemoveCookiesTreeObserver(this);
     cookies_tree_model_.reset();
   }
@@ -792,7 +815,7 @@ void SiteSettingsHandler::HandleClearUnpartitionedUsage(
   // remove site client hints data before the issue is resolved.
   HostContentSettingsMapFactory::GetForProfile(profile_)
       ->SetWebsiteSettingDefaultScope(
-          url, GURL(), ContentSettingsType::CLIENT_HINTS, nullptr);
+          url, GURL(), ContentSettingsType::CLIENT_HINTS, base::Value());
 }
 
 void SiteSettingsHandler::HandleClearPartitionedUsage(
@@ -1040,7 +1063,7 @@ base::Value SiteSettingsHandler::PopulateCookiesAndUsageData(Profile* profile) {
         origin_info.SetKey(kNumCookies,
                            base::Value(origin_cookie_num_it->second));
         // Add cookies numbers for origins that isn't an eTLD+1.
-        if (origin_url.host() != etld_plus1)
+        if (origin_url.host() != etld_plus1 || is_partitioned)
           cookie_num += origin_cookie_num_it->second;
       }
     }
@@ -1729,6 +1752,7 @@ void SiteSettingsHandler::HandleRecordAction(const base::ListValue* args) {
 void SiteSettingsHandler::SetCookiesTreeModelForTesting(
     std::unique_ptr<CookiesTreeModel> cookies_tree_model) {
   cookies_tree_model_ = std::move(cookies_tree_model);
+  tree_model_set_for_testing_ = true;
 }
 
 void SiteSettingsHandler::ClearAllSitesMapForTesting() {

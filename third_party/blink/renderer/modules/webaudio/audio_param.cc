@@ -169,14 +169,13 @@ float AudioParamHandler::Value() {
   // Update value for timeline.
   float v = IntrinsicValue();
   if (GetDeferredTaskHandler().IsAudioThread()) {
-    bool has_value;
-    float timeline_value;
-    std::tie(has_value, timeline_value) = timeline_.ValueForContextTime(
+    auto [has_value, timeline_value] = timeline_.ValueForContextTime(
         DestinationHandler(), v, MinValue(), MaxValue(),
         GetDeferredTaskHandler().RenderQuantumFrames());
 
-    if (has_value)
+    if (has_value) {
       v = timeline_value;
+    }
   }
 
   SetIntrinsicValue(v);
@@ -199,9 +198,7 @@ float AudioParamHandler::SmoothedValue() {
 bool AudioParamHandler::Smooth() {
   // If values have been explicitly scheduled on the timeline, then use the
   // exact value.  Smoothing effectively is performed by the timeline.
-  bool use_timeline_value = false;
-  float value;
-  std::tie(use_timeline_value, value) = timeline_.ValueForContextTime(
+  auto [use_timeline_value, value] = timeline_.ValueForContextTime(
       DestinationHandler(), IntrinsicValue(), MinValue(), MaxValue(),
       GetDeferredTaskHandler().RenderQuantumFrames());
 
@@ -221,8 +218,9 @@ bool AudioParamHandler::Smooth() {
     // If we get close enough then snap to actual value.
     // FIXME: the threshold needs to be adjustable depending on range - but
     // this is OK general purpose value.
-    if (fabs(smoothed_value - value) < kSnapThreshold)
+    if (fabs(smoothed_value - value) < kSnapThreshold) {
       smoothed_value = value;
+    }
     timeline_.SetSmoothedValue(smoothed_value);
   }
 
@@ -306,15 +304,14 @@ void AudioParamHandler::CalculateFinalValues(float* values,
     CalculateTimelineValues(values, number_of_values);
   } else {
     // Calculate control-rate (k-rate) intrinsic value.
-    bool has_value;
     float value = IntrinsicValue();
-    float timeline_value;
-    std::tie(has_value, timeline_value) = timeline_.ValueForContextTime(
+    auto [has_value, timeline_value] = timeline_.ValueForContextTime(
         DestinationHandler(), value, MinValue(), MaxValue(),
         GetDeferredTaskHandler().RenderQuantumFrames());
 
-    if (has_value)
+    if (has_value) {
       value = timeline_value;
+    }
 
     for (unsigned k = 0; k < number_of_values; ++k) {
       values[k] = value;

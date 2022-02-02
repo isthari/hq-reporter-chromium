@@ -45,6 +45,7 @@ const char kSendXhrCallback[] = "sendXhrCallback";
 const char kOnNewScreencastPreconditionChanged[] =
     "onNewScreencastPreconditionChanged";
 const char kOnSodaInstallProgressUpdated[] = "onSodaInstallProgressUpdated";
+const char kOnSodaInstalled[] = "onSodaInstalled";
 const char kOnSodaInstallError[] = "onSodaInstallError";
 
 const char kShouldDownloadSodaCallback[] = "shouldDownloadSodaCallbck";
@@ -295,6 +296,14 @@ TEST_F(ProjectorMessageHandlerUnitTest, OnSodaProgress) {
   EXPECT_EQ(call_data.arg2()->GetInt(), 50);
 }
 
+TEST_F(ProjectorMessageHandlerUnitTest, OnSodaInstalled) {
+  static_cast<ProjectorAppClient::Observer*>(message_handler())
+      ->OnSodaInstalled();
+  const content::TestWebUI::CallData& call_data = FetchCallData(0);
+  EXPECT_EQ(call_data.function_name(), kWebUIListenerCall);
+  EXPECT_EQ(call_data.arg1()->GetString(), kOnSodaInstalled);
+}
+
 TEST_F(ProjectorMessageHandlerUnitTest, OnSodaError) {
   static_cast<ProjectorAppClient::Observer*>(message_handler())->OnSodaError();
   const content::TestWebUI::CallData& call_data = FetchCallData(0);
@@ -478,6 +487,55 @@ TEST_F(ProjectorMessageHandlerUnitTest, SetCreationFlowEnabledUnsupportedPref) {
             kRejectedRequestMessage);
   EXPECT_EQ(*(rejected_args->FindPath(kRejectedRequestArgsKey)), func_args);
 }
+
+class ProjectorStorageDirNameValidationTest
+    : public ::testing::WithParamInterface<
+          ::testing::tuple<::std::string, bool>>,
+      public ProjectorMessageHandlerUnitTest {
+ public:
+  ProjectorStorageDirNameValidationTest() = default;
+  ProjectorStorageDirNameValidationTest(
+      const ProjectorStorageDirNameValidationTest&) = delete;
+  ProjectorStorageDirNameValidationTest& operator=(
+      const ProjectorStorageDirNameValidationTest&) = delete;
+  ~ProjectorStorageDirNameValidationTest() override = default;
+};
+
+TEST_P(ProjectorStorageDirNameValidationTest, StorageDirNameBackSlash) {
+  bool success = std::get<1>(GetParam());
+  if (success) {
+    EXPECT_CALL(controller(), GetNewScreencastPrecondition());
+    ON_CALL(controller(), GetNewScreencastPrecondition)
+        .WillByDefault(testing::Return(NewScreencastPrecondition(
+            NewScreencastPreconditionState::kEnabled, {})));
+  }
+
+  base::ListValue list_args;
+  list_args.Append(kStartProjectorSessionCallback);
+  base::ListValue args;
+  args.Append(std::get<0>(GetParam()));
+  list_args.Append(std::move(args));
+
+  web_ui().HandleReceivedMessage("startProjectorSession", &list_args);
+  base::RunLoop().RunUntilIdle();
+
+  // We expect that there was only one callback to the WebUI.
+  EXPECT_EQ(web_ui().call_data().size(), 1u);
+  const content::TestWebUI::CallData& call_data = FetchCallData(0);
+
+  EXPECT_EQ(call_data.function_name(), kWebUIResponse);
+  EXPECT_EQ(call_data.arg1()->GetString(), kStartProjectorSessionCallback);
+  EXPECT_TRUE(call_data.arg2()->GetBool());
+
+  EXPECT_EQ(success, call_data.arg3()->GetBool());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    StorageDirNameBackSlash,
+    ProjectorStorageDirNameValidationTest,
+    ::testing::Values(std::make_tuple("Projector recordings", true),
+                      std::make_tuple("..\folderId", false),
+                      std::make_tuple("../folderId", false)));
 
 class ProjectorSessionStartUnitTest
     : public ::testing::WithParamInterface<NewScreencastPrecondition>,

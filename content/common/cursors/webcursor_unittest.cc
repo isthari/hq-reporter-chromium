@@ -14,7 +14,7 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 
 #include "ui/base/win/win_cursor.h"
@@ -122,11 +122,11 @@ TEST(WebCursorTest, SetCursor) {
 
   // SetCursor should return false when the image width is too large.
   cursor.set_image_scale_factor(1.f);
-  cursor.set_custom_bitmap(CreateTestBitmap(1025, 3));
+  cursor.set_custom_bitmap(CreateTestBitmap(129, 3));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
   // SetCursor should return false when the image height is too large.
-  cursor.set_custom_bitmap(CreateTestBitmap(3, 1025));
+  cursor.set_custom_bitmap(CreateTestBitmap(3, 129));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
   // SetCursor should return false when the scaled image width is too large.
@@ -136,7 +136,7 @@ TEST(WebCursorTest, SetCursor) {
 
   // SetCursor should return false when the scaled image height is too large.
   cursor.set_image_scale_factor(0.1f);
-  cursor.set_custom_bitmap(CreateTestBitmap(5, 200));
+  cursor.set_custom_bitmap(CreateTestBitmap(5, 20));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 }
 
@@ -192,7 +192,7 @@ TEST(WebCursorTest, UnscaledImageCopy) {
 }
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 void ScaleCursor(float scale, int hotspot_x, int hotspot_y) {
   ui::Cursor cursor(ui::mojom::CursorType::kCustom);
   cursor.set_custom_hotspot(gfx::Point(hotspot_x, hotspot_y));

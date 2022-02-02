@@ -272,8 +272,6 @@ TEST_F(AppListBubblePresenterTest, CanShowWhileAnimatingClosed) {
   presenter->Show(GetPrimaryDisplay().id());
 
   // Enable animations.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -292,8 +290,6 @@ TEST_F(AppListBubblePresenterTest, CanShowWhileAnimatingClosed) {
 
 TEST_F(AppListBubblePresenterTest, DismissWhileWaitingForZeroStateSearch) {
   // Simulate production behavior for animations and zero-state search results.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   GetTestAppListClient()->set_run_zero_state_callback_immediately(false);
@@ -319,8 +315,6 @@ TEST_F(AppListBubblePresenterTest, DismissWhileWaitingForZeroStateSearch) {
 TEST_F(AppListBubblePresenterTest, AssistantKeyOpensToAssistantPage) {
   // Simulate production behavior for animations, assistant, and zero-state
   // search results.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   assistant_test_api_->EnableAssistantAndWait();
@@ -344,8 +338,6 @@ TEST_F(AppListBubblePresenterTest, AssistantKeyOpensAssistantPageWhenCached) {
 
   // Simulate production behavior for animations, assistant, and zero-state
   // search results.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   assistant_test_api_->EnableAssistantAndWait();
@@ -360,11 +352,38 @@ TEST_F(AppListBubblePresenterTest, AssistantKeyOpensAssistantPageWhenCached) {
   EXPECT_TRUE(presenter->IsShowingEmbeddedAssistantUI());
 }
 
+TEST_F(AppListBubblePresenterTest, AppsPageVisibleAfterShowingAssistant) {
+  // Simulate production behavior for animations, assistant, and zero-state
+  // search results.
+  ui::ScopedAnimationDurationScaleMode duration(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  assistant_test_api_->EnableAssistantAndWait();
+  GetTestAppListClient()->set_run_zero_state_callback_immediately(false);
+
+  // Show the assistant.
+  PressAndReleaseKey(ui::VKEY_ASSISTANT);
+  AppListTestApi().WaitForBubbleWindow(/*wait_for_opening_animation=*/true);
+
+  // Hide the assistant.
+  PressAndReleaseKey(ui::VKEY_ASSISTANT);
+  base::RunLoop().RunUntilIdle();
+
+  AppListBubblePresenter* presenter = GetBubblePresenter();
+  ASSERT_FALSE(presenter->IsShowing());
+
+  // Show the launcher.
+  PressAndReleaseKey(ui::VKEY_BROWSER_SEARCH);
+  AppListTestApi().WaitForBubbleWindow(/*wait_for_opening_animation=*/true);
+
+  // Apps page is visible, even though it was hidden when showing assistant.
+  EXPECT_TRUE(
+      presenter->bubble_view_for_test()->apps_page_for_test()->GetVisible());
+  EXPECT_FALSE(presenter->IsShowingEmbeddedAssistantUI());
+}
+
 TEST_F(AppListBubblePresenterTest, SearchKeyOpensToAppsPage) {
   // Simulate production behavior for animations, assistant, and zero-state
   // search results.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   assistant_test_api_->EnableAssistantAndWait();
@@ -495,8 +514,6 @@ TEST_F(AppListBubblePresenterTest, CreatingChildWidgetDoesNotCloseBubble) {
 // Regression test for https://crbug.com/1285443.
 TEST_F(AppListBubblePresenterTest, CanOpenBubbleThenOpenSystemTray) {
   // Enable animations.
-  base::test::ScopedFeatureList features(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 

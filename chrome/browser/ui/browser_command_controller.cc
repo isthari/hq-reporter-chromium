@@ -70,11 +70,11 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "chrome/browser/ui/browser_commands_mac.h"
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "base/win/windows_version.h"
 #include "content/public/browser/gpu_data_manager.h"
 #endif
@@ -88,13 +88,16 @@
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
 #endif
 
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
+
+using WebExposedIsolationLevel =
+    content::RenderFrameHost::WebExposedIsolationLevel;
 
 using content::NavigationController;
 using content::NavigationEntry;
@@ -194,7 +197,7 @@ BrowserCommandController::BrowserCommandController(Browser* browser)
       prefs::kDownloadRestrictions,
       base::BindRepeating(&BrowserCommandController::UpdateSaveAsState,
                           base::Unretained(this)));
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   profile_pref_registrar_.Add(
       prefs::kFullscreenAllowed,
       base::BindRepeating(
@@ -256,7 +259,7 @@ bool BrowserCommandController::IsReservedCommandOrKey(
     // found in http://crbug.com/680809.
     const bool is_exit_fullscreen =
         (command_id == IDC_EXIT || command_id == IDC_FULLSCREEN);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     // This behavior is different on Mac OS, which has a unique user-initiated
     // full-screen mode. According to the discussion in http://crbug.com/702251,
     // the commands should be reserved for browser-side handling if the browser
@@ -274,7 +277,7 @@ bool BrowserCommandController::IsReservedCommandOrKey(
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // If this key was registered by the user as a content editing hotkey, then
   // it is not reserved.
   ui::TextEditKeyBindingsDelegateAuraLinux* delegate =
@@ -307,7 +310,7 @@ void BrowserCommandController::FullscreenStateChanged() {
   UpdateCommandsForFullscreenMode();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 void BrowserCommandController::LockedFullscreenStateChanged() {
   UpdateCommandsForLockedFullscreenMode();
 }
@@ -510,7 +513,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
     case IDC_MINIMIZE_WINDOW:
       browser_->window()->Minimize();
       break;
@@ -528,7 +531,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     }
 #endif
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     case IDC_TOGGLE_FULLSCREEN_TOOLBAR:
       chrome::ToggleFullscreenToolbar(browser_);
       break;
@@ -581,6 +584,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_VIRTUAL_CARD_MANUAL_FALLBACK:
       ShowVirtualCardManualFallbackBubble(browser_);
+      break;
+    case IDC_VIRTUAL_CARD_ENROLL:
+      ShowVirtualCardEnrollBubble(browser_);
       break;
     case IDC_TRANSLATE_PAGE:
       Translate(browser_);
@@ -986,6 +992,14 @@ bool BrowserCommandController::IsShowingLocationBar() {
   return browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR);
 }
 
+bool BrowserCommandController::IsWebAppOrCustomTab() const {
+  return
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      browser_->is_type_custom_tab() ||
+#endif
+      web_app::AppBrowserController::IsWebApp(browser_);
+}
+
 void BrowserCommandController::InitCommandState() {
   // All browser commands whose state isn't set automagically some other way
   // (like Back & Forward with initial page load) must have their state
@@ -1026,7 +1040,7 @@ void BrowserCommandController::InitCommandState() {
 #endif
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   command_updater_.UpdateCommandEnabled(IDC_MINIMIZE_WINDOW, true);
   command_updater_.UpdateCommandEnabled(IDC_MAXIMIZE_WINDOW, true);
   command_updater_.UpdateCommandEnabled(IDC_RESTORE_WINDOW, true);
@@ -1107,18 +1121,12 @@ void BrowserCommandController::InitCommandState() {
       IDC_HOME, normal_window || browser_->is_type_app() ||
                     browser_->is_type_app_popup());
 
-  const bool is_web_app_or_custom_tab =
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-      browser_->is_type_custom_tab() ||
-#endif
-      web_app::AppBrowserController::IsWebApp(browser_);
   // Hosted app browser commands.
+  const bool is_web_app_or_custom_tab = IsWebAppOrCustomTab();
   const bool enable_copy_url =
       is_web_app_or_custom_tab ||
       sharing_hub::SharingHubOmniboxEnabled(browser_->profile());
   command_updater_.UpdateCommandEnabled(IDC_COPY_URL, enable_copy_url);
-  command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_CHROME,
-                                        is_web_app_or_custom_tab);
   command_updater_.UpdateCommandEnabled(IDC_SITE_SETTINGS,
                                         is_web_app_or_custom_tab);
   command_updater_.UpdateCommandEnabled(IDC_WEB_APP_MENU_APP_INFO,
@@ -1283,6 +1291,12 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_PWA_WINDOW,
                                         web_app::CanPopOutWebApp(profile()));
 
+  bool is_isolated_app =
+      current_web_contents->GetMainFrame()->GetWebExposedIsolationLevel() >=
+      WebExposedIsolationLevel::kMaybeIsolatedApplication;
+  command_updater_.UpdateCommandEnabled(
+      IDC_OPEN_IN_CHROME, IsWebAppOrCustomTab() && !is_isolated_app);
+
   command_updater_.UpdateCommandEnabled(
       IDC_TOGGLE_REQUEST_TABLET_SITE,
       CanRequestTabletSite(current_web_contents));
@@ -1334,7 +1348,8 @@ void BrowserCommandController::UpdateCommandsForDevTools() {
                                         dev_tools_enabled);
   command_updater_.UpdateCommandEnabled(IDC_DEV_TOOLS_TOGGLE,
                                         dev_tools_enabled);
-#if defined(OS_MAC)
+  command_updater_.UpdateCommandEnabled(IDC_VIEW_SOURCE, dev_tools_enabled);
+#if BUILDFLAG(IS_MAC)
   command_updater_.UpdateCommandEnabled(IDC_TOGGLE_JAVASCRIPT_APPLE_EVENTS,
                                         dev_tools_enabled);
 #endif
@@ -1348,7 +1363,7 @@ void BrowserCommandController::UpdateCommandsForBookmarkEditing() {
                                         CanBookmarkCurrentTab(browser_));
   command_updater_.UpdateCommandEnabled(IDC_BOOKMARK_ALL_TABS,
                                         CanBookmarkAllTabs(browser_));
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   command_updater_.UpdateCommandEnabled(IDC_PIN_TO_START_SCREEN, true);
 #endif
 }
@@ -1439,7 +1454,7 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
   if (base::debug::IsProfilingSupported())
     command_updater_.UpdateCommandEnabled(IDC_PROFILING_ENABLED, show_main_ui);
 
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   // Disable toggling into fullscreen mode if disallowed by pref.
   const bool fullscreen_enabled =
       is_fullscreen ||
@@ -1468,7 +1483,7 @@ void BrowserCommandController::UpdateCommandsForHostedAppAvailability() {
   command_updater_.UpdateCommandEnabled(IDC_SHOW_APP_MENU, has_toolbar);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 namespace {
 
 #if DCHECK_IS_ON()
@@ -1611,12 +1626,12 @@ void BrowserCommandController::UpdateCommandsForTabKeyboardFocus(
 }
 
 void BrowserCommandController::UpdateCommandsForWebContentsFocus() {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // On Mac, toggling caret browsing changes whether it's enabled or not
   // based on web contents focus.
   command_updater_.UpdateCommandEnabled(IDC_CARET_BROWSING_TOGGLE,
                                         CanToggleCaretBrowsing(browser_));
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 }
 
 BrowserWindow* BrowserCommandController::window() {

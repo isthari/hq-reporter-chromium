@@ -20,6 +20,7 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "base/version.h"
 #include "chrome/updater/check_for_updates_task.h"
 #include "chrome/updater/configurator.h"
@@ -188,7 +189,8 @@ std::vector<absl::optional<update_client::CrxComponent>> GetComponents(
                       (!foreground && policy == kPolicyManualUpdatesOnly) ||
                       (foreground && policy == kPolicyAutomaticUpdatesOnly));
             }(),
-            policy_same_version_update, persisted_data)
+            policy_same_version_update, persisted_data,
+            config->GetCrxVerifierFormat())
             ->MakeCrxComponent());
   }
   return components;
@@ -217,6 +219,9 @@ void UpdateServiceImpl::RegisterApp(
     base::OnceCallback<void(const RegistrationResponse&)> callback) {
   VLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (request.app_id != kUpdaterAppId) {
+    persisted_data_->SetHadApps();
+  }
   base::Version current_version =
       persisted_data_->GetProductVersion(request.app_id);
   if (current_version.IsValid() &&
@@ -270,6 +275,9 @@ void UpdateServiceImpl::RunPeriodicTasks(base::OnceClosure callback) {
   VLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  persisted_data_->SetLastStarted(base::Time::NowFromSystemTime());
+  DVLOG(1) << "last_started updated.";
+
   // The installer should make an updater registration, but in case it halts
   // before it does, synthesize a registration if necessary here.
   if (!base::Contains(persisted_data_->GetAppIds(), kUpdaterAppId)) {
@@ -309,12 +317,27 @@ void UpdateServiceImpl::UpdateAll(StateChangeCallback state_update,
   const auto app_ids = persisted_data_->GetAppIds();
   DCHECK(base::Contains(app_ids, kUpdaterAppId));
 
+  using Callback = base::OnceCallback<void(Result)>;
+
   const Priority priority = Priority::kBackground;
   ShouldBlockUpdateForMeteredNetwork(
       priority,
-      base::BindOnce(&UpdateServiceImpl::OnShouldBlockUpdateForMeteredNetwork,
-                     this, state_update, std::move(callback), app_ids, priority,
-                     UpdateService::PolicySameVersionUpdate::kNotAllowed));
+      base::BindOnce(
+          &UpdateServiceImpl::OnShouldBlockUpdateForMeteredNetwork, this,
+          state_update,
+          base::BindOnce(
+              [](Callback callback, scoped_refptr<PersistedData> persisted_data,
+                 Result result) {
+                if (result == Result::kSuccess) {
+                  persisted_data->SetLastChecked(
+                      base::Time::NowFromSystemTime());
+                  DVLOG(1) << "last_checked updated.";
+                }
+                std::move(callback).Run(result);
+              },
+              std::move(callback), persisted_data_),
+          app_ids, priority,
+          UpdateService::PolicySameVersionUpdate::kNotAllowed));
 }
 
 void UpdateServiceImpl::Update(

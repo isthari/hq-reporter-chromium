@@ -4,6 +4,7 @@
 
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
+import("//components/signin/features.gni")
 import("//extensions/buildflags/buildflags.gni")
 
 source_set("path_parser") {
@@ -33,6 +34,68 @@ source_set("path_parser") {
 
   if (is_win) {
     libs = [ "wtsapi32.lib" ]
+  }
+}
+
+source_set("onc") {
+  sources = []
+
+  if (is_chromeos) {
+    sources += [
+      "networking/network_configuration_updater.cc",
+      "networking/network_configuration_updater.h",
+      "networking/policy_cert_service.cc",
+      "networking/policy_cert_service.h",
+      "networking/policy_cert_service_factory.cc",
+      "networking/policy_cert_service_factory.h",
+      "networking/user_network_configuration_updater.cc",
+      "networking/user_network_configuration_updater.h",
+      "networking/user_network_configuration_updater_factory.cc",
+      "networking/user_network_configuration_updater_factory.h",
+    ]
+  }
+
+  if (is_chromeos_ash) {
+    sources += [
+      "networking/device_network_configuration_updater_ash.cc",
+      "networking/device_network_configuration_updater_ash.h",
+      "networking/user_network_configuration_updater_ash.cc",
+      "networking/user_network_configuration_updater_ash.h",
+    ]
+  }
+
+  deps = []
+
+  if (is_chromeos) {
+    deps += [
+      "//build:chromeos_buildflags",
+      "//chrome/browser:browser_process",
+      "//chrome/browser/extensions:extensions",
+      "//chrome/browser/profiles:profile",
+      "//chrome/browser/profiles:profiles",
+      "//chrome/common:constants",
+      "//chromeos/components/onc",
+      "//components/keyed_service/content:content",
+      "//components/onc:onc",
+      "//components/policy/core/common",
+      "//components/prefs:prefs",
+      "//extensions/browser:browser",
+      "//net",
+    ]
+  }
+
+  if (is_chromeos_ash) {
+    deps += [
+      "//ash/components/settings:settings",
+      "//ash/constants:constants",
+      "//base",
+      "//chromeos/network:network",
+      "//chromeos/system:system",
+      "//chromeos/tpm:tpm",
+      "//components/policy/core/common:common_constants",
+      "//components/user_manager:user_manager",
+      "//dbus",
+    ]
   }
 }
 
@@ -173,6 +236,7 @@ source_set("browser_tests") {
   sources = [
     "cloud/cloud_policy_browsertest.cc",
     "cloud/cloud_policy_manager_browsertest.cc",
+    "cloud/device_management_service_browsertest.cc",
   ]
 
   deps = [
@@ -207,6 +271,10 @@ source_set("browser_tests") {
     "//services/network/public/mojom",
     "//testing/gmock",
   ]
+
+  if (enable_dice_support) {
+    sources += [ "cloud/user_policy_signin_service_browsertest.cc" ]
+  }
 
   if (enable_extensions) {
     sources += [ "extension_policy_browsertest.cc" ]
@@ -244,8 +312,8 @@ source_set("browser_tests") {
       "//ash/components/arc:prefs",
       "//ash/components/arc/session:session",
       "//ash/components/audio:audio",
+      "//ash/components/cryptohome",
       "//chrome/browser/chromeos",
-      "//chromeos/cryptohome",
       "//chromeos/dbus/constants",
       "//chromeos/dbus/userdataauth",
       "//chromeos/services/assistant/public/cpp",
@@ -308,5 +376,41 @@ source_set("browser_tests") {
     ]
 
     deps += [ "//components/signin/public/identity_manager" ]
+  }
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  sources = []
+
+  if (is_chromeos) {
+    sources += [ "networking/network_configuration_updater_unittest.cc" ]
+  }
+
+  if (is_chromeos_ash) {
+    sources += [
+      "networking/network_configuration_updater_ash_unittest.cc",
+      "networking/policy_cert_service_factory_ash_unittest.cc",
+    ]
+  }
+
+  deps = []
+
+  if (is_chromeos) {
+    deps += [
+      ":onc",
+      "//chrome/test:test_support",
+      "//chromeos/components/onc:onc",
+      "//chromeos/components/onc:test_support",
+      "//components/onc:onc",
+    ]
+  }
+
+  if (is_chromeos_ash) {
+    deps += [
+      "//chrome/browser/chromeos:test_support",
+      "//chromeos/system:system",
+    ]
   }
 }

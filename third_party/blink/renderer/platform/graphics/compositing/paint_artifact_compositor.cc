@@ -11,6 +11,7 @@
 #include "cc/document_transition/document_transition_request.h"
 #include "cc/layers/scrollbar_layer_base.h"
 #include "cc/paint/display_item_list.h"
+#include "cc/paint/paint_flags.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/mutator_host.h"
@@ -25,7 +26,6 @@
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_artifact.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk_subset.h"
-#include "third_party/blink/renderer/platform/graphics/paint/paint_flags.h"
 #include "third_party/blink/renderer/platform/graphics/paint/property_tree_state.h"
 #include "third_party/blink/renderer/platform/graphics/paint/raster_invalidation_tracking.h"
 #include "third_party/blink/renderer/platform/graphics/paint/scroll_paint_property_node.h"
@@ -632,7 +632,7 @@ scoped_refptr<cc::DisplayItemList>
 SynthesizedClip::PaintContentsToDisplayList() {
   auto cc_list = base::MakeRefCounted<cc::DisplayItemList>(
       cc::DisplayItemList::kTopLevelDisplayItemList);
-  PaintFlags flags;
+  cc::PaintFlags flags;
   flags.setAntiAlias(true);
   cc_list->StartPaint();
   if (rrect_is_local_) {
@@ -782,6 +782,8 @@ void PaintArtifactCompositor::Update(
   for (auto& entry : synthesized_clip_cache_)
     entry.in_use = false;
 
+  host->property_trees()
+      ->document_transition_layer_to_effect_node_index.clear();
   cc::LayerSelection layer_selection;
   for (const auto& pending_layer : pending_layers_) {
     const auto& property_state = pending_layer.GetPropertyTreeState();
@@ -802,7 +804,7 @@ void PaintArtifactCompositor::Update(
         property_tree_manager.EnsureCompositorTransformNode(transform);
     int clip_id = property_tree_manager.EnsureCompositorClipNode(clip);
     int effect_id = property_tree_manager.SwitchToEffectNodeWithSynthesizedClip(
-        effect, clip, layer->DrawsContent());
+        effect, clip, layer->draws_content());
 
     // We need additional bookkeeping for backdrop-filter mask.
     if (effect.RequiresCompositingForBackdropFilterMask() &&
@@ -847,6 +849,13 @@ void PaintArtifactCompositor::Update(
         pending_layer.PropertyTreeStateChanged()) {
       layer->SetSubtreePropertyChanged();
       root_layer_->SetNeedsCommit();
+    }
+
+    auto shared_element_id = layer->DocumentTransitionResourceId();
+    if (shared_element_id.IsValid()) {
+      host->property_trees()
+          ->document_transition_layer_to_effect_node_index[shared_element_id] =
+          effect_id;
     }
   }
 
@@ -1320,12 +1329,12 @@ void PaintArtifactCompositor::SetScrollbarNeedsDisplay(
 }
 
 void LayerListBuilder::Add(scoped_refptr<cc::Layer> layer) {
-#if DCHECK_IS_ON()
   DCHECK(list_valid_);
-  DCHECK(!layer_ids_.Contains(layer->id()));
-  layer_ids_.insert(layer->id());
-#endif
-  list_.push_back(layer);
+  // Duplicated layers may happen when a foreign layer is fragmented.
+  // TODO(wangxianzhu): Change this to DCHECK when we ensure all foreign layers
+  // are monolithic (i.e. LayoutNGBlockFragmentation is fully launched).
+  if (layer_ids_.insert(layer->id()).is_new_entry)
+    list_.push_back(layer);
 }
 
 cc::LayerList LayerListBuilder::Finalize() {

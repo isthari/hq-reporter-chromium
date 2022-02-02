@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/views/page_info/page_info_hover_button.h"
+#include "chrome/browser/ui/views/page_info/page_info_main_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_view_factory.h"
 #include "components/page_info/core/page_info_history_data_source.h"
 #include "components/strings/grit/components_strings.h"
@@ -19,7 +20,7 @@
 PageInfoHistoryController::PageInfoHistoryController(
     content::WebContents* web_contents,
     const GURL& site_url)
-    : web_contents_(web_contents) {
+    : web_contents_(web_contents), site_url_(site_url) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   history_data_source_ = std::make_unique<page_info::PageInfoHistoryDataSource>(
@@ -40,11 +41,14 @@ void PageInfoHistoryController::UpdateRow(base::Time last_visit) {
   if (!container_tracker_.view())
     return;
 
-  container_tracker_.view()->RemoveAllChildViews();
+  auto* container_view =
+      static_cast<PageInfoMainView::ContainerView*>(container_tracker_.view());
+  container_view->RemoveAllChildViews();
   if (!last_visit.is_null()) {
-    container_tracker_.view()->AddChildView(CreateHistoryButton(
+    container_view->AddChildView(CreateHistoryButton(
         page_info::PageInfoHistoryDataSource::FormatLastVisitedTimestamp(
             last_visit)));
+    container_view->Update();
   }
 }
 
@@ -54,15 +58,14 @@ std::unique_ptr<views::View> PageInfoHistoryController::CreateHistoryButton(
   return std::make_unique<PageInfoHoverButton>(
       base::BindRepeating(&PageInfoHistoryController::OpenHistoryPage,
                           weak_factory_.GetWeakPtr()),
-      PageInfoViewFactory::GetSiteSettingsIcon(), IDS_PAGE_INFO_HISTORY,
-      last_visit, PageInfoViewFactory::VIEW_ID_PAGE_INFO_HISTORY_BUTTON,
+      PageInfoViewFactory::GetHistoryIcon(), IDS_PAGE_INFO_HISTORY, last_visit,
+      PageInfoViewFactory::VIEW_ID_PAGE_INFO_HISTORY_BUTTON,
       /*tooltip_text=*/std::u16string(), std::u16string(),
       PageInfoViewFactory::GetLaunchIcon());
 }
 
 void PageInfoHistoryController::OpenHistoryPage() {
-  // TODO(crbug.com/1275042): Open history page for the site.
   // TODO(crbug.com/1275042): Add test for destroring web content.
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
-  chrome::ShowHistory(browser);
+  chrome::ShowHistory(browser, site_url_.host());
 }

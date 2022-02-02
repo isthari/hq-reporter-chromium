@@ -174,6 +174,8 @@ void AddStringsForDrive(base::Value* dict) {
 }
 
 void AddStringsForMediaView(base::Value* dict) {
+  SET_STRING("MEDIA_VIEW_ALL_ROOT_LABEL",
+             IDS_FILE_BROWSER_MEDIA_VIEW_ALL_ROOT_LABEL);
   SET_STRING("MEDIA_VIEW_AUDIO_ROOT_LABEL",
              IDS_FILE_BROWSER_MEDIA_VIEW_AUDIO_ROOT_LABEL);
   SET_STRING("MEDIA_VIEW_IMAGES_ROOT_LABEL",
@@ -912,6 +914,8 @@ void AddStringsGeneric(base::Value* dict) {
   SET_STRING("GRID_VIEW_FILES_TITLE", IDS_FILE_BROWSER_GRID_VIEW_FILES_TITLE);
   SET_STRING("LOCATION_BREADCRUMB_ELIDER_BUTTON_LABEL",
              IDS_FILE_BROWSER_LOCATION_BREADCRUMB_ELIDER_BUTTON_LABEL);
+  SET_STRING("DLP_BLOCK_COPY_TOAST", IDS_FILE_BROWSER_DLP_BLOCK_COPY_TOAST);
+  SET_STRING("DLP_TOAST_BUTTON_LABEL", IDS_FILE_BROWSER_DLP_TOAST_BUTTON_LABEL);
 }
 
 #undef SET_STRING
@@ -987,12 +991,11 @@ void AddFileManagerFeatureStrings(const std::string& locale,
                    base::FeatureList::IsEnabled(
                        chromeos::features::kFilesSinglePartitionFormat));
   dict->SetBoolKey(
-      "FILES_BANNER_FRAMEWORK",
-      base::FeatureList::IsEnabled(chromeos::features::kFilesBannerFramework));
-
-  dict->SetBoolKey(
       "EXTRACT_ARCHIVE",
       base::FeatureList::IsEnabled(chromeos::features::kFilesExtractArchive));
+
+  dict->SetBoolKey("FUSEBOX",
+                   base::FeatureList::IsEnabled(chromeos::features::kFuseBox));
 
   dict->SetStringKey("UI_LOCALE", locale);
 }

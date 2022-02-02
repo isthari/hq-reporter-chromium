@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 
+#include "cc/base/region.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
@@ -49,7 +50,6 @@
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/outline_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
-#include "third_party/blink/renderer/platform/geometry/region.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "ui/gfx/geometry/quad_f.h"
 
@@ -1176,7 +1176,7 @@ bool LayoutInline::NodeAtPoint(HitTestResult& result,
                                const PhysicalOffset& accumulated_offset,
                                HitTestAction hit_test_action) {
   NOT_DESTROYED();
-  if (ContainingNGBlockFlow()) {
+  if (IsInLayoutNGInlineFormattingContext()) {
     // TODO(crbug.com/965976): We should fix the root cause of the missed
     // layout.
     if (UNLIKELY(NeedsLayout())) {
@@ -1239,13 +1239,13 @@ bool LayoutInline::HitTestCulledInline(HitTestResult& result,
     return false;
 
   HitTestLocation adjusted_location(hit_test_location, -accumulated_offset);
-  Region region_result;
+  cc::Region region_result;
   bool intersected = false;
   auto yield = [&adjusted_location, &region_result,
                 &intersected](const PhysicalRect& rect) {
     if (adjusted_location.Intersects(rect)) {
       intersected = true;
-      region_result.Unite(ToEnclosingRect(rect));
+      region_result.Union(ToEnclosingRect(rect));
     }
   };
 
@@ -1261,7 +1261,7 @@ bool LayoutInline::HitTestCulledInline(HitTestResult& result,
     for (; cursor; cursor.MoveToNextForSameLayoutObject())
       yield(cursor.Current().RectInContainerFragment());
   } else {
-    DCHECK(!ContainingNGBlockFlow());
+    DCHECK(!IsInLayoutNGInlineFormattingContext());
     CollectCulledLineBoxRects(yield);
   }
 
@@ -1291,7 +1291,7 @@ PositionWithAffinity LayoutInline::PositionForPoint(
         To<LayoutBlockFlow>(continuation)->InlineElementContinuation();
   }
 
-  if (const LayoutBlockFlow* ng_block_flow = ContainingNGBlockFlow())
+  if (const LayoutBlockFlow* ng_block_flow = FragmentItemsContainer())
     return ng_block_flow->PositionForPoint(point);
 
   DCHECK(CanUseInlineBox(*this));

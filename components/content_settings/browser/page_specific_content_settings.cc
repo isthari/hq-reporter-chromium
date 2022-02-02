@@ -420,6 +420,17 @@ void PageSpecificContentSettings::SharedWorkerAccessed(
 }
 
 // static
+void PageSpecificContentSettings::InterestGroupJoined(
+    content::RenderFrameHost* rfh,
+    const url::Origin api_origin,
+    bool blocked_by_policy) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  PageSpecificContentSettings* settings = GetForFrame(rfh);
+  if (settings)
+    settings->OnInterestGroupJoined(api_origin, blocked_by_policy);
+}
+
+// static
 content::WebContentsObserver*
 PageSpecificContentSettings::GetWebContentsObserverForTest(
     content::WebContents* web_contents) {
@@ -515,7 +526,7 @@ void PageSpecificContentSettings::OnContentAllowed(ContentSettingsType type) {
   if (type == ContentSettingsType::SENSORS)
     must_reset_blocked_status = true;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // content_settings_status_[type].allowed is always set to true in
   // OnContentBlocked, so we have to use
   // content_settings_status_[type].blocked to detect whether the protected
@@ -660,6 +671,19 @@ void PageSpecificContentSettings::OnSharedWorkerAccessed(
   }
 }
 
+void PageSpecificContentSettings::OnInterestGroupJoined(
+    const url::Origin api_origin,
+    bool blocked_by_policy) {
+  if (blocked_by_policy) {
+    blocked_interest_group_api_.push_back(api_origin);
+    OnContentBlocked(ContentSettingsType::COOKIES);
+  } else {
+    allowed_interest_group_api_.push_back(api_origin);
+    OnContentAllowed(ContentSettingsType::COOKIES);
+  }
+  NotifySiteDataObservers();
+}
+
 void PageSpecificContentSettings::OnWebDatabaseAccessed(
     const GURL& url,
     bool blocked_by_policy) {
@@ -694,7 +718,7 @@ void PageSpecificContentSettings::OnFileSystemAccessed(const GURL& url,
   NotifySiteDataObservers();
 }
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS) || defined(OS_WIN)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
 void PageSpecificContentSettings::OnProtectedMediaIdentifierPermissionSet(
     const GURL& requesting_origin,
     bool allowed) {
@@ -902,6 +926,10 @@ bool PageSpecificContentSettings::HasContentSettingChangedViaPageInfo(
     ContentSettingsType type) const {
   return content_settings_changed_via_page_info_.find(type) !=
          content_settings_changed_via_page_info_.end();
+}
+
+bool PageSpecificContentSettings::HasJoinedUserToInterestGroup() const {
+  return !allowed_interest_group_api_.empty();
 }
 
 bool PageSpecificContentSettings::IsPagePrerendering() const {

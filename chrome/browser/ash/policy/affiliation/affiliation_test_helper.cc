@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/components/login/auth/key.h"
 #include "ash/components/login/auth/user_context.h"
 #include "ash/constants/ash_switches.h"
@@ -26,7 +27,6 @@
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/authpolicy/fake_authpolicy_client.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
 #include "chromeos/dbus/session_manager/fake_session_manager_client.h"
@@ -214,13 +214,12 @@ void AffiliationTestHelper::LoginUser(const AccountId& account_id) {
 // static
 void AffiliationTestHelper::AppendCommandLineSwitchesForLoginManager(
     base::CommandLine* command_line) {
-  command_line->AppendSwitch(chromeos::switches::kLoginManager);
-  command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
+  command_line->AppendSwitch(ash::switches::kLoginManager);
+  command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
   // LoginManager tests typically don't stand up a policy test server but
   // instead inject policies directly through a SessionManagerClient. So allow
   // policy fetches to fail - this is expected.
-  command_line->AppendSwitch(
-      chromeos::switches::kAllowFailedPolicyFetchForTest);
+  command_line->AppendSwitch(ash::switches::kAllowFailedPolicyFetchForTest);
 }
 
 }  // namespace policy

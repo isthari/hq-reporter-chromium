@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
+#import "ios/chrome/browser/ui/browser_view/browser_view_controller+delegates.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller+private.h"
 
 #import <MessageUI/MessageUI.h>
@@ -27,6 +28,7 @@
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/ukm/ios/ukm_url_recorder.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
+#include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/crash_report/crash_keys_helper.h"
@@ -35,7 +37,6 @@
 #include "ios/chrome/browser/feature_engagement/tracker_util.h"
 #import "ios/chrome/browser/find_in_page/find_tab_helper.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
-#import "ios/chrome/browser/language/url_language_histogram_factory.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #import "ios/chrome/browser/metrics/tab_usage_recorder_browser_agent.h"
@@ -56,8 +57,8 @@
 #include "ios/chrome/browser/signin/authentication_service.h"
 #include "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
-#import "ios/chrome/browser/ssl/captive_portal_detector_tab_helper.h"
-#import "ios/chrome/browser/ssl/captive_portal_detector_tab_helper_delegate.h"
+#import "ios/chrome/browser/ssl/captive_portal_tab_helper.h"
+#import "ios/chrome/browser/ssl/captive_portal_tab_helper_delegate.h"
 #import "ios/chrome/browser/tabs/tab_title_util.h"
 #import "ios/chrome/browser/translate/chrome_ios_translate_client.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
@@ -273,26 +274,20 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 
 #pragma mark - BVC
 
-@interface BrowserViewController () <BubblePresenterDelegate,
-                                     CaptivePortalDetectorTabHelperDelegate,
-                                     ChromeLensControllerDelegate,
+// Note other delegates defined in the Delegates category header.
+@interface BrowserViewController () <CaptivePortalTabHelperDelegate,
                                      CRWWebStateObserver,
+                                     ChromeLensControllerDelegate,
                                      FindBarPresentationDelegate,
                                      FullscreenUIElement,
                                      InfobarPositioner,
                                      KeyCommandsPlumbing,
                                      MainContentUI,
-                                     ManageAccountsDelegate,
                                      MFMailComposeViewControllerDelegate,
-                                     NetExportTabHelperDelegate,
-                                     NewTabPageTabHelperDelegate,
                                      OmniboxPopupPresenterDelegate,
-                                     OverscrollActionsControllerDelegate,
-                                     PasswordControllerDelegate,
                                      PreloadControllerDelegate,
                                      SideSwipeControllerDelegate,
                                      SigninPresenter,
-                                     SnapshotGeneratorDelegate,
                                      TabStripPresentation,
                                      UIGestureRecognizerDelegate,
                                      URLLoadingObserver,
@@ -1789,7 +1784,8 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 // the status bar to mimic this layout.
 - (void)installFakeStatusBar {
   // This method is called when the view is loaded and when the thumb strip is
-  // installed via addAnimatee -> didAnimateViewReveal-> installFakeStatusBar.
+  // installed via addAnimatee -> didAnimateViewRevealFromState ->
+  // installFakeStatusBar.
 
   // Remove the _fakeStatusBarView if present.
   [_fakeStatusBarView removeFromSuperview];
@@ -2580,8 +2576,10 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 
 #pragma mark - Private Methods: Tab creation and selection
 
+// DEPRECATED -- Do not add further logic to this method.
 // Add all delegates to the provided |webState|.
 // Unregistration happens when the WebState is removed from the WebStateList.
+// TODO(crbug.com/1290819): Remove this method.
 - (void)installDelegatesForWebState:(web::WebState*)webState {
   // If the WebState is unrealized, don't install the delegate. Instead they
   // will be installed when -webStateRealized: method is called.
@@ -2593,8 +2591,6 @@ NSString* const kBrowserViewControllerSnackbarCategory =
       PrerenderServiceFactory::GetForBrowserState(self.browserState);
   DCHECK(!prerenderService ||
          !prerenderService->IsWebStatePrerendered(webState));
-
-  SnapshotTabHelper::FromWebState(webState)->SetDelegate(self);
 
   if (PasswordTabHelper* passwordTabHelper =
           PasswordTabHelper::FromWebState(webState)) {
@@ -2611,10 +2607,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
                                              self.sideSwipeController);
   SadTabTabHelper::FromWebState(webState)->SetDelegate(_sadTabCoordinator);
   NetExportTabHelper::CreateForWebState(webState, self);
-  CaptivePortalDetectorTabHelper::CreateForWebState(webState, self);
-
-  OfflinePageTabHelper::CreateForWebState(
-      webState, ReadingListModelFactory::GetForBrowserState(self.browserState));
+  CaptivePortalTabHelper::CreateForWebState(webState, self);
 
   // DownloadManagerTabHelper cannot function without delegate.
   DCHECK(_downloadManagerCoordinator);
@@ -2623,19 +2616,6 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 
   NewTabPageTabHelper::FromWebState(webState)->SetDelegate(self);
 
-  // The language detection helper accepts a callback from the translate
-  // client, so must be created after it.
-  // This will explode if the webState doesn't have a JS injection manager
-  // (this only comes up in unit tests), so check for that and bypass the
-  // init of the translation helpers if needed.
-  // TODO(crbug.com/785238): Remove the need for this check.
-  if (webState->GetJSInjectionReceiver()) {
-    language::IOSLanguageDetectionTabHelper::CreateForWebState(
-        webState,
-        UrlLanguageHistogramFactory::GetForBrowserState(self.browserState));
-    ChromeIOSTranslateClient::CreateForWebState(webState);
-  }
-
   if (AccountConsistencyService* accountConsistencyService =
           ios::AccountConsistencyServiceFactory::GetForBrowserState(
               self.browserState)) {
@@ -2643,7 +2623,9 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   }
 }
 
+// DEPRECATED -- Do not add further logic to this method.
 // Remove delegates from the provided |webState|.
+// TODO(crbug.com/1290819): Remove this method.
 - (void)uninstallDelegatesForWebState:(web::WebState*)webState {
   // If the WebState is unrealized, then the delegate had not been installed
   // and thus don't need to be uninstalled.
@@ -2668,8 +2650,6 @@ NSString* const kBrowserViewControllerSnackbarCategory =
               self.browserState)) {
     accountConsistencyService->RemoveWebStateHandler(webState);
   }
-
-  SnapshotTabHelper::FromWebState(webState)->SetDelegate(nil);
 
   // TODO(crbug.com/1173610): Have BrowserCoordinator manage the NTP.
   // No need to stop _ntpCoordinator with Single NTP enabled since shutdown will
@@ -3047,12 +3027,14 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   }
 }
 
-- (void)didAnimateViewReveal:(ViewRevealState)viewRevealState {
+- (void)didAnimateViewRevealFromState:(ViewRevealState)startViewRevealState
+                              toState:(ViewRevealState)currentViewRevealState
+                              trigger:(ViewRevealTrigger)trigger {
   [self.tabStripSnapshot removeFromSuperview];
-  self.bottomPosition = (viewRevealState == ViewRevealState::Revealed ||
-                         viewRevealState == ViewRevealState::Fullscreen);
+  self.bottomPosition = (currentViewRevealState == ViewRevealState::Revealed ||
+                         currentViewRevealState == ViewRevealState::Fullscreen);
 
-  if (viewRevealState == ViewRevealState::Hidden) {
+  if (currentViewRevealState == ViewRevealState::Hidden) {
     // Stop disabling fullscreen.
     if (!_deferEndFullscreenDisabler) {
       _fullscreenDisabler.reset();
@@ -3088,7 +3070,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
         }
       }
     }
-  } else if (viewRevealState == ViewRevealState::Peeked) {
+  } else if (currentViewRevealState == ViewRevealState::Peeked) {
     // Close the omnibox after opening the thumb strip
     [self.omniboxHandler cancelOmniboxEdit];
   }
@@ -3270,7 +3252,8 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 }
 
 - (void)displaySavedPasswordList {
-  [self.dispatcher showSavedPasswordsSettingsFromViewController:self];
+  [self.dispatcher showSavedPasswordsSettingsFromViewController:self
+                                               showCancelButton:YES];
 }
 
 #pragma mark - WebStateContainerViewProvider
@@ -4015,6 +3998,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 - (void)searchImageWithLens:(SearchImageWithLensCommand*)command {
   LensConfiguration* configuration = [[LensConfiguration alloc] init];
   configuration.isIncognito = self.isOffTheRecord;
+  configuration.ssoService = GetApplicationContext()->GetSSOService();
 
   if (!self.isOffTheRecord) {
     ChromeBrowserState* browserState = _browser->GetBrowserState();
@@ -4092,7 +4076,11 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   if (oldWebState) {
     oldWebState->WasHidden();
     oldWebState->SetKeepRenderProcessAlive(false);
-    [[self ntpCoordinatorForWebState:oldWebState] ntpDidChangeVisibility:NO];
+    NewTabPageTabHelper* NTPHelper =
+        NewTabPageTabHelper::FromWebState(oldWebState);
+    if (NTPHelper && NTPHelper->IsActive()) {
+      [[self ntpCoordinatorForWebState:oldWebState] ntpDidChangeVisibility:NO];
+    }
     [self dismissPopups];
   }
   // NOTE: webStateSelected expects to always be called with a
@@ -4101,7 +4089,11 @@ NSString* const kBrowserViewControllerSnackbarCategory =
     return;
 
   self.currentWebState->GetWebViewProxy().scrollViewProxy.clipsToBounds = NO;
-  [[self ntpCoordinatorForWebState:newWebState] ntpDidChangeVisibility:YES];
+  NewTabPageTabHelper* NTPHelper =
+      NewTabPageTabHelper::FromWebState(newWebState);
+  if (NTPHelper && NTPHelper->IsActive()) {
+    [[self ntpCoordinatorForWebState:newWebState] ntpDidChangeVisibility:YES];
+  }
 
   [self webStateSelected:newWebState notifyToolbar:YES];
 }
@@ -4110,8 +4102,10 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 - (void)webStateList:(WebStateList*)webStateList
     didDetachWebState:(web::WebState*)webState
               atIndex:(int)atIndex {
-  webState->WasHidden();
-  webState->SetKeepRenderProcessAlive(false);
+  if (webState->IsRealized()) {
+    webState->WasHidden();
+    webState->SetKeepRenderProcessAlive(false);
+  }
 
   if (IsSingleNtpEnabled()) {
     [self stopNTPIfNeeded];
@@ -4550,11 +4544,10 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   return nil;
 }
 
-#pragma mark - CaptivePortalDetectorTabHelperDelegate
+#pragma mark - CaptivePortalTabHelperDelegate
 
-- (void)captivePortalDetectorTabHelper:
-            (CaptivePortalDetectorTabHelper*)tabHelper
-                 connectWithLandingURL:(const GURL&)landingURL {
+- (void)captivePortalTabHelper:(CaptivePortalTabHelper*)tabHelper
+         connectWithLandingURL:(const GURL&)landingURL {
   TabInsertionBrowserAgent* insertionAgent =
       TabInsertionBrowserAgent::FromBrowser(self.browser);
   insertionAgent->InsertWebState(

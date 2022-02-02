@@ -21,7 +21,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Batch;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
@@ -36,7 +35,9 @@ import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
 @Batch(Batch.UNIT_TESTS)
 public class WebContentsAccessibilityTreeTest {
     // File path that holds all the relevant tests.
+    private static final String BASE_ACCNAME_FILE_PATH = "content/test/data/accessibility/accname/";
     private static final String BASE_ARIA_FILE_PATH = "content/test/data/accessibility/aria/";
+    private static final String BASE_CSS_FILE_PATH = "content/test/data/accessibility/css/";
     private static final String BASE_HTML_FILE_PATH = "content/test/data/accessibility/html/";
     private static final String DEFAULT_FILE_SUFFIX = "-expected-android-external.txt";
 
@@ -69,6 +70,15 @@ public class WebContentsAccessibilityTreeTest {
 
     // Helper methods to pass-through to the performTest method so each individual test does
     // not need to include its own filepath.
+    private void performAccnameTest(String input) {
+        // Remove the '.html' from the input file, and append the standard suffix.
+        performAccnameTest(input, input.substring(0, input.length() - 5) + DEFAULT_FILE_SUFFIX);
+    }
+
+    private void performAccnameTest(String inputFile, String expectationFile) {
+        performTest(inputFile, expectationFile, BASE_ACCNAME_FILE_PATH);
+    }
+
     private void performAriaTest(String input) {
         // Remove the '.html' from the input file, and append the standard suffix.
         performAriaTest(input, input.substring(0, input.length() - 5) + DEFAULT_FILE_SUFFIX);
@@ -76,6 +86,15 @@ public class WebContentsAccessibilityTreeTest {
 
     private void performAriaTest(String inputFile, String expectationFile) {
         performTest(inputFile, expectationFile, BASE_ARIA_FILE_PATH);
+    }
+
+    private void performCssTest(String input) {
+        // Remove the '.html' from the input file, and append the standard suffix.
+        performCssTest(input, input.substring(0, input.length() - 5) + DEFAULT_FILE_SUFFIX);
+    }
+
+    private void performCssTest(String inputFile, String expectationFile) {
+        performTest(inputFile, expectationFile, BASE_CSS_FILE_PATH);
     }
 
     private void performHtmlTest(String input) {
@@ -149,6 +168,32 @@ public class WebContentsAccessibilityTreeTest {
         return mActivityTestRule.mNodeProvider.createAccessibilityNodeInfo(virtualViewId);
     }
 
+    // ------------------ ACCNAME TESTS ------------------ //
+
+    @Test
+    @SmallTest
+    public void test_descComboboxFocusable() {
+        performAccnameTest("desc-combobox-focusable.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_descFromContentOfDescribedbyElement() {
+        performAccnameTest("desc-from-content-of-describedby-element.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_nameComboboxFocusable() {
+        performAccnameTest("name-combobox-focusable.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_nameDivContentOnly() {
+        performAccnameTest("name-div-content-only.html");
+    }
+
     // ------------------ ARIA TESTS ------------------ //
 
     @Test
@@ -207,7 +252,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaButton() {
         performAriaTest("aria-button.html");
     }
@@ -220,14 +264,12 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaCheckbox() {
         performAriaTest("aria-checkbox.html");
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaChecked() {
         performAriaTest("aria-checked.html");
     }
@@ -264,7 +306,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaCombobox() {
         performAriaTest("aria-combobox.html");
     }
@@ -277,7 +318,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaComboboxUneditable() {
         performAriaTest("aria-combobox-uneditable.html");
     }
@@ -302,7 +342,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaCurrent() {
         performAriaTest("aria-current.html");
     }
@@ -411,7 +450,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaGridcell() {
         performAriaTest("aria-gridcell.html");
     }
@@ -454,7 +492,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1282189")
+    @DisabledTest(message = "https://crbug.com/1286036")
     public void test_ariaHiddenIframe() {
         performAriaTest("aria-hidden-iframe.html");
     }
@@ -467,7 +505,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaIllegalVal() {
         performAriaTest("aria-illegal-val.html");
     }
@@ -516,21 +553,18 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaListboxAriaSelected() {
         performAriaTest("aria-listbox-aria-selected.html");
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaListboxDisabled() {
         performAriaTest("aria-listbox-disabled.html");
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaListbox() {
         performAriaTest("aria-listbox.html");
     }
@@ -597,7 +631,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaMenuitemcheckbox() {
         performAriaTest("aria-menuitemcheckbox.html");
     }
@@ -616,7 +649,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaMenuitemradio() {
         performAriaTest("aria-menuitemradio.html");
     }
@@ -641,7 +673,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaMultiselectable() {
         performAriaTest("aria-multiselectable.html");
     }
@@ -666,14 +697,12 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaOptionComplexChildren() {
         performAriaTest("aria-option-complex-children.html");
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaOption() {
         performAriaTest("aria-option.html");
     }
@@ -722,7 +751,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaPressed() {
         performAriaTest("aria-pressed.html");
     }
@@ -813,7 +841,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaSelected() {
         performAriaTest("aria-selected.html");
     }
@@ -826,7 +853,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaSetsize() {
         performAriaTest("aria-setsize.html");
     }
@@ -953,7 +979,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaTogglebutton() {
         performAriaTest("aria-togglebutton.html");
     }
@@ -984,7 +1009,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_ariaTree() {
         performAriaTest("aria-tree.html");
     }
@@ -1057,9 +1081,82 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279785")
     public void test_toggleButtonExpandCollapse() {
         performAriaTest("toggle-button-expand-collapse.html");
+    }
+
+    // ------------------ CSS TESTS ------------------ //
+
+    @Test
+    @SmallTest
+    public void test_altText() {
+        performCssTest("alt-text.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_backgroundColorTransparent() {
+        performCssTest("background-color-transparent.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_beforeAfterCode() {
+        performCssTest("before-after-code.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_color() {
+        performCssTest("color.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_domElementCssAlternativeText() {
+        performCssTest("dom-element-css-alternative-text.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_fontSize() {
+        performCssTest("font-size.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_fontStyle() {
+        performCssTest("font-style.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_language() {
+        performCssTest("language.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_listMarkerStylesCustom() {
+        performCssTest("list-marker-styles-custom.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_pseudoElementAlternativeText() {
+        performCssTest("pseudo-element-alternative-text.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_pseudoElementPositioned() {
+        performCssTest("pseudo-element-positioned.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_pseudoElements() {
+        performCssTest("pseudo-elements.html");
     }
 
     // ------------------ HTML TESTS ------------------ //
@@ -1180,7 +1277,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281847")
     public void test_br() {
         performHtmlTest("br.html");
     }
@@ -1193,10 +1289,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisableIf.Build(sdk_is_greater_than = Build.VERSION_CODES.Q,
-            message = "Fails on Android 11: https://crbug.com/1280713")
-    public void
-    test_buttonWithListboxPopup() {
+    public void test_buttonWithListboxPopup() {
         performHtmlTest("button-with-listbox-popup.html");
     }
 
@@ -1286,7 +1379,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281847")
     public void test_contenteditableWithEmbeddedContenteditables() {
         performHtmlTest("contenteditable-with-embedded-contenteditables.html");
     }
@@ -1419,7 +1511,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1280734")
+    @DisabledTest(message = "https://crbug.com/1286036")
     public void test_frameset() {
         performHtmlTest("frameset.html");
     }
@@ -1480,7 +1572,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281847")
+    @DisabledTest(message = "https://crbug.com/1286036")
     public void test_iframeCoordinatesCrossProcess() {
         performHtmlTest("iframe-coordinates-cross-process.html");
     }
@@ -1505,14 +1597,14 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281797")
+    @DisabledTest(message = "https://crbug.com/1286036")
     public void test_iframePresentational() {
         performHtmlTest("iframe-presentational.html");
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279960")
+    @DisabledTest(message = "https://crbug.com/1286036")
     public void test_iframeTransform() {
         performHtmlTest("iframe-transform.html");
     }
@@ -1543,7 +1635,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1279723")
     public void test_img() {
         performHtmlTest("img.html");
     }
@@ -1664,7 +1755,6 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281847")
     public void test_inputRadio() {
         performHtmlTest("input-radio.html");
     }
@@ -1709,6 +1799,12 @@ public class WebContentsAccessibilityTreeTest {
     @SmallTest
     public void test_inputTextNameCalc() {
         performHtmlTest("input-text-name-calc.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputTextRange() {
+        performHtmlTest("input-text-range.html");
     }
 
     @Test
@@ -1773,7 +1869,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1281847")
+    @DisabledTest(message = "https://crbug.com/1258230")
     public void test_landmark() {
         performHtmlTest("landmark.html");
     }
@@ -2026,10 +2122,8 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    @DisableIf.Build(sdk_is_greater_than = Build.VERSION_CODES.Q,
-            message = "Fails on Android 11: https://crbug.com/1280713")
-    public void
-    test_selectmenu() {
+    @DisabledTest(message = "https://crbug.com/1280713")
+    public void test_selectmenu() {
         performHtmlTest("selectmenu.html");
     }
 

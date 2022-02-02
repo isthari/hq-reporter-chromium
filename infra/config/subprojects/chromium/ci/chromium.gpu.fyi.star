@@ -110,6 +110,18 @@ ci.thin_tester(
 )
 
 ci.thin_tester(
+    name = "Android FYI Release (Pixel 6)",
+    # TODO(crbug.com/1280418): Revert this to the default once more Pixel 6
+    # capacity is deployed.
+    execution_timeout = 8 * time.hour,
+    console_view_entry = consoles.console_view_entry(
+        category = "Android|S64|ARM",
+        short_name = "P6",
+    ),
+    triggered_by = ["GPU FYI Android arm64 Builder"],
+)
+
+ci.thin_tester(
     name = "Android FYI SkiaRenderer GL (Nexus 5X)",
     console_view_entry = consoles.console_view_entry(
         category = "Android|skgl|M64",
@@ -377,10 +389,11 @@ ci.thin_tester(
 
 ci.thin_tester(
     name = "Mac FYI Experimental Retina Release (AMD)",
-    console_view_entry = consoles.console_view_entry(
-        category = "Mac|AMD|Retina",
-        short_name = "exp",
-    ),
+    # Uncomment this entry when this experimental tester is actually in use.
+    # console_view_entry = consoles.console_view_entry(
+    #     category = "Mac|AMD|Retina",
+    #     short_name = "exp",
+    # ),
     list_view = "chromium.gpu.experimental",
     triggered_by = ["GPU FYI Mac Builder"],
 )

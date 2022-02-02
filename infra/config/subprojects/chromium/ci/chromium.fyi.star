@@ -277,6 +277,9 @@ ci.builder(
     ),
     notifies = ["annotator-rel"],
     os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+    goma_backend = None,
+    reclient_jobs = rbe_jobs.HIGH_JOBS_FOR_CI,
+    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -296,7 +299,8 @@ ci.builder(
                         "chrome_100_percent.pak",
                         "chrome_200_percent.pak",
                         "chrome_crashpad_handler",
-                        "headless_lib.pak",
+                        "headless_lib_data.pak",
+                        "headless_lib_strings.pak",
                         "icudtl.dat",
                         "libminigbm.so",
                         "nacl_helper",
@@ -353,6 +357,9 @@ ci.builder(
     ),
     notifies = ["linux-blink-fyi-bots"],
     os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+    goma_backend = None,
+    reclient_jobs = rbe_jobs.HIGH_JOBS_FOR_CI,
+    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -588,7 +595,7 @@ ci.builder(
 )
 
 ci.builder(
-    name = "Comparison Linux",
+    name = "Comparison Linux (reclient)",
     console_view_entry = consoles.console_view_entry(
         category = "linux",
         short_name = "cmp",
@@ -603,7 +610,7 @@ ci.builder(
 )
 
 ci.builder(
-    name = "Comparison Windows",
+    name = "Comparison Windows (reclient)",
     builderless = True,
     console_view_entry = consoles.console_view_entry(
         category = "win",
@@ -649,8 +656,6 @@ ci.builder(
     os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
     reclient_jobs = 400,
     reclient_instance = rbe_instance.DEFAULT,
-    reclient_ensure_verified = True,
-    reclient_rewrapper_env = {"RBE_compare": "true"},
 )
 # End - Reclient migration, phase 2, block 1 shadow builders
 
@@ -885,6 +890,7 @@ fyi_coverage_builder(
         ),
     ],
     os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+    coverage_test_types = ["overall", "unit"],
     use_clang_coverage = True,
     schedule = "triggered",
     triggered_by = [],
@@ -983,16 +989,6 @@ fyi_ios_builder(
         category = "iOS",
         short_name = "asan",
     ),
-)
-fyi_ios_builder(
-    name = "ios-catalyst",
-    console_view_entry = [
-        consoles.console_view_entry(
-            category = "iOS",
-            short_name = "ctl",
-        ),
-    ],
-    os = os.MAC_11,
 )
 fyi_ios_builder(
     name = "ios-reclient",

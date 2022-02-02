@@ -41,8 +41,8 @@ class Vp9Decoder {
   // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-stateless-decoder.html#initialization
   bool Initialize();
 
-  // Parses next frame from IVF stream and decodes the frame.
-  Vp9Decoder::Result DecodeNextFrame();
+  // Parses next frame from IVF stream and decodes the frame |frame_number|.
+  Vp9Decoder::Result DecodeNextFrame(const int frame_number);
 
  private:
   Vp9Decoder(std::unique_ptr<IvfParser> ivf_parser,
@@ -54,6 +54,10 @@ class Vp9Decoder {
   // and |size| respectively.
   Vp9Parser::Result ReadNextFrame(Vp9FrameHeader& vp9_frame_header,
                                   gfx::Size& size);
+
+  // Copies the frame data into the V4L2 buffer of OUTPUT |queue|.
+  bool CopyFrameData(const Vp9FrameHeader& frame_hdr,
+                     std::unique_ptr<V4L2Queue>& queue);
 
   // Sets up per frame parameters |v4l2_frame_params| needed for VP9 decoding
   // with VIDIOC_S_EXT_CTRLS ioctl call.

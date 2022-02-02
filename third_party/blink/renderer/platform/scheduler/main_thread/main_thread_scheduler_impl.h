@@ -193,12 +193,12 @@ class PLATFORM_EXPORT MainThreadSchedulerImpl
   void SetRendererHidden(bool hidden) override;
   void SetRendererBackgrounded(bool backgrounded) override;
   void OnMainFrameRequestedForInput() override;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void PauseTimersForAndroidWebView() override;
   void ResumeTimersForAndroidWebView() override;
 #endif
-  std::unique_ptr<ThreadScheduler::RendererPauseHandle> PauseRenderer() override
-      WARN_UNUSED_RESULT;
+  [[nodiscard]] std::unique_ptr<ThreadScheduler::RendererPauseHandle>
+  PauseRenderer() override;
   bool IsHighPriorityWorkAnticipated() override;
   bool ShouldYieldForHighPriorityWork() override;
   bool CanExceedIdleDeadlineIfRequired() const override;

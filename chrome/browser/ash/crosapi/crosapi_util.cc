@@ -52,6 +52,7 @@
 #include "chromeos/crosapi/mojom/image_writer.mojom.h"
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
 #include "chromeos/crosapi/mojom/kiosk_session_service.mojom.h"
+#include "chromeos/crosapi/mojom/launcher_search.mojom.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
 #include "chromeos/crosapi/mojom/login_state.mojom.h"
 #include "chromeos/crosapi/mojom/message_center.mojom.h"
@@ -67,6 +68,7 @@
 #include "chromeos/crosapi/mojom/system_display.mojom.h"
 #include "chromeos/crosapi/mojom/task_manager.mojom.h"
 #include "chromeos/crosapi/mojom/test_controller.mojom.h"
+#include "chromeos/crosapi/mojom/timezone.mojom.h"
 #include "chromeos/crosapi/mojom/tts.mojom.h"
 #include "chromeos/crosapi/mojom/url_handler.mojom.h"
 #include "chromeos/crosapi/mojom/video_capture.mojom.h"
@@ -194,11 +196,13 @@ constexpr InterfaceVersionEntry kInterfaceVersionEntries[] = {
     MakeInterfaceVersionEntry<crosapi::mojom::Remoting>(),
     MakeInterfaceVersionEntry<crosapi::mojom::ResourceManager>(),
     MakeInterfaceVersionEntry<crosapi::mojom::ScreenManager>(),
+    MakeInterfaceVersionEntry<crosapi::mojom::SearchControllerRegistry>(),
     MakeInterfaceVersionEntry<crosapi::mojom::StructuredMetricsService>(),
     MakeInterfaceVersionEntry<crosapi::mojom::SnapshotCapturer>(),
     MakeInterfaceVersionEntry<crosapi::mojom::SystemDisplay>(),
     MakeInterfaceVersionEntry<crosapi::mojom::TaskManager>(),
     MakeInterfaceVersionEntry<crosapi::mojom::TestController>(),
+    MakeInterfaceVersionEntry<crosapi::mojom::TimeZoneService>(),
     MakeInterfaceVersionEntry<crosapi::mojom::Tts>(),
     MakeInterfaceVersionEntry<crosapi::mojom::UrlHandler>(),
     MakeInterfaceVersionEntry<crosapi::mojom::VideoCaptureDeviceFactory>(),
@@ -294,7 +298,7 @@ mojom::BrowserInitParamsPtr GetBrowserInitParams(
   // the long term fix is made in ash-chrome, atomically.
   params->exo_ime_support =
       crosapi::mojom::ExoImeSupport::kConsumedByImeWorkaround;
-  params->cros_user_id_hash = chromeos::ProfileHelper::GetUserIdHashFromProfile(
+  params->cros_user_id_hash = ash::ProfileHelper::GetUserIdHashFromProfile(
       ProfileManager::GetPrimaryUserProfile());
   params->device_account_policy = GetDeviceAccountPolicy(environment_provider);
   params->idle_info = IdleServiceAsh::ReadIdleInfoFromSystem();
@@ -367,7 +371,7 @@ mojom::BrowserInitParamsPtr GetBrowserInitParams(
           : crosapi::mojom::BrowserInitParams::InitialKeepAlive::kDisabled;
 
   params->is_unfiltered_bluetooth_device_enabled =
-      chromeos::switches::IsUnfilteredBluetoothDevicesEnabled();
+      ash::switches::IsUnfilteredBluetoothDevicesEnabled();
 
   // Pass the accepted internal urls to lacros. Only accepted urls are allowed
   // to be passed via OpenURL from Lacros to Ash.
@@ -376,8 +380,7 @@ mojom::BrowserInitParamsPtr GetBrowserInitParams(
           ->GetListOfAcceptableURLs();
 
   // Pass holding space feature flag state to lacros.
-  params->is_holding_space_incognito_profile_integration_enabled =
-      ash::features::IsHoldingSpaceIncognitoProfileIntegrationEnabled();
+  params->is_holding_space_incognito_profile_integration_enabled = true;
   params
       ->is_holding_space_in_progress_downloads_notification_suppression_enabled =
       ash::features::
@@ -420,14 +423,14 @@ base::ScopedFD CreateStartupData(EnvironmentProvider* environment_provider,
 }
 
 bool IsSigninProfileOrBelongsToAffiliatedUser(Profile* profile) {
-  if (chromeos::ProfileHelper::IsSigninProfile(profile))
+  if (ash::ProfileHelper::IsSigninProfile(profile))
     return true;
 
   if (profile->IsOffTheRecord())
     return false;
 
   const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+      ash::ProfileHelper::Get()->GetUserByProfile(profile);
   if (!user)
     return false;
   return user->IsAffiliated();

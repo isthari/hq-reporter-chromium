@@ -4,19 +4,23 @@
 
 #include "ash/components/fwupd/firmware_update_manager.h"
 
+#include <algorithm>
 #include <utility>
 
+#include "ash/components/fwupd/histogram_util.h"
 #include "ash/public/cpp/fwupd_download_client.h"
 #include "ash/webui/firmware_update_ui/mojom/firmware_update.mojom.h"
 #include "base/base_paths.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
+#include "base/containers/fixed_flat_map.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -36,16 +40,54 @@
 namespace ash {
 
 namespace {
+// State of the fwupd daemon. Enum defined here:
+// https://github.com/fwupd/fwupd/blob/4389f9f913588edae7243a8dbed88ce3788c8bc2/libfwupd/fwupd-enums.h
+enum class FwupdStatus {
+  kUnknown,
+  kIdle,
+  kLoading,
+  kDecompressing,
+  kDeviceRestart,
+  kDeviceWrite,
+  kDeviceVerify,
+  kScheduling,
+  kDownloading,
+  kDeviceRead,
+  kDeviceErase,
+  kWaitingForAuth,
+  kDeviceBusy,
+  kShutdown,
+};
+
+static constexpr auto FwupdStatusStringMap =
+    base::MakeFixedFlatMap<FwupdStatus, const char*>(
+        {{FwupdStatus::kUnknown, "Unknown state"},
+         {FwupdStatus::kIdle, "Idle state"},
+         {FwupdStatus::kLoading, "Loading a resource"},
+         {FwupdStatus::kDecompressing, "Decompressing firmware"},
+         {FwupdStatus::kDeviceRestart, "Restarting the device"},
+         {FwupdStatus::kDeviceWrite, "Writing to a device"},
+         {FwupdStatus::kDeviceVerify, "Verifying (reading) a device"},
+         {FwupdStatus::kScheduling, "Scheduling an offline update"},
+         {FwupdStatus::kDownloading, "A file is downloading"},
+         {FwupdStatus::kDeviceRead, "Reading from a device"},
+         {FwupdStatus::kDeviceErase, "Erasing a device"},
+         {FwupdStatus::kWaitingForAuth, "Waiting for authentication"},
+         {FwupdStatus::kDeviceBusy, "The device is busy"},
+         {FwupdStatus::kShutdown, "The daemon is shutting down"}});
+
+const char* GetFwupdStatusString(FwupdStatus enum_val) {
+  DCHECK(base::Contains(FwupdStatusStringMap, enum_val));
+  return FwupdStatusStringMap.at(enum_val);
+}
 
 const char kBaseRootPath[] = "firmware-updates";
 const char kCachePath[] = "cache";
 const char kCabFileExtension[] = ".cab";
 const char kFirmwareMirrorPrefix[] =
     "https://storage.googleapis.com/chromeos-localmirror/lvfs/";
-
-const char kSampleFirmwareUpgrade[] =
-    "c15a0df7386812781d1f376fe54729e64f69b2a8a6c4b580914d4f6740e4fcc3-HP-USBC_"
-    "DOCK_G5-V1.0.13.0.cab";
+const char kAllowedFilepathChars[] =
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-._";
 
 FirmwareUpdateManager* g_instance = nullptr;
 
@@ -58,12 +100,6 @@ base::ScopedFD OpenFileAndGetFileDescriptor(base::FilePath download_path) {
   }
 
   return base::ScopedFD(dest_file.TakePlatformFile());
-}
-
-// TODO(jimmyxgong): Stub function, implement when firmware version ID is
-// available.
-std::string GetFilenameFromDevice(const std::string& device_id, int release) {
-  return device_id + std::string(kCabFileExtension);
 }
 
 bool CreateDirIfNotExists(const base::FilePath& path) {
@@ -81,6 +117,7 @@ firmware_update::mojom::FirmwareUpdatePtr CreateUpdate(
   update->device_description = base::UTF8ToUTF16(update_details.description);
   update->priority =
       firmware_update::mojom::UpdatePriority(update_details.priority);
+  update->filepath = update_details.filepath;
   return update;
 }
 
@@ -125,6 +162,41 @@ int GetResponseCode(network::SimpleURLLoader* simple_loader) {
     return -1;
 }
 
+// TODO(michaelcheco): Determine if more granular states are needed.
+firmware_update::mojom::UpdateState GetUpdateState(FwupdStatus fwupd_status) {
+  switch (fwupd_status) {
+    case FwupdStatus::kUnknown:
+      return firmware_update::mojom::UpdateState::kUnknown;
+    case FwupdStatus::kIdle:
+    case FwupdStatus::kLoading:
+    case FwupdStatus::kDecompressing:
+    case FwupdStatus::kDeviceVerify:
+    case FwupdStatus::kScheduling:
+    case FwupdStatus::kDownloading:
+    case FwupdStatus::kDeviceRead:
+    case FwupdStatus::kDeviceErase:
+    case FwupdStatus::kWaitingForAuth:
+    case FwupdStatus::kDeviceBusy:
+    case FwupdStatus::kShutdown:
+      return firmware_update::mojom::UpdateState::kIdle;
+    case FwupdStatus::kDeviceRestart:
+      return firmware_update::mojom::UpdateState::kRestarting;
+    case FwupdStatus::kDeviceWrite:
+      return firmware_update::mojom::UpdateState::kUpdating;
+  }
+}
+
+bool IsValidFirmwarePatchFile(const base::FilePath& filepath) {
+  // Check if the extension is .cab.
+  std::string extension = filepath.Extension();
+  if (extension != kCabFileExtension) {
+    return false;
+  }
+
+  // Check for invalid characters in filepath.
+  return base::ContainsOnlyChars(filepath.value(), kAllowedFilepathChars);
+}
+
 }  // namespace
 
 FirmwareUpdateManager::FirmwareUpdateManager()
@@ -150,10 +222,34 @@ FirmwareUpdateManager* FirmwareUpdateManager::Get() {
   return g_instance;
 }
 
+// static
+bool FirmwareUpdateManager::IsInitialized() {
+  return g_instance;
+}
+
+void FirmwareUpdateManager::AddObserver(Observer* observer) {
+  observer_list_.AddObserver(observer);
+}
+
+void FirmwareUpdateManager::RemoveObserver(Observer* observer) {
+  observer_list_.RemoveObserver(observer);
+}
+
+void FirmwareUpdateManager::NotifyCriticalFirmwareUpdateReceived() {
+  for (auto& observer : observer_list_) {
+    observer.OnFirmwareUpdateReceived();
+  }
+}
+
+void FirmwareUpdateManager::RecordDeviceMetrics(int num_devices) {
+  firmware_update::metrics::EmitDeviceCount(num_devices, is_first_response_);
+}
+
 void FirmwareUpdateManager::NotifyUpdateListObservers() {
   for (auto& observer : update_list_observers_) {
     observer->OnUpdateListChanged(mojo::Clone(updates_));
   }
+  is_fetching_updates_ = false;
 }
 
 bool FirmwareUpdateManager::HasPendingUpdates() {
@@ -163,15 +259,41 @@ bool FirmwareUpdateManager::HasPendingUpdates() {
 void FirmwareUpdateManager::ObservePeripheralUpdates(
     mojo::PendingRemote<firmware_update::mojom::UpdateObserver> observer) {
   update_list_observers_.Add(std::move(observer));
-
-  if (HasPendingUpdates()) {
-    NotifyUpdateListObservers();
+  if (!HasPendingUpdates()) {
+    RequestAllUpdates();
   }
+}
+
+// TODO(michaelcheco): Handle the case where the app is closed during an
+// install.
+void FirmwareUpdateManager::ResetInstallState() {
+  install_controller_receiver_.reset();
+  update_progress_observer_.reset();
+}
+
+void FirmwareUpdateManager::PrepareForUpdate(
+    const std::string& device_id,
+    PrepareForUpdateCallback callback) {
+  DCHECK(!device_id.empty());
+
+  mojo::PendingRemote<firmware_update::mojom::InstallController>
+      pending_remote = install_controller_receiver_.BindNewPipeAndPassRemote();
+  install_controller_receiver_.set_disconnect_handler(base::BindOnce(
+      &FirmwareUpdateManager::ResetInstallState, base::Unretained(this)));
+  std::move(callback).Run(std::move(pending_remote));
+}
+
+void FirmwareUpdateManager::FetchInProgressUpdate(
+    FetchInProgressUpdateCallback callback) {
+  std::move(callback).Run(mojo::Clone(inflight_update_));
 }
 
 // Query all updates for all devices.
 void FirmwareUpdateManager::RequestAllUpdates() {
-  DCHECK(!HasPendingUpdates());
+  if (is_fetching_updates_) {
+    return;
+  }
+  is_fetching_updates_ = true;
   RequestDevices();
 }
 
@@ -187,7 +309,7 @@ void FirmwareUpdateManager::RequestUpdates(const std::string& device_id) {
 // file. This needs to update to fetch the update file from a server and
 // download it to the local cache.
 void FirmwareUpdateManager::StartInstall(const std::string& device_id,
-                                         int release,
+                                         const base::FilePath& filepath,
                                          base::OnceCallback<void()> callback) {
   base::FilePath root_dir;
   CHECK(base::PathService::Get(base::DIR_TEMP, &root_dir));
@@ -198,7 +320,7 @@ void FirmwareUpdateManager::StartInstall(const std::string& device_id,
   base::OnceClosure dir_created_callback =
       base::BindOnce(&FirmwareUpdateManager::CreateLocalPatchFile,
                      weak_ptr_factory_.GetWeakPtr(), cache_path, device_id,
-                     release, std::move(callback));
+                     filepath, std::move(callback));
 
   task_runner_->PostTaskAndReply(
       FROM_HERE,
@@ -216,10 +338,9 @@ void FirmwareUpdateManager::StartInstall(const std::string& device_id,
 void FirmwareUpdateManager::CreateLocalPatchFile(
     const base::FilePath& cache_path,
     const std::string& device_id,
-    int release,
+    const base::FilePath& filepath,
     base::OnceCallback<void()> callback) {
-  const base::FilePath patch_path =
-      cache_path.Append(GetFilenameFromDevice(device_id, release));
+  const base::FilePath patch_path = cache_path.Append(filepath.value());
 
   // Create the patch file.
   task_runner_->PostTaskAndReplyWithResult(
@@ -239,19 +360,19 @@ void FirmwareUpdateManager::CreateLocalPatchFile(
           patch_path),
       base::BindOnce(&FirmwareUpdateManager::DownloadFileToInternal,
                      weak_ptr_factory_.GetWeakPtr(), patch_path, device_id,
-                     std::move(callback)));
+                     filepath, std::move(callback)));
 }
 
 void FirmwareUpdateManager::DownloadFileToInternal(
     const base::FilePath& patch_path,
     const std::string& device_id,
+    const base::FilePath& filepath,
     base::OnceCallback<void()> callback,
     bool write_file_success) {
   if (!write_file_success) {
     return;
   }
-  const std::string url =
-      std::string(kFirmwareMirrorPrefix) + std::string(kSampleFirmwareUpgrade);
+  const std::string url = std::string(kFirmwareMirrorPrefix) + filepath.value();
   GURL download_url(fake_url_for_testing_.empty() ? url
                                                   : fake_url_for_testing_);
 
@@ -313,6 +434,14 @@ void FirmwareUpdateManager::InstallUpdate(
     return;
   }
 
+  DCHECK(inflight_update_.is_null());
+  for (const auto& update : updates_) {
+    if (update->device_id == device_id) {
+      inflight_update_ = mojo::Clone(update);
+      break;
+    }
+  }
+
   chromeos::FwupdClient::Get()->InstallUpdate(
       device_id, std::move(file_descriptor), options);
 
@@ -323,6 +452,10 @@ void FirmwareUpdateManager::OnDeviceListResponse(
     chromeos::FwupdDeviceList* devices) {
   DCHECK(devices);
   DCHECK(!HasPendingUpdates());
+  // Clear all cached updates prior to fetching the new update list.
+  updates_.clear();
+
+  RecordDeviceMetrics(devices->size());
 
   // Fire the observer with an empty list if there are no devices in the
   // response.
@@ -334,6 +467,16 @@ void FirmwareUpdateManager::OnDeviceListResponse(
   for (const auto& device : *devices) {
     devices_pending_update_[device.id] = device;
     RequestUpdates(device.id);
+  }
+}
+
+void FirmwareUpdateManager::ShowNotificationIfRequired() {
+  for (const auto& update : updates_) {
+    if (update->priority == firmware_update::mojom::UpdatePriority::kCritical &&
+        !base::Contains(devices_already_notified_, update->device_id)) {
+      devices_already_notified_.insert(update->device_id);
+      NotifyCriticalFirmwareUpdateReceived();
+    }
   }
 }
 
@@ -353,14 +496,38 @@ void FirmwareUpdateManager::OnUpdateListResponse(
   // Remove the pending device.
   devices_pending_update_.erase(device_id);
 
-  // Fire the observer if there are no devices pending updates.
-  if (!HasPendingUpdates()) {
-    NotifyUpdateListObservers();
+  if (HasPendingUpdates()) {
+    return;
   }
+
+  // We only want to show the notification once, at startup.
+  if (is_first_response_) {
+    ShowNotificationIfRequired();
+  }
+
+  is_first_response_ = false;
+
+  // Fire the observer since there are no remaining devices pending updates.
+  NotifyUpdateListObservers();
 }
 
 void FirmwareUpdateManager::OnInstallResponse(bool success) {
-  ++on_install_update_response_count_for_testing_;
+  auto state = success ? firmware_update::mojom::UpdateState::kSuccess
+                       : firmware_update::mojom::UpdateState::kFailed;
+  // Success or Fail states are both considered 100% done.
+  auto update = ash::firmware_update::mojom::InstallationProgress::New(
+      /**percentage=*/100, state);
+
+  // If the firmware update app is closed, the observer is no longer bound.
+  if (update_progress_observer_.is_bound()) {
+    update_progress_observer_->OnStatusChanged(std::move(update));
+  }
+
+  // Any updates are completed at this point, reset all cached.
+  ResetInstallState();
+
+  devices_already_notified_.erase(inflight_update_->device_id);
+  inflight_update_.reset();
 }
 
 void FirmwareUpdateManager::BindInterface(
@@ -375,4 +542,36 @@ void FirmwareUpdateManager::BindInterface(
   receiver_.Bind(std::move(pending_receiver));
 }
 
+void FirmwareUpdateManager::OnPropertiesChangedResponse(
+    chromeos::FwupdProperties* properties) {
+  if (!properties || !update_progress_observer_.is_bound()) {
+    return;
+  }
+  const auto status = FwupdStatus(properties->status.value());
+  const auto percentage = properties->percentage.value();
+  VLOG(1) << "fwupd: OnPropertiesChangedResponse called with Status: "
+          << GetFwupdStatusString(static_cast<FwupdStatus>(status))
+          << " | Percentage: " << percentage;
+  update_progress_observer_->OnStatusChanged(
+      ash::firmware_update::mojom::InstallationProgress::New(
+          percentage, GetUpdateState(status)));
+}
+
+void FirmwareUpdateManager::BeginUpdate(const std::string& device_id,
+                                        const base::FilePath& filepath) {
+  DCHECK(!filepath.empty());
+
+  if (!IsValidFirmwarePatchFile(filepath)) {
+    return;
+  }
+
+  StartInstall(device_id, filepath, /**callback=*/base::DoNothing());
+}
+
+void FirmwareUpdateManager::AddObserver(
+    mojo::PendingRemote<firmware_update::mojom::UpdateProgressObserver>
+        observer) {
+  update_progress_observer_.reset();
+  update_progress_observer_.Bind(std::move(observer));
+}
 }  // namespace ash

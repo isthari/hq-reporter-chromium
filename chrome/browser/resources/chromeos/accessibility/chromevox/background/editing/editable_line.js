@@ -548,10 +548,14 @@ editing.EditableLine = class {
    * @return {boolean}
    */
   isBeforeLine(otherLine) {
-    if (this.isSameLine(otherLine) || !this.lineStartContainer_ ||
-        !otherLine.lineStartContainer_) {
+    if (!this.lineStartContainer_ || !otherLine.lineStartContainer_) {
       return false;
     }
+
+    if (this.isSameLine(otherLine)) {
+      return this.endOffset <= otherLine.endOffset;
+    }
+
     return AutomationUtil.getDirection(
                this.lineStartContainer_, otherLine.lineStartContainer_) ===
         Dir.FORWARD;
@@ -622,6 +626,12 @@ editing.EditableLine = class {
    * @param {editing.EditableLine} prevLine
    */
   speakLine(prevLine) {
+    // Detect when the entire line is just a breaking space. This occurs on
+    // Google Docs and requires that we speak it as a new line. However, we
+    // still need to account for all of the possible rich output occurring from
+    // ancestors of line nodes.
+    const isLineBreakingSpace = this.text === '\u00a0';
+
     let prev = (prevLine && prevLine.startContainer_.role) ?
         prevLine.startContainer_ :
         null;
@@ -633,7 +643,14 @@ editing.EditableLine = class {
         continue;
       }
 
-      const o = new Output().withRichSpeech(
+      const o = new Output();
+
+      if (isLineBreakingSpace) {
+        // Apply a replacement for \u00a0 to \n.
+        o.withSpeechTextReplacement('\u00a0', '\n');
+      }
+
+      o.withRichSpeech(
           Range.fromNode(cur),
           prev ? Range.fromNode(prev) : Range.fromNode(cur),
           OutputEventType.NAVIGATE);

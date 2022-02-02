@@ -36,7 +36,7 @@
 #include "third_party/blink/renderer/modules/webaudio/offline_audio_worklet_thread.h"
 #include "third_party/blink/renderer/modules/webaudio/realtime_audio_worklet_thread.h"
 #include "third_party/blink/renderer/modules/webaudio/semi_realtime_audio_worklet_thread.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -339,10 +339,11 @@ class AudioWorkletThreadPriorityTest
   void InitWithRealtimePrioritySettings(bool is_enabled_by_finch) {
     std::vector<base::Feature> enabled;
     std::vector<base::Feature> disabled;
-    if (is_enabled_by_finch)
+    if (is_enabled_by_finch) {
       enabled.push_back(features::kAudioWorkletThreadRealtimePriority);
-    else
+    } else {
       disabled.push_back(features::kAudioWorkletThreadRealtimePriority);
+    }
     feature_list_.InitWithFeatures(enabled, disabled);
   }
 
@@ -378,7 +379,7 @@ class AudioWorkletThreadPriorityTest
 
     // TODO(crbug.com/1022888): The worklet thread priority is always NORMAL
     // on OS_LINUX and OS_CHROMEOS regardless of the thread priority setting.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
     if (expected_priority == base::ThreadPriority::REALTIME_AUDIO ||
         expected_priority == base::ThreadPriority::DISPLAY) {
       EXPECT_EQ(actual_priority, base::ThreadPriority::NORMAL);

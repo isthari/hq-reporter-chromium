@@ -891,14 +891,16 @@ util.lastVisitedURL;
 /**
  * Visit the URL.
  *
- * If the browser is opening, the url is opened in a new tag, otherwise the url
+ * If the browser is opening, the url is opened in a new tab, otherwise the url
  * is opened in a new window.
  *
  * @param {!string} url URL to visit.
  */
 util.visitURL = url => {
   util.lastVisitedURL = url;
-  window.open(url);
+  // openURL opens URLs in the primary browser (ash vs lacros) as opposed to
+  // window.open which always opens URLs in ash-chrome.
+  chrome.fileManagerPrivate.openURL(url);
 };
 
 /**
@@ -1352,19 +1354,19 @@ util.isVideoPlayerJsModulesEnabled = () => {
 };
 
 /**
- * Returns true if FilesBannerFramework flag is enabled.
- * @return {boolean}
- */
-util.isBannerFrameworkEnabled = () => {
-  return loadTimeData.getBoolean('FILES_BANNER_FRAMEWORK');
-};
-
-/**
  * Returns true if FilesExtractArchive flag is enabled.
  * @return {boolean}
  */
 util.isExtractArchiveEnabled = () => {
   return loadTimeData.getBoolean('EXTRACT_ARCHIVE');
+};
+
+/**
+ * Returns true if FuseBox flag is enabled.
+ * @return {boolean}
+ */
+util.isFuseBoxEnabled = () => {
+  return loadTimeData.getBoolean('FUSEBOX');
 };
 
 /**

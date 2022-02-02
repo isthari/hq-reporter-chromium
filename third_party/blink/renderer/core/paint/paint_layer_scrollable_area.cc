@@ -216,7 +216,6 @@ void PaintLayerScrollableArea::DisposeImpl() {
     scrolling_coordinator->WillDestroyScrollableArea(this);
 
   if (!GetLayoutBox()->DocumentBeingDestroyed()) {
-    // FIXME: Make setSavedLayerScrollOffset take DoubleSize. crbug.com/414283.
     if (auto* element = DynamicTo<Element>(GetLayoutBox()->GetNode()))
       element->SetSavedLayerScrollOffset(scroll_offset_);
   }
@@ -594,14 +593,6 @@ void PaintLayerScrollableArea::InvalidatePaintForScrollOffsetChange() {
       box->SetBackgroundNeedsFullPaintInvalidation();
     }
   }
-
-  // If any scrolling content might have been clipped by a cull rect, then
-  // that cull rect could be affected by scroll offset. For composited
-  // scrollers, this will be taken care of by the interest rect computation
-  // in CompositedLayerMapping.
-  if (!RuntimeEnabledFeatures::CullRectUpdateEnabled() &&
-      !UsesCompositedScrolling())
-    Layer()->SetNeedsRepaint();
 }
 
 gfx::Vector2d PaintLayerScrollableArea::ScrollOffsetInt() const {
@@ -1228,10 +1219,7 @@ bool PaintLayerScrollableArea::HasVerticalOverflow() const {
 }
 
 // This function returns true if the given box requires overflow scrollbars (as
-// opposed to the 'viewport' scrollbars managed by the PaintLayerCompositor).
-// FIXME: we should use the same scrolling machinery for both the viewport and
-// overflow. Currently, we need to avoid producing scrollbars here if they'll be
-// handled externally in the RLC.
+// opposed to the viewport scrollbars managed by VisualViewport).
 static bool CanHaveOverflowScrollbars(const LayoutBox& box) {
   return box.GetDocument().ViewportDefiningElement() != box.GetNode();
 }
@@ -2025,7 +2013,7 @@ gfx::Rect PaintLayerScrollableArea::ScrollCornerAndResizerRect() const {
   return scroll_corner_and_resizer;
 }
 
-bool PaintLayerScrollableArea::IsPointInResizeControl(
+bool PaintLayerScrollableArea::IsAbsolutePointInResizeControl(
     const gfx::Point& absolute_point,
     ResizerHitTestType resizer_hit_test_type) const {
   if (GetLayoutBox()->StyleRef().Visibility() != EVisibility::kVisible ||
@@ -2034,6 +2022,16 @@ bool PaintLayerScrollableArea::IsPointInResizeControl(
 
   gfx::Point local_point = ToRoundedPoint(
       GetLayoutBox()->AbsoluteToLocalPoint(PhysicalOffset(absolute_point)));
+  return ResizerCornerRect(resizer_hit_test_type).Contains(local_point);
+}
+
+bool PaintLayerScrollableArea::IsLocalPointInResizeControl(
+    const gfx::Point& local_point,
+    ResizerHitTestType resizer_hit_test_type) const {
+  if (GetLayoutBox()->StyleRef().Visibility() != EVisibility::kVisible ||
+      !GetLayoutBox()->CanResize())
+    return false;
+
   return ResizerCornerRect(resizer_hit_test_type).Contains(local_point);
 }
 
@@ -2824,11 +2822,12 @@ ScrollbarTheme& PaintLayerScrollableArea::GetPageScrollbarTheme() const {
 void PaintLayerScrollableArea::DidAddScrollbar(
     Scrollbar& scrollbar,
     ScrollbarOrientation orientation) {
-  // Z-order of recordered overflow controls is updated along with the z-order
-  // lists.
-  if (HasOverlayOverflowControls())
+  if (HasOverlayOverflowControls() ||
+      layer_->NeedsReorderOverlayOverflowControls()) {
+    // Z-order of existing or new recordered overflow controls is updated along
+    // with the z-order lists.
     layer_->DirtyStackingContextZOrderLists();
-
+  }
   ScrollableArea::DidAddScrollbar(scrollbar, orientation);
 }
 

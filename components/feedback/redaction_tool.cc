@@ -74,7 +74,10 @@ CustomPatternWithAlias kCustomPatternsWithContext[] = {
      PIIType::kSerial},
     {"Serial", "( Serial Number )(\\d+)(\\b)", PIIType::kSerial},
     // The attested device id, a serial number, that comes from vpd_2.0.txt.
-    {"Serial", "(\"attested_device_id\"=\")([0-9a-zA-Z]+)(\")",
+    // The pattern was recently clarified as being a case insensitive string of
+    // ASCII letters and digits, plus the dash/hyphen character. The dash cannot
+    // appear first or last
+    {"Serial", "(\"attested_device_id\"=\")([^-][0-9a-zA-Z-]+[^-])(\")",
      PIIType::kSerial},
 
     // GAIA IDs
@@ -409,8 +412,9 @@ bool FindAndConsumeAndGetSkippedN(re2::StringPiece* input,
   re2::RE2::Arg a0(argc > 0 ? args[0] : nullptr);
   re2::RE2::Arg a1(argc > 1 ? args[1] : nullptr);
   re2::RE2::Arg a2(argc > 2 ? args[2] : nullptr);
-  const re2::RE2::Arg* const wrapped_args[] = {&a0, &a1, &a2};
-  CHECK_LE(argc, 3);
+  re2::RE2::Arg a3(argc > 3 ? args[3] : nullptr);
+  const re2::RE2::Arg* const wrapped_args[] = {&a0, &a1, &a2, &a3};
+  CHECK_LE(argc, 4);
 
   bool result = re2::RE2::FindAndConsumeN(input, pattern, wrapped_args, argc);
 
@@ -640,20 +644,28 @@ std::string RedactionTool::RedactAndroidAppStoragePaths(
   std::string result;
   result.reserve(input.size());
 
-  // This is for redacting 'android_app_storage' output. When the path starts
-  // either /home/root/<hash>/data/data/<package_name>/ or
-  // /home/root/<hash>/data/user_de/<number>/<package_name>/, this function will
-  // redact path components following <package_name>/.
+  // This is for redacting Android data paths included in 'android_app_storage'
+  // and 'audit_log' output. <app_specific_path> in the following data paths
+  // will be redacted.
+  // - /data/data/<package_name>/<app_specific_path>
+  // - /data/app/<package_name>/<app_specific_path>
+  // - /data/user_de/<number>/<package_name>/<app_specific_path>
+  // These data paths are preceded by "/home/root/<user_hash>/android-data" in
+  // 'android_app_storage' output, and preceded by "path=" or "exe=" in
+  // 'audit_log' output.
   RE2* path_re = GetRegExp(
-      "(?m)(\\t/home/root/[\\da-f]+/android-data/data/"
-      "(data|user_de/\\d+)/[^/\\n]+)("
-      "/[^\\n]+)");
+      R"((?m)((path=|exe=|/home/root/[\da-f]+/android-data))"
+      R"(/data/(data|app|user_de/\d+)/[^/\n]+)(/[^\n\s]+))");
 
   // Keep consuming, building up a result string as we go.
   re2::StringPiece text(input);
-  re2::StringPiece skipped, path_prefix, ignored, app_specific;
+  re2::StringPiece skipped;
+  re2::StringPiece path_prefix;  // path before app_specific;
+  re2::StringPiece pre_data;  // (path=|exe=|/home/root/<hash>/android-data)
+  re2::StringPiece post_data;  // (data|app|user_de/\d+)
+  re2::StringPiece app_specific;  // (/[^\n\s]+)
   while (FindAndConsumeAndGetSkipped(&text, *path_re, &skipped, &path_prefix,
-                                     &ignored, &app_specific)) {
+                                     &pre_data, &post_data, &app_specific)) {
     // We can record these parts as-is.
     skipped.AppendToString(&result);
     path_prefix.AppendToString(&result);
@@ -767,6 +779,11 @@ bool IsUrlExempt(re2::StringPiece url,
   // We do not exempt anything with a query parameter.
   if (url.contains("?"))
     return false;
+
+  // Last part of an SELinux context is misdetected as a URL.
+  // e.g. "u:object_r:system_data_file:s0:c512,c768"
+  if (url.starts_with("file:s0"))
+    return true;
 
   // Check for chrome:// URLs that are exempt.
   if (url.starts_with("chrome://")) {

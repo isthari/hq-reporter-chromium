@@ -367,8 +367,8 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   if (cookie_store_set_by_client_) {
     storage->set_cookie_store(std::move(cookie_store_));
   } else {
-    std::unique_ptr<CookieStore> cookie_store(
-        new CookieMonster(nullptr /* store */, context->net_log()));
+    std::unique_ptr<CookieStore> cookie_store(new CookieMonster(
+        nullptr /* store */, context->net_log(), first_party_sets_enabled_));
     storage->set_cookie_store(std::move(cookie_store));
   }
 
@@ -458,9 +458,12 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
 
   if (network_error_logging_enabled_) {
+    if (!network_error_logging_service_) {
+      network_error_logging_service_ = NetworkErrorLoggingService::Create(
+          persistent_reporting_and_nel_store_.get());
+    }
     storage->set_network_error_logging_service(
-        NetworkErrorLoggingService::Create(
-            persistent_reporting_and_nel_store_.get()));
+        std::move(network_error_logging_service_));
   }
 
   if (persistent_reporting_and_nel_store_) {

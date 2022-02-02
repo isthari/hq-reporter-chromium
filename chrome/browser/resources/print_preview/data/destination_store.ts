@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
 import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
 import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
@@ -101,7 +101,7 @@ function sortMediaSizes(capabilities: Cdd): Cdd {
   const categoryStandardMisc: MediaSizeOption[] = [];
   const categoryCustom: MediaSizeOption[] = [];
   for (let i = 0, media; (media = mediaSize.option[i]); i++) {
-    const name = media.name || 'CUSTOM';
+    const name: string = media.name || 'CUSTOM';
     let category: MediaSizeOption[];
     if (name.startsWith('NA_')) {
       category = categoryStandardNA;
@@ -590,21 +590,16 @@ export class DestinationStore extends EventTarget {
     }
 
     const isLocal = !matchRules.kind || matchRules.kind === 'local';
-    const isCloud = !matchRules.kind || matchRules.kind === 'cloud';
-    if (!isLocal && !isCloud) {
+    if (!isLocal) {
       console.warn('Unsupported type: "' + matchRules.kind + '"');
       return null;
     }
 
-    const origins = [];
-    if (isLocal) {
-      origins.push(DestinationOrigin.LOCAL);
-      origins.push(DestinationOrigin.EXTENSION);
-      origins.push(DestinationOrigin.CROS);
-    }
-    if (isCloud) {
-      origins.push(...CloudOrigins);
-    }
+    const origins = [
+      DestinationOrigin.LOCAL,
+      DestinationOrigin.EXTENSION,
+      DestinationOrigin.CROS,
+    ];
 
     let idRegExp = null;
     try {
@@ -776,7 +771,9 @@ export class DestinationStore extends EventTarget {
     if (this.pdfPrinterEnabled_) {
       const saveToPdfKey = createDestinationKey(
           GooglePromotedDestinationId.SAVE_AS_PDF, DestinationOrigin.LOCAL, '');
-      this.selectDestination(assert(this.destinationMap_.get(saveToPdfKey)!));
+      const destination = this.destinationMap_.get(saveToPdfKey);
+      assert(destination);
+      this.selectDestination(destination);
       return true;
     }
 
@@ -936,8 +933,8 @@ export class DestinationStore extends EventTarget {
    */
   private updateDestination_(destination: Destination) {
     assert(destination.constructor !== Array, 'Single printer expected');
-    destination.capabilities =
-        localizeCapabilities(assert(destination.capabilities!));
+    assert(destination.capabilities);
+    destination.capabilities = localizeCapabilities(destination.capabilities);
     if (originToType(destination.origin) !== PrinterType.LOCAL_PRINTER) {
       destination.capabilities = sortMediaSizes(destination.capabilities);
     }
@@ -1047,8 +1044,8 @@ export class DestinationStore extends EventTarget {
         assert(origin === DestinationOrigin.EXTENSION);
         return;
       }
-      dest =
-          parseDestination(originToType(origin), assert(settingsInfo.printer));
+      assert(settingsInfo.printer);
+      dest = parseDestination(originToType(origin), settingsInfo.printer);
     }
     if (dest) {
       if ((origin === DestinationOrigin.LOCAL ||

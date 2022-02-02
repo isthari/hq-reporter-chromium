@@ -45,6 +45,9 @@ TEST(JSONReaderTest, Whitespace) {
 }
 
 TEST(JSONReaderTest, InvalidString) {
+  // These are invalid because they do not represent a JSON value,
+  // see https://tools.ietf.org/rfc/rfc8259.txt
+  EXPECT_FALSE(JSONReader::Read(""));
   EXPECT_FALSE(JSONReader::Read("nu"));
 }
 
@@ -605,7 +608,12 @@ TEST(JSONReaderTest, UTF8Input) {
       "\"\xF4\x8F\xBF\xBF\"",  // U+10FFFF
   };
   for (auto* noncharacter : noncharacters) {
-    EXPECT_TRUE(JSONReader::Read(noncharacter));
+    root = JSONReader::Read(noncharacter);
+    ASSERT_TRUE(root);
+    ASSERT_TRUE(root->is_string());
+    std::string value;
+    EXPECT_TRUE(root->GetAsString(&value));
+    EXPECT_EQ(std::string(noncharacter + 1, strlen(noncharacter) - 2), value);
   }
 }
 

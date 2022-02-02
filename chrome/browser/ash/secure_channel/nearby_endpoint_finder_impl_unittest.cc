@@ -8,9 +8,9 @@
 #include <vector>
 
 #include "ash/services/nearby/public/cpp/mock_nearby_connections.h"
+#include "ash/services/secure_channel/public/mojom/nearby_connector.mojom.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
-#include "chromeos/services/secure_channel/public/mojom/nearby_connector.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -210,7 +210,15 @@ TEST_F(NearbyEndpointFinderImplTest, FailStartingDiscovery) {
   EXPECT_TRUE(has_failed_);
 }
 
-TEST_F(NearbyEndpointFinderImplTest, FailInjectingEndpoint) {
+#if BUILDFLAG(IS_CHROMEOS)
+// Failing on CrOS ASAN: crbug.com/1290882
+#define MAYBE_FailInjectingEndpoint DISABLED_FailInjectingEndpoint
+#else
+#define MAYBE_FailInjectingEndpoint FailInjectingEndpoint
+#endif
+
+
+TEST_F(NearbyEndpointFinderImplTest, MAYBE_FailInjectingEndpoint) {
   FindEndpoint();
   InvokeStartDiscoveryCallback(/*success=*/true);
   InvokeInjectEndpointCallback(/*success=*/false);

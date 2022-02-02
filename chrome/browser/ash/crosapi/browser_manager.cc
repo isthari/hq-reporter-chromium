@@ -42,6 +42,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
 #include "chrome/browser/ash/crosapi/browser_data_migrator.h"
+#include "chrome/browser/ash/crosapi/browser_data_migrator_util.h"
 #include "chrome/browser/ash/crosapi/browser_loader.h"
 #include "chrome/browser/ash/crosapi/browser_service_host_ash.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
@@ -149,8 +150,12 @@ constexpr char kLacrosLauncherNotifierID[] = "lacros_launcher";
 class ThreadPriorityDelegate : public base::LaunchOptions::PreExecDelegate {
  public:
   void RunAsyncSafe() override {
-    base::PlatformThread::SetCurrentThreadPriority(
-        base::ThreadPriority::NORMAL);
+    // TODO(crbug.com/1289736): Currently, this is causing some deadlock issue.
+    // It looks like inside the function, we seem to call async unsafe API.
+    // For the mitigation, disabling this temporarily.
+    // We should revisit here, and see the impact of performance.
+    // base::PlatformThread::SetCurrentThreadPriority(
+    //   base::ThreadPriority::NORMAL);
   }
 };
 
@@ -277,19 +282,19 @@ bool GetLaunchOnLoginPref() {
 browser_util::InitialBrowserAction GetInitialBrowserAction() {
   return browser_util::InitialBrowserAction(
       user_manager::UserManager::Get()->IsLoggedInAsWebKioskApp() ||
-              ash::full_restore::IsFullRestoreAvailableForLacros()
+              ash::full_restore::MaybeCreateFullRestoreServiceForLacros()
           ? mojom::InitialBrowserAction::kDoNotOpenWindow
           : mojom::InitialBrowserAction::kUseStartupPreference);
 }
 
 bool IsKeepAliveDisabledForTesting() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kDisableLacrosKeepAliveForTesting);
+      ash::switches::kDisableLacrosKeepAliveForTesting);
 }
 
 bool IsLoginLacrosOpeningDisabledForTesting() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kDisableLoginLacrosOpening);
+      ash::switches::kDisableLoginLacrosOpening);
 }
 
 }  // namespace
@@ -341,7 +346,7 @@ BrowserManager::BrowserManager(
 
   std::string socket_path =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          chromeos::switches::kLacrosMojoSocketForTesting);
+          ash::switches::kLacrosMojoSocketForTesting);
   if (!socket_path.empty()) {
     test_mojo_connection_manager_ =
         std::make_unique<crosapi::TestMojoConnectionManager>(
@@ -487,21 +492,14 @@ void BrowserManager::NewTab() {
 }
 
 void BrowserManager::OpenUrl(const GURL& url) {
-  auto result = MaybeStart(browser_util::InitialBrowserAction(
-      mojom::InitialBrowserAction::kOpenWindowWithUrls, {url}));
-  if (result != MaybeStartResult::kRunning)
-    return;
+  OpenUrlImpl(
+      url,
+      crosapi::mojom::OpenUrlParams::WindowOpenDisposition::kNewForegroundTab);
+}
 
-  if (!browser_service_.has_value()) {
-    LOG(ERROR) << "BrowserService was disconnected";
-    return;
-  }
-  if (browser_service_->interface_version <
-      mojom::BrowserService::kOpenUrlMinVersion) {
-    LOG(ERROR) << "BrowserService does not support OpenUrl";
-    return;
-  }
-  browser_service_->service->OpenUrl(url, base::DoNothing());
+void BrowserManager::SwitchToTab(const GURL& url) {
+  OpenUrlImpl(
+      url, crosapi::mojom::OpenUrlParams::WindowOpenDisposition::kSwitchToTab);
 }
 
 void BrowserManager::RestoreTab() {
@@ -573,7 +571,7 @@ void BrowserManager::InitializeAndStart() {
   // inside the profile data directory.
   base::ThreadPool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      base::BindOnce(&ash::BrowserDataMigratorImpl::DryRunToCollectUMA,
+      base::BindOnce(&ash::browser_data_migrator_util::DryRunToCollectUMA,
                      ProfileManager::GetPrimaryUserProfile()->GetPath()));
 }
 
@@ -771,9 +769,8 @@ void BrowserManager::Start(
 
   // TODO(ythjkt): After M92 cherry-pick, clean up the following code by moving
   // the data wipe check logic from `BrowserDataMigrator` to browser_util.
-  const std::string user_id_hash =
-      chromeos::ProfileHelper::GetUserIdHashFromProfile(
-          ProfileManager::GetPrimaryUserProfile());
+  const std::string user_id_hash = ash::ProfileHelper::GetUserIdHashFromProfile(
+      ProfileManager::GetPrimaryUserProfile());
   // Check if user data directory needs to be wiped for a backward incompatible
   // update.
   bool cleared_user_data_dir = !browser_util::IsDataWipeRequired(user_id_hash);
@@ -809,9 +806,8 @@ void BrowserManager::StartWithLogFile(
     return;
   }
 
-  const std::string user_id_hash =
-      chromeos::ProfileHelper::GetUserIdHashFromProfile(
-          ProfileManager::GetPrimaryUserProfile());
+  const std::string user_id_hash = ash::ProfileHelper::GetUserIdHashFromProfile(
+      ProfileManager::GetPrimaryUserProfile());
   crosapi::browser_util::RecordDataVer(g_browser_process->local_state(),
                                        user_id_hash,
                                        version_info::GetVersion());
@@ -834,7 +830,7 @@ void BrowserManager::StartWithLogFile(
 
   std::string additional_env =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          chromeos::switches::kLacrosChromeAdditionalEnv);
+          ash::switches::kLacrosChromeAdditionalEnv);
   base::StringPairs env_pairs;
   if (base::SplitStringIntoKeyValuePairsUsingSubstr(additional_env, '=', "####",
                                                     &env_pairs)) {
@@ -876,7 +872,7 @@ void BrowserManager::StartWithLogFile(
 
   std::string additional_flags =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          chromeos::switches::kLacrosChromeAdditionalArgs);
+          ash::switches::kLacrosChromeAdditionalArgs);
   std::vector<base::StringPiece> delimited_flags =
       base::SplitStringPieceUsingSubstr(additional_flags, "####",
                                         base::TRIM_WHITESPACE,
@@ -1128,7 +1124,7 @@ policy::CloudPolicyStore* BrowserManager::GetDeviceAccountPolicyStore() {
 
   switch (user->GetType()) {
     case user_manager::USER_TYPE_REGULAR: {
-      Profile* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+      Profile* profile = ash::ProfileHelper::Get()->GetProfileByUser(user);
       DCHECK(profile);
       policy::CloudPolicyManager* user_cloud_policy_manager =
           profile->GetUserCloudPolicyManagerAsh();
@@ -1267,6 +1263,30 @@ void BrowserManager::RecordLacrosLaunchMode() {
 
   UMA_HISTOGRAM_ENUMERATION("Ash.Lacros.Launch.ModeAndSource",
                             lacros_mode_and_source);
+}
+
+void BrowserManager::OpenUrlImpl(
+    const GURL& url,
+    crosapi::mojom::OpenUrlParams::WindowOpenDisposition disposition) {
+  auto result = MaybeStart(browser_util::InitialBrowserAction(
+      mojom::InitialBrowserAction::kOpenWindowWithUrls, {url}));
+  if (result != MaybeStartResult::kRunning)
+    return;
+
+  if (!browser_service_.has_value()) {
+    LOG(ERROR) << "BrowserService was disconnected";
+    return;
+  }
+  if (browser_service_->interface_version <
+      mojom::BrowserService::kOpenUrlMinVersion) {
+    LOG(ERROR) << "BrowserService does not support OpenUrl";
+    return;
+  }
+
+  using OpenUrlParams = crosapi::mojom::OpenUrlParams;
+  auto params = OpenUrlParams::New();
+  params->disposition = disposition;
+  browser_service_->service->OpenUrl(url, std::move(params), base::DoNothing());
 }
 
 }  // namespace crosapi

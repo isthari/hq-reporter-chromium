@@ -7,6 +7,8 @@
 
 #include <string>
 
+#include "chrome/browser/extensions/extension_context_menu_model.h"
+#include "chrome/browser/extensions/site_permissions_helper.h"
 #include "ui/gfx/image/image.h"
 
 namespace content {
@@ -28,18 +30,6 @@ class ToolbarActionViewDelegate;
 // Media Router).
 class ToolbarActionViewController {
  public:
-  // The status of the extension's interaction for the page. This is independent
-  // of the action's clickability.
-  enum class PageInteractionStatus {
-    // The extension cannot run on the page.
-    kNone,
-    // The extension would like access to the page, but is pending user
-    // approval.
-    kPending,
-    // The extension has permission to run on the page.
-    kActive,
-  };
-
   // The source for the action invocation. Used in UMA; do not reorder or delete
   // entries.
   enum class InvocationSource {
@@ -105,7 +95,9 @@ class ToolbarActionViewController {
   virtual gfx::NativeView GetPopupNativeView() = 0;
 
   // Returns the context menu model, or null if no context menu should be shown.
-  virtual ui::MenuModel* GetContextMenu() = 0;
+  virtual ui::MenuModel* GetContextMenu(
+      extensions::ExtensionContextMenuModel::ContextMenuSource
+          context_menu_source) = 0;
 
   // Called when a context menu is shown so the controller can perform any
   // necessary setup.
@@ -131,7 +123,7 @@ class ToolbarActionViewController {
   virtual void UnregisterCommand() {}
 
   // Returns the PageInteractionStatus for the current page.
-  virtual PageInteractionStatus GetPageInteractionStatus(
+  virtual extensions::SitePermissionsHelper::SiteInteraction GetSiteInteraction(
       content::WebContents* web_contents) const = 0;
 };
 

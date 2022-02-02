@@ -45,7 +45,7 @@ namespace {
 const char kPermissionBlockedKillSwitchMessage[] =
     "%s permission has been blocked.";
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 const char kPermissionBlockedRepeatedDismissalsMessage[] =
     "%s permission has been blocked as the user has dismissed the permission "
     "prompt several times. This can be reset in Site Settings. See "
@@ -293,8 +293,7 @@ PermissionResult PermissionContextBase::GetPermissionStatus(
       const GURL loaded_url = entry->GetURL();
       if (virtual_url.SchemeIsHTTPOrHTTPS() &&
           loaded_url.SchemeIsHTTPOrHTTPS() &&
-          !url::Origin::Create(virtual_url)
-               .IsSameOriginWith(url::Origin::Create(loaded_url))) {
+          !url::IsSameOriginWith(virtual_url, loaded_url)) {
         return PermissionResult(
             CONTENT_SETTING_BLOCK,
             PermissionStatusSource::VIRTUAL_URL_DIFFERENT_ORIGIN);

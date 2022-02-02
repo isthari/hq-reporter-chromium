@@ -9,6 +9,7 @@
 
 #include <map>
 #include <memory>
+#include <queue>
 #include <set>
 #include <string>
 #include <utility>
@@ -34,6 +35,7 @@
 #include "net/base/network_isolation_key.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_result.h"
+#include "net/cookies/first_party_set_metadata.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/public/dns_config_overrides.h"
 #include "net/http/http_auth_preferences.h"
@@ -182,7 +184,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
     return params_ && params_->allow_any_cors_exempt_header_for_browser;
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   base::android::ApplicationStatusListener* app_status_listener() const {
     return app_status_listener_.get();
   }
@@ -274,7 +276,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
                             mojom::NetworkConditionsPtr conditions) override;
   void SetAcceptLanguage(const std::string& new_accept_language) override;
   void SetEnableReferrers(bool enable_referrers) override;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   void UpdateAdditionalCertificates(
       mojom::AdditionalCertificatesPtr additional_certificates) override;
 #endif
@@ -610,6 +612,16 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // On connection errors the NetworkContext destroys itself.
   void OnConnectionError();
 
+  // Invoked with the FirstPartySetMetadata to be associated with the given
+  // RestrictedCookieManager that is being set up.
+  void OnComputedFirstPartySetMetadata(
+      mojo::PendingReceiver<mojom::RestrictedCookieManager> receiver,
+      mojom::RestrictedCookieManagerRole role,
+      const url::Origin& origin,
+      const net::IsolationInfo& isolation_info,
+      mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
+      net::FirstPartySetMetadata first_party_set_metadata);
+
   GURL GetHSTSRedirect(const GURL& original_url);
 
 #if BUILDFLAG(IS_P2P_ENABLED)
@@ -619,9 +631,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   void CanUploadDomainReliability(const GURL& origin,
                                   base::OnceCallback<void(bool)> callback);
 
-  void OnVerifyCertForSignedExchangeComplete(int cert_verify_id, int result);
+  void OnVerifyCertForSignedExchangeComplete(uint64_t cert_verify_id,
+                                             int result);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   void TrustAnchorUsed();
 #endif
 
@@ -669,7 +682,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // If non-null, called when the mojo pipe for the NetworkContext is closed.
   OnConnectionCloseCallback on_connection_close_callback_;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<base::android::ApplicationStatusListener>
       app_status_listener_;
 #endif
@@ -692,9 +705,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   mojo::UniqueReceiverSet<mojom::HasTrustTokensAnswerer>
       has_trust_tokens_answerers_;
 
-#if !defined(OS_IOS)
+#if !BUILDFLAG(IS_IOS)
   std::unique_ptr<WebSocketFactory> websocket_factory_;
-#endif  // !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_IOS)
 
   // These must be below the URLRequestContext, so they're destroyed before it
   // is.
@@ -753,7 +766,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   std::unique_ptr<SCTAuditingHandler> sct_auditing_handler_;
 #endif  // BUILDFLAG(IS_CT_SUPPORTED)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   CertVerifierWithTrustAnchors* cert_verifier_with_trust_anchors_ = nullptr;
 #endif
 
@@ -775,7 +788,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   raw_ptr<NetworkServiceProxyDelegate> proxy_delegate_ = nullptr;
 
   // Used for Signed Exchange certificate verification.
-  int next_cert_verify_id_ = 0;
+  uint64_t next_cert_verify_id_ = 0;
   struct PendingCertVerify {
     PendingCertVerify();
     ~PendingCertVerify();
@@ -791,7 +804,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
     std::string ocsp_result;
     std::string sct_list;
   };
-  std::map<int, std::unique_ptr<PendingCertVerify>> cert_verifier_requests_;
+  std::map<uint64_t, std::unique_ptr<PendingCertVerify>>
+      cert_verifier_requests_;
 
   // Manages allowed origin access lists.
   cors::OriginAccessList cors_origin_access_list_;

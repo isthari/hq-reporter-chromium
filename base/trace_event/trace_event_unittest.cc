@@ -1352,24 +1352,20 @@ TEST_F(TraceEventTestFixture, StaticStringVsString) {
   {
     BeginTrace();
     // Test that string arguments are copied.
-    TraceEventHandle handle1 =
+    [[maybe_unused]] TraceEventHandle handle1 =
         trace_event_internal::AddTraceEvent(
             TRACE_EVENT_PHASE_INSTANT, category_group_enabled, "name1",
-            trace_event_internal::kGlobalScope, trace_event_internal::kNoId,
-            0, trace_event_internal::kNoId,
-            "arg1", std::string("argval"), "arg2", std::string("argval"));
+            trace_event_internal::kGlobalScope, trace_event_internal::kNoId, 0,
+            trace_event_internal::kNoId, "arg1", std::string("argval"), "arg2",
+            std::string("argval"));
     // Test that static TRACE_STR_COPY string arguments are copied.
-    TraceEventHandle handle2 =
+    [[maybe_unused]] TraceEventHandle handle2 =
         trace_event_internal::AddTraceEvent(
             TRACE_EVENT_PHASE_INSTANT, category_group_enabled, "name2",
-            trace_event_internal::kGlobalScope, trace_event_internal::kNoId,
-            0, trace_event_internal::kNoId,
-            "arg1", TRACE_STR_COPY("argval"),
+            trace_event_internal::kGlobalScope, trace_event_internal::kNoId, 0,
+            trace_event_internal::kNoId, "arg1", TRACE_STR_COPY("argval"),
             "arg2", TRACE_STR_COPY("argval"));
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-    (void)handle1;
-    (void)handle2;
-#else   // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
+#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
     EXPECT_GT(tracer->GetStatus().event_count, 1u);
     const TraceEvent* event1 = tracer->GetEventByHandle(handle1);
     const TraceEvent* event2 = tracer->GetEventByHandle(handle2);
@@ -1388,26 +1384,21 @@ TEST_F(TraceEventTestFixture, StaticStringVsString) {
   {
     BeginTrace();
     // Test that static literal string arguments are not copied.
-    TraceEventHandle handle1 =
+    [[maybe_unused]] TraceEventHandle handle1 =
         trace_event_internal::AddTraceEvent(
             TRACE_EVENT_PHASE_INSTANT, category_group_enabled, "name1",
-            trace_event_internal::kGlobalScope, trace_event_internal::kNoId,
-            0, trace_event_internal::kNoId,
-            "arg1", "argval", "arg2", "argval");
+            trace_event_internal::kGlobalScope, trace_event_internal::kNoId, 0,
+            trace_event_internal::kNoId, "arg1", "argval", "arg2", "argval");
     // Test that static TRACE_STR_COPY NULL string arguments are not copied.
     const char* str1 = nullptr;
     const char* str2 = nullptr;
-    TraceEventHandle handle2 =
+    [[maybe_unused]] TraceEventHandle handle2 =
         trace_event_internal::AddTraceEvent(
             TRACE_EVENT_PHASE_INSTANT, category_group_enabled, "name2",
-            trace_event_internal::kGlobalScope, trace_event_internal::kNoId,
-            0, trace_event_internal::kNoId,
-            "arg1", TRACE_STR_COPY(str1),
-            "arg2", TRACE_STR_COPY(str2));
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-    (void)handle1;
-    (void)handle2;
-#else   // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
+            trace_event_internal::kGlobalScope, trace_event_internal::kNoId, 0,
+            trace_event_internal::kNoId, "arg1", TRACE_STR_COPY(str1), "arg2",
+            TRACE_STR_COPY(str2));
+#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
     EXPECT_GT(tracer->GetStatus().event_count, 1u);
     const TraceEvent* event1 = tracer->GetEventByHandle(handle1);
     const TraceEvent* event2 = tracer->GetEventByHandle(handle2);
@@ -1801,11 +1792,11 @@ TEST_F(TraceEventTestFixture, TraceWithDefaultCategoryFilters) {
 }
 
 // Flaky on iOS device, see crbug.com/908002
-#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#if BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 #define MAYBE_TraceWithDisabledByDefaultCategoryFilters DISABLED_TraceWithDisabledByDefaultCategoryFilters
 #else
 #define MAYBE_TraceWithDisabledByDefaultCategoryFilters TraceWithDisabledByDefaultCategoryFilters
-#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#endif  // BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 TEST_F(TraceEventTestFixture, MAYBE_TraceWithDisabledByDefaultCategoryFilters) {
   TraceLog* trace_log = TraceLog::GetInstance();
 
@@ -2480,11 +2471,11 @@ bool MockLogMessageHandler(int, const char*, int, size_t,
 }
 
 // Flaky on iOS device, see crbug.com/908002
-#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#if BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 #define MAYBE_EchoToConsole DISABLED_EchoToConsole
 #else
 #define MAYBE_EchoToConsole EchoToConsole
-#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#endif  // BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 TEST_F(TraceEventTestFixture, MAYBE_EchoToConsole) {
   logging::LogMessageHandlerFunction old_log_message_handler =
       logging::GetLogMessageHandler();
@@ -2580,11 +2571,11 @@ TEST_F(TraceEventTestFixture, TimeOffset) {
 // Runtime filtering isn't supported with Perfetto.
 #if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 // Flaky on iOS device, see crbug.com/908002
-#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#if BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 #define MAYBE_TraceFilteringMode DISABLED_TraceFilteringMode
 #else
 #define MAYBE_TraceFilteringMode TraceFilteringMode
-#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#endif  // BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 TEST_F(TraceEventTestFixture, MAYBE_TraceFilteringMode) {
   const char config_json[] =
       "{"
@@ -2677,11 +2668,11 @@ TEST_F(TraceEventTestFixture, MAYBE_TraceFilteringMode) {
 }
 
 // Flaky on iOS device, see crbug.com/908002
-#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#if BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 #define MAYBE_EventFiltering DISABLED_EventFiltering
 #else
 #define MAYBE_EventFiltering EventFiltering
-#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#endif  // BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 TEST_F(TraceEventTestFixture, MAYBE_EventFiltering) {
   const char config_json[] =
       "{"
@@ -2727,11 +2718,11 @@ TEST_F(TraceEventTestFixture, MAYBE_EventFiltering) {
 }
 
 // Flaky on iOS device, see crbug.com/908002
-#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#if BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 #define MAYBE_EventAllowlistFiltering DISABLED_EventAllowlistFiltering
 #else
 #define MAYBE_EventAllowlistFiltering EventAllowlistFiltering
-#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#endif  // BUILDFLAG(IS_IOS) && !(TARGET_OS_SIMULATOR)
 TEST_F(TraceEventTestFixture, MAYBE_EventAllowlistFiltering) {
   std::string config_json = StringPrintf(
       "{"

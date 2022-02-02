@@ -6,14 +6,17 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/strings/string_piece.h"
-#include "chrome/android/features/autofill_assistant/jni_headers/AssistantStaticDependenciesChrome_jni.h"
+#include "chrome/android/features/autofill_assistant/jni_headers_public/AssistantStaticDependenciesChrome_jni.h"
+#include "chrome/browser/android/autofill_assistant/annotate_dom_model_service_factory.h"
 #include "chrome/browser/android/autofill_assistant/assistant_field_trial_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "components/autofill_assistant/content/browser/annotate_dom_model_service.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 
 using ::base::StringPiece;
@@ -26,13 +29,17 @@ namespace autofill_assistant {
 
 static jlong JNI_AssistantStaticDependenciesChrome_Init(
     JNIEnv* env,
-    const JavaParamRef<jobject>& java_object) {
-  return reinterpret_cast<intptr_t>(new DependenciesChrome(env, java_object));
+    const JavaParamRef<jobject>& jstatic_dependencies) {
+  // The dynamic_cast is necessary here to safely cast the resulting intptr back
+  // to DependenciesAndroid using reinterpret_cast.
+  return reinterpret_cast<intptr_t>(dynamic_cast<Dependencies*>(
+      new DependenciesChrome(env, jstatic_dependencies)));
 }
 
-DependenciesChrome::DependenciesChrome(JNIEnv* env,
-                                       const JavaParamRef<jobject>& java_object)
-    : Dependencies(env, java_object) {}
+DependenciesChrome::DependenciesChrome(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jstatic_dependencies)
+    : Dependencies(env, jstatic_dependencies) {}
 
 class AssistantFieldTrialUtilChrome : public AssistantFieldTrialUtil {
   bool RegisterSyntheticFieldTrial(
@@ -60,6 +67,12 @@ std::string DependenciesChrome::GetChromeSignedInEmailAddress(
           Profile::FromBrowserContext(web_contents->GetBrowserContext()))
           ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync);
   return account_info.email;
+}
+
+AnnotateDomModelService* DependenciesChrome::GetAnnotateDomModelService(
+    content::BrowserContext* browser_context) const {
+  return AnnotateDomModelServiceFactory::GetInstance()->GetForBrowserContext(
+      browser_context);
 }
 
 }  // namespace autofill_assistant

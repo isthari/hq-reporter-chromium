@@ -148,8 +148,8 @@ class ScopedAccountStorageSettingsUpdate {
   base::Value* GetOrCreateAccountSettings() {
     base::Value* account_settings = update_->FindDictKey(account_hash_);
     if (!account_settings) {
-      account_settings =
-          update_->SetKey(account_hash_, base::DictionaryValue());
+      account_settings = update_->SetKey(
+          account_hash_, base::Value(base::Value::Type::DICTIONARY));
     }
     DCHECK(account_settings);
     return account_settings;

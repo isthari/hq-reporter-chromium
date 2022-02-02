@@ -23,6 +23,7 @@
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface_delegate.h"
 #include "components/exo/surface_observer.h"
+#include "components/exo/window_properties.h"
 #include "components/exo/wm_helper.h"
 #include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/shared_quad_state.h"
@@ -30,6 +31,7 @@
 #include "components/viz/common/quads/surface_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
 #include "components/viz/common/resources/resource_id.h"
+#include "media/media_buildflags.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPath.h"
@@ -307,7 +309,7 @@ Surface::~Surface() {
   ImmediateExplicitRelease(
       std::move(cached_state_.per_commit_explicit_release_callback_));
 
-  WMHelper::GetInstance()->ResetDragDropDelegate(window_.get());
+  // Do not reset the DragDropDelegate in order to handle exit upon deletion.
 }
 
 // static
@@ -722,10 +724,10 @@ void Surface::SetEmbeddedSurfaceSize(const gfx::Size& size) {
 }
 
 void Surface::SetAcquireFence(std::unique_ptr<gfx::GpuFence> gpu_fence) {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   TRACE_EVENT1("exo", "Surface::SetAcquireFence", "fence_fd",
                gpu_fence ? gpu_fence->GetGpuFenceHandle().owned_fd.get() : -1);
-#endif  // defined(OS_POSIX)
+#endif  // BUILDFLAG(IS_POSIX)
 
   pending_state_.acquire_fence = std::move(gpu_fence);
 }
@@ -1196,6 +1198,8 @@ void Surface::UpdateResource(FrameSinkResourceManager* resource_manager) {
             resource_manager, std::move(state_.acquire_fence),
             state_.basic_state.only_visible_on_secure_output,
             &current_resource_,
+            window_->GetToplevelWindow()->GetProperty(
+                kProtectedNativePixmapQueryDelegate),
             std::move(state_.per_commit_explicit_release_callback_))) {
       current_resource_has_alpha_ =
           FormatHasAlpha(state_.buffer.buffer()->GetFormat());
@@ -1455,6 +1459,14 @@ void Surface::AppendContentsToFrame(const gfx::PointF& origin,
           break;
       }
 
+#if BUILDFLAG(USE_ARC_PROTECTED_MEDIA)
+      if (state_.basic_state.only_visible_on_secure_output &&
+          state_.buffer.buffer() &&
+          state_.buffer.buffer()->NeedsHardwareProtection()) {
+        texture_quad->protected_video_type =
+            gfx::ProtectedVideoType::kHardwareProtected;
+      }
+#endif  // BUILDFLAG(USE_ARC_PROTECTED_MEDIA)
       frame->resource_list.push_back(current_resource_);
 
       if (!damage_rect.IsEmpty()) {
@@ -1563,6 +1575,11 @@ void Surface::Pin(bool trusted) {
 void Surface::Unpin() {
   if (delegate_)
     delegate_->Unpin();
+}
+
+void Surface::ThrottleFrameRate(bool on) {
+  for (SurfaceObserver& observer : observers_)
+    observer.ThrottleFrameRate(on);
 }
 
 }  // namespace exo

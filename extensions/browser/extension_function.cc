@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <numeric>
+#include <tuple>
 #include <utility>
 
 #include "base/bind.h"
@@ -136,7 +137,7 @@ class ExtensionFunctionMemoryDumpProvider
 };
 
 void EnsureMemoryDumpProviderExists() {
-  ALLOW_UNUSED_LOCAL(ExtensionFunctionMemoryDumpProvider::GetInstance());
+  std::ignore = ExtensionFunctionMemoryDumpProvider::GetInstance();
 }
 
 // Logs UMA about the performance for a given extension function run.
@@ -593,6 +594,10 @@ void ExtensionFunction::SetDispatcher(
 }
 
 void ExtensionFunction::Shutdown() {
+  // Wait until the end of this function to delete |this|, in case
+  // OnBrowserContextShutdown() decrements the refcount.
+  scoped_refptr<ExtensionFunction> keep_alive{this};
+
   // Allow the extension function to perform any cleanup before nulling out
   // `browser_context_`.
   OnBrowserContextShutdown();

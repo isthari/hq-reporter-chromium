@@ -15,10 +15,13 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/support_tool/data_collector.h"
 #include "components/feedback/pii_types.h"
+#include "components/feedback/redaction_tool.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "third_party/re2/src/re2/stringpiece.h"
@@ -96,7 +99,8 @@ std::string UiHierarchyDataCollector::GetName() const {
 }
 
 std::string UiHierarchyDataCollector::GetDescription() const {
-  return "Collects UI hiearchy data.";
+  return "Collects UI hiearchy data and exports the data into file named "
+         "ui_hierarchy.";
 }
 
 const PIIMap& UiHierarchyDataCollector::GetDetectedPII() {
@@ -104,19 +108,23 @@ const PIIMap& UiHierarchyDataCollector::GetDetectedPII() {
 }
 
 void UiHierarchyDataCollector::CollectDataAndDetectPII(
-    DataCollectorDoneCallback on_data_collected_callback) {
+    DataCollectorDoneCallback on_data_collected_callback,
+    scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
+    scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   UIHierarchyData ui_hierarchy_data = CollectUiHierarchyData();
   InsertIntoPIIMap(ui_hierarchy_data.window_titles);
   data_ = std::move(ui_hierarchy_data.data);
   // `data_` can't be empty.
   DCHECK(!data_.empty());
-  std::move(on_data_collected_callback).Run(/*error_code=*/absl::nullopt);
+  std::move(on_data_collected_callback).Run(/*error=*/absl::nullopt);
 }
 
 void UiHierarchyDataCollector::ExportCollectedDataWithPII(
     std::set<feedback::PIIType> pii_types_to_keep,
     base::FilePath target_directory,
+    scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
+    scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container,
     DataCollectorDoneCallback on_exported_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::ThreadPool::PostTaskAndReplyWithResult(
@@ -133,11 +141,12 @@ void UiHierarchyDataCollector::OnDataExportDone(
     bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!success) {
-    std::move(on_exported_callback)
-        .Run(SupportToolError::kUIHierarchyDataCollectorError);
+    SupportToolError error = {SupportToolErrorCode::kDataCollectorError,
+                              "Failed on data export."};
+    std::move(on_exported_callback).Run(error);
     return;
   }
-  std::move(on_exported_callback).Run(/*error_code=*/absl::nullopt);
+  std::move(on_exported_callback).Run(/*error=*/absl::nullopt);
 }
 
 void UiHierarchyDataCollector::InsertIntoPIIMap(

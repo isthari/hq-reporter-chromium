@@ -119,6 +119,8 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
     {"inline_login_browser_proxy.js", IDR_INLINE_LOGIN_BROWSER_PROXY_JS},
     {"webview_saml_injected.js", IDR_GAIA_AUTH_WEBVIEW_SAML_INJECTED_JS},
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+    {"inline_login_util.js", IDR_INLINE_LOGIN_UTIL_JS},
+    {"arc_account_picker_app.js", IDR_INLINE_LOGIN_ARC_ACCOUNT_PICKER_APP_JS},
     {"welcome_page_app.js", IDR_INLINE_LOGIN_WELCOME_PAGE_APP_JS},
     {"account_manager_shared_css.js", IDR_ACCOUNT_MANAGER_SHARED_CSS_JS},
     {"gaia_action_buttons.js", IDR_GAIA_ACTION_BUTTONS_JS},
@@ -157,10 +159,16 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     {"title", IDS_ACCOUNT_MANAGER_DIALOG_TITLE},
     {"ok", IDS_APP_OK},
+    {"nextButtonLabel", IDS_ACCOUNT_MANAGER_DIALOG_NEXT_BUTTON},
     {"accountManagerDialogWelcomeTitle",
      IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_TITLE},
     {"accountManagerDialogWelcomeCheckbox",
      IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_CHECKBOX},
+    {"accountManagerDialogArcAccountPickerTitle",
+     IDS_ACCOUNT_MANAGER_DIALOG_ARC_ACCOUNT_PICKER_TITLE},
+    {"addAccountLabel", IDS_ACCOUNT_MANAGER_DIALOG_ADD_ACCOUNT_LABEL},
+    {"accountUseInArcButtonLabel",
+     IDS_SETTINGS_ACCOUNT_MANAGER_USE_IN_ARC_BUTTON_LABEL},
     {"accountManagerErrorNoInternetTitle",
      IDS_ACCOUNT_MANAGER_ERROR_NO_INTERNET_TITLE},
     {"accountManagerErrorNoInternetBody",
@@ -179,28 +187,59 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
   source->AddBoolean(
       "isArcAccountRestrictionsEnabled",
       ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled());
-  source->AddBoolean("shouldSkipWelcomePage",
-                     profile->GetPrefs()->GetBoolean(
-                         chromeos::prefs::kShouldSkipInlineLoginWelcomePage));
-  bool is_incognito_enabled =
-      (IncognitoModePrefs::GetAvailability(profile->GetPrefs()) !=
-       IncognitoModePrefs::Availability::kDisabled);
-  int message_id =
-      is_incognito_enabled
-          ? IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY
-          : IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY_WITHOUT_INCOGNITO;
+  // The "Apps Settings" link points to Apps > Manage your apps.
   source->AddString(
-      "accountManagerDialogWelcomeBody",
+      "accountManagerDialogArcToggleLabel",
       l10n_util::GetStringFUTF16(
-          message_id,
+          IDS_ACCOUNT_MANAGER_DIALOG_ARC_TOGGLE_LABEL,
+          base::UTF8ToUTF16(
+              chrome::GetOSSettingsUrl(
+                  chromeos::settings::mojom::kAppManagementSubpagePath)
+                  .spec())));
+  source->AddString(
+      "accountManagerDialogArcAccountPickerBody",
+      l10n_util::GetStringFUTF16(
+          IDS_ACCOUNT_MANAGER_DIALOG_ARC_ACCOUNT_PICKER_BODY,
           base::UTF8ToUTF16(
               chrome::GetOSSettingsUrl(
                   chromeos::settings::mojom::kMyAccountsSubpagePath)
-                  .spec()),
-          ui::GetChromeOSDeviceName()));
+                  .spec())));
+  source->AddBoolean(
+      "shouldSkipWelcomePage",
+      ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()
+          ? false
+          : profile->GetPrefs()->GetBoolean(
+                chromeos::prefs::kShouldSkipInlineLoginWelcomePage));
+  if (ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()) {
+    source->AddString(
+        "accountManagerDialogWelcomeBody",
+        l10n_util::GetStringFUTF16(
+            IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY_V2,
+            base::UTF8ToUTF16(
+                chrome::GetOSSettingsUrl(
+                    chromeos::settings::mojom::kMyAccountsSubpagePath)
+                    .spec())));
+  } else {
+    bool is_incognito_enabled =
+        (IncognitoModePrefs::GetAvailability(profile->GetPrefs()) !=
+         IncognitoModePrefs::Availability::kDisabled);
+    int message_id =
+        is_incognito_enabled
+            ? IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY
+            : IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY_WITHOUT_INCOGNITO;
+    source->AddString(
+        "accountManagerDialogWelcomeBody",
+        l10n_util::GetStringFUTF16(
+            message_id,
+            base::UTF8ToUTF16(
+                chrome::GetOSSettingsUrl(
+                    chromeos::settings::mojom::kMyAccountsSubpagePath)
+                    .spec()),
+            ui::GetChromeOSDeviceName()));
+  }
 
   user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+      ash::ProfileHelper::Get()->GetUserByProfile(profile);
   DCHECK(user);
   source->AddString("userName", user->GetGivenName());
   source->AddString("accountManagerOsSettingsUrl",
@@ -230,7 +269,7 @@ bool IsValidChromeSigninReason(const GURL& url) {
       // Used by the profile picker.
       return true;
     case signin_metrics::Reason::kFetchLstOnly:
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
       // Used by the Google Credential Provider for Windows.
       return true;
 #else
@@ -255,7 +294,7 @@ InlineLoginUI::InlineLoginUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
   content::WebUIDataSource* source = CreateWebUIDataSource(profile);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   std::u16string username =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile)->GetGivenName();
+      ash::ProfileHelper::Get()->GetUserByProfile(profile)->GetGivenName();
   AddEduStrings(source, username);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   content::WebUIDataSource::Add(profile, source);

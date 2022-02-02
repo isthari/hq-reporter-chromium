@@ -82,6 +82,7 @@ class BuildConfigGenerator extends DefaultTask {
       'androidx_constraintlayout',
       'androidx_documentfile',
       'androidx_legacy',
+      'androidx_localbroadcastmanager_localbroadcastmanager',
       'androidx_multidex_multidex',
       'androidx_print',
       'androidx_test',
@@ -677,10 +678,7 @@ class BuildConfigGenerator extends DefaultTask {
                 sb.append('  # Only useful for very old SDKs.\n')
                 sb.append('  ignore_proguard_configs = true\n')
                 break
-            case 'android_arch_lifecycle_runtime':
-            case 'android_arch_lifecycle_viewmodel':
             case 'androidx_lifecycle_lifecycle_runtime':
-            case 'androidx_lifecycle_lifecycle_viewmodel':
                 sb.append('\n')
                 sb.append('  # https://crbug.com/887942#c1\n')
                 sb.append('  ignore_proguard_configs = true\n')

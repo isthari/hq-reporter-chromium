@@ -179,10 +179,8 @@ class CONTENT_EXPORT FrameTreeNode {
   // Sets the last committed URL for this frame.
   void SetCurrentURL(const GURL& url);
 
-  // The frame committed a document that is not the initial empty document.
-  // Update `has_committed_real_load_` and `is_on_initial_empty_document_`
-  // accordingly.
-  void DidCommitNonInitialEmptyDocument();
+  // Sets `is_on_initial_empty_document_` to false.
+  void SetNotOnInitialEmptyDocument() { is_on_initial_empty_document_ = false; }
 
   // Returns false if the frame has committed a document that is not the initial
   // empty document, or if the current document's input stream has been opened
@@ -257,10 +255,6 @@ class CONTENT_EXPORT FrameTreeNode {
   const blink::FramePolicy& effective_frame_policy() const {
     return render_manager_.current_replication_state().frame_policy;
   }
-
-  // Set the frame_policy provided in function parameter as active frame policy,
-  // while leaving pending_frame_policy_ untouched.
-  bool CommitFramePolicy(const blink::FramePolicy& frame_policy);
 
   const blink::mojom::FrameOwnerProperties& frame_owner_properties() {
     return frame_owner_properties_;
@@ -387,18 +381,6 @@ class CONTENT_EXPORT FrameTreeNode {
     return render_manager_.current_replication_state().active_sandbox_flags;
   }
 
-  // Updates the active sandbox flags in this frame, in response to a
-  // Content-Security-Policy header adding additional flags, in addition to
-  // those given to this frame by its parent, or in response to the
-  // Permissions-Policy header being set. Note that on navigation, these updates
-  // will be cleared, and the flags in the pending frame policy will be applied
-  // to the frame.
-  // Returns true iff this operation has changed state of either sandbox flags
-  // or permissions policy.
-  bool UpdateFramePolicyHeaders(
-      network::mojom::WebSandboxFlags sandbox_flags,
-      const blink::ParsedPermissionsPolicy& parsed_header);
-
   // Returns whether the frame received a user gesture on a previous navigation
   // on the same eTLD+1.
   bool has_received_user_gesture_before_nav() const {
@@ -523,6 +505,11 @@ class CONTENT_EXPORT FrameTreeNode {
   // Returns true if error page isolation is enabled.
   bool IsErrorPageIsolationEnabled() const;
 
+  // Functions to store and retrieve a frame's srcdoc value on this
+  // FrameTreeNode.
+  void SetSrcdocValue(const std::string& srcdoc_value);
+  const std::string& srcdoc_value() const { return srcdoc_value_; }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessPermissionsPolicyBrowserTest,
                            ContainerPolicyDynamic);
@@ -595,6 +582,10 @@ class CONTENT_EXPORT FrameTreeNode {
   // When created using window.open, the origin of the creator.
   // Please refer to {Get,Set}PopupCreatorOrigin() documentation.
   url::Origin popup_creator_origin_;
+
+  // If the url from the the last BeginNavigation is about:srcdoc, this value
+  // stores the srcdoc_attribute's value for re-use in history navigations.
+  std::string srcdoc_value_;
 
   // Whether this frame is still on the initial about:blank document or the
   // synchronously committed about:blank document committed at frame creation,

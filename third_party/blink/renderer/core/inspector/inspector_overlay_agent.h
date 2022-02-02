@@ -46,7 +46,7 @@
 #include "third_party/blink/renderer/core/inspector/protocol/overlay.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "ui/gfx/geometry/quad_f.h"
@@ -280,6 +280,8 @@ class CORE_EXPORT InspectorOverlayAgent final
   float WindowToViewportScale() const;
   void ScheduleUpdate();
 
+  float EmulationScaleFactor() const;
+
  private:
   class InspectorOverlayChromeClient;
   class InspectorPageOverlayDelegate;
@@ -292,7 +294,7 @@ class CORE_EXPORT InspectorOverlayAgent final
 
   LocalFrame* OverlayMainFrame();
   void Reset(const gfx::Size& viewport_size,
-             const DoubleSize& visual_viewport_size);
+             const gfx::SizeF& visual_viewport_size);
   void OnResizeTimer(TimerBase*);
   void PaintOverlayPage();
 

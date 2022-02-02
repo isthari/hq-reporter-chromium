@@ -45,6 +45,7 @@ const char kWorkerSrc[] = "worker-src";
 const char kSelfSource[] = "'self'";
 const char kNoneSource[] = "'none'";
 const char kWasmEvalSource[] = "'wasm-eval'";
+const char kWasmUnsafeEvalSource[] = "'wasm-unsafe-eval'";
 
 const char kDirectiveSeparator = ';';
 
@@ -195,7 +196,7 @@ bool isNonWildcardTLD(const std::string& url,
   if (!is_wildcard_subdomain || !should_check_rcd)
     return true;
 
-  // Allow *.googleapis.com to be whitelisted for backwards-compatibility.
+  // Allow *.googleapis.com to be allowlisted for backwards-compatibility.
   // (crbug.com/409952)
   if (host == "googleapis.com")
     return true;
@@ -240,9 +241,10 @@ std::string GetSecureDirectiveValues(
     std::string source_lower = base::ToLowerASCII(source_literal);
     bool is_secure_csp_token = false;
 
-    // We might need to relax this whitelist over time.
+    // We might need to relax this allowlist over time.
     if (source_lower == kSelfSource || source_lower == kNoneSource ||
-        source_lower == kWasmEvalSource || source_lower == "blob:" ||
+        source_lower == kWasmEvalSource ||
+        source_lower == kWasmUnsafeEvalSource || source_lower == "blob:" ||
         source_lower == "filesystem:" ||
         isNonWildcardTLD(source_lower, "https://", true) ||
         isNonWildcardTLD(source_lower, "chrome://", false) ||
@@ -710,7 +712,8 @@ bool DoesCSPDisallowRemoteCode(const std::string& content_security_policy,
             return true;
           }
 
-          if (source_lower == kWasmEvalSource &&
+          if ((source_lower == kWasmEvalSource ||
+               source_lower == kWasmUnsafeEvalSource) &&
               base::FeatureList::IsEnabled(
                   extensions_features::kAllowWasmInMV3)) {
             return true;

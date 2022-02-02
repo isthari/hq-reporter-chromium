@@ -110,6 +110,7 @@ TEST_F(TestComponentContextForProcessTest, ProvideSystemService) {
   // Use the Loader to verify that it was the system service that was connected.
   // Load the component containing this test since we know it exists.
   // TODO(https://fxbug.dev/51490): Use a programmatic mechanism to obtain this.
+  // TODO(crbug.com/1256502): Switch back to `.cm` once the bug is fixed.
   const char kComponentUrl[] =
       "fuchsia-pkg://fuchsia.com/base_unittests#meta/base_unittests.cmx";
   loader->LoadUrl(kComponentUrl, [quit_loop = wait_loop.QuitClosure(),

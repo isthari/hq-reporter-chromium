@@ -85,6 +85,9 @@
 #include "base/test/simple_test_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "chromeos/ui/frame/desks/move_to_desks_menu_delegate.h"
+#include "chromeos/ui/frame/desks/move_to_desks_menu_model.h"
+#include "chromeos/ui/wm/desks/chromeos_desks_histogram_enums.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
@@ -1620,20 +1623,6 @@ TEST_P(DesksTest, DragWindowToNonMiniViewPoints) {
 
   const auto* desks_bar_view = overview_grid->desks_bar_view();
   ASSERT_TRUE(desks_bar_view);
-
-  // Drag it and drop it on the new desk button. Nothing happens, it should be
-  // returned back to its original target bounds.
-  DragItemToPoint(overview_item,
-                  desks_bar_view->expanded_state_new_desk_button()
-                      ->inner_button()
-                      ->GetBoundsInScreen()
-                      .CenterPoint(),
-                  GetEventGenerator(),
-                  /*by_touch_gestures=*/GetParam());
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_EQ(1u, overview_grid->size());
-  EXPECT_EQ(target_bounds_before_drag, overview_item->target_bounds());
-  EXPECT_TRUE(DoesActiveDeskContainWindow(window.get()));
 
   // Drag it and drop it on the center of the bottom of the display. Also,
   // nothing should happen.
@@ -3256,7 +3245,7 @@ class DesksMultiUserTest : public NoSessionAshTestBase,
                                      std::vector<std::string> desk_names) {
     DCHECK(prefs);
     ListPrefUpdate update(prefs, prefs::kDesksNamesList);
-    base::ListValue* pref_data = update.Get();
+    base::Value* pref_data = update.Get();
     ASSERT_TRUE(pref_data->GetList().empty());
     for (auto desk_name : desk_names)
       pref_data->Append(desk_name);
@@ -3954,6 +3943,101 @@ TEST_F(DesksAcceleratorsTest, HitAcceleratorWhenAlreadyAtEdge) {
   // no crash.
   SendAccelerator(ui::VKEY_OEM_4, flags);
   SendAccelerator(ui::VKEY_OEM_4, flags);
+}
+
+// Tests that the assign to all desks shortcut works as expected and that its
+// metrics are recorded properly.
+TEST_F(DesksAcceleratorsTest, AssignToAllDesksShortcut) {
+  base::HistogramTester histogram_tester;
+
+  // Create two new desks.
+  NewDesk();
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(3u, controller->desks().size());
+
+  // Create a window and assign it to all desks via
+  // chromeos::MoveToDesksMenuDelegate. This simulates assigning it to all desks
+  // via the context menu. This should record to the "Assign to desk menu"
+  // bucket.
+  auto window_1 = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+  auto* widget_1 = views::Widget::GetWidgetForNativeWindow(window_1.get());
+  auto menu_delegate =
+      std::make_unique<chromeos::MoveToDesksMenuDelegate>(widget_1);
+  menu_delegate->ExecuteCommand(
+      chromeos::MoveToDesksMenuModel::CommandId::TOGGLE_ASSIGN_TO_ALL_DESKS,
+      /*event_flags=*/0);
+  histogram_tester.ExpectBucketCount(
+      chromeos::kDesksAssignToAllDesksSourceHistogramName,
+      chromeos::DesksAssignToAllDesksSource::kMoveToDeskMenu, 1);
+  EXPECT_TRUE(widget_1->IsVisibleOnAllWorkspaces());
+
+  // Create another window and assign it to all desks via the keyboard shortcut.
+  // This should record to the "Assign to all desks keyboard shortcut menu"
+  // bucket.
+  auto window_2 = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+  ASSERT_EQ(window_2.get(), window_util::GetActiveWindow());
+  SendAccelerator(ui::VKEY_A, ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN);
+  histogram_tester.ExpectBucketCount(
+      chromeos::kDesksAssignToAllDesksSourceHistogramName,
+      chromeos::DesksAssignToAllDesksSource::kKeyboardShortcut, 1);
+  EXPECT_TRUE(views::Widget::GetWidgetForNativeWindow(window_2.get())
+                  ->IsVisibleOnAllWorkspaces());
+}
+
+// Tests that the indexed-desk activation keyboard shortcut works properly.
+TEST_F(DesksAcceleratorsTest, IndexedDeskActivationShortcut) {
+  const int flags = ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN;
+  constexpr char kDesksSwitchHistogramName[] = "Ash.Desks.DesksSwitch";
+  base::HistogramTester histogram_tester;
+
+  // Create three new desks.
+  NewDesk();
+  NewDesk();
+  NewDesk();
+  auto* controller = DesksController::Get();
+  auto& desks = controller->desks();
+  ASSERT_EQ(4u, desks.size());
+
+  // Switch to the third desk via the keyboard shortcut.
+  ASSERT_TRUE(desks[0]->is_active());
+  {
+    DeskSwitchAnimationWaiter waiter;
+    SendAccelerator(ui::VKEY_3, flags);
+    waiter.Wait();
+  }
+  EXPECT_TRUE(desks[2]->is_active());
+  histogram_tester.ExpectBucketCount(
+      kDesksSwitchHistogramName, DesksSwitchSource::kIndexedDeskSwitchShortcut,
+      1);
+
+  // Try to switch to the non-existent fifth desk via the keyboard shortcut.
+  SendAccelerator(ui::VKEY_5, flags);
+  EXPECT_TRUE(desks[2]->is_active());
+  histogram_tester.ExpectBucketCount(
+      kDesksSwitchHistogramName, DesksSwitchSource::kIndexedDeskSwitchShortcut,
+      1);
+
+  // Switch to the second desk via the keyboard shortcut.
+  {
+    DeskSwitchAnimationWaiter waiter;
+    SendAccelerator(ui::VKEY_2, flags);
+    waiter.Wait();
+  }
+  EXPECT_TRUE(desks[1]->is_active());
+  histogram_tester.ExpectBucketCount(
+      kDesksSwitchHistogramName, DesksSwitchSource::kIndexedDeskSwitchShortcut,
+      2);
+
+  // Open overview and switch to the active desk. This should close overview.
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  SendAccelerator(ui::VKEY_2, flags);
+  EXPECT_TRUE(desks[1]->is_active());
+  EXPECT_FALSE(Shell::Get()->overview_controller()->InOverviewSession());
+  histogram_tester.ExpectBucketCount(
+      kDesksSwitchHistogramName, DesksSwitchSource::kIndexedDeskSwitchShortcut,
+      2);
 }
 
 class PerDeskShelfTest : public AshTestBase,
@@ -6199,11 +6283,16 @@ TEST_F(PersistentDesksBarTest, BentoBarWithShelfAlignment) {
 }
 
 // Tests that the bar will only be created when the app list is not in
-// fullscreen mode.
+// fullscreen mode. This test can be deleted when ProductivityLauncher is the
+// default.
 TEST_F(PersistentDesksBarTest, AppListFullscreen) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(features::kProductivityLauncher);
+
   AppListControllerImpl* app_list_controller =
       Shell::Get()->app_list_controller();
-  AppListView* app_list_view = app_list_controller->presenter()->GetView();
+  AppListView* app_list_view =
+      app_list_controller->fullscreen_presenter()->GetView();
 
   // The bar should be created when the app list view remains null.
   NewDesk();
@@ -6214,7 +6303,7 @@ TEST_F(PersistentDesksBarTest, AppListFullscreen) {
   // The bar should be created when the app list view is created and
   // showing in kPeeking mode.
   app_list_controller->ShowAppList();
-  app_list_view = app_list_controller->presenter()->GetView();
+  app_list_view = app_list_controller->fullscreen_presenter()->GetView();
   ASSERT_TRUE(app_list_view);
   EXPECT_TRUE(app_list_view->app_list_state() == AppListViewState::kPeeking);
   EXPECT_TRUE(GetBarWidget());
@@ -6239,9 +6328,34 @@ TEST_F(PersistentDesksBarTest, AppListFullscreen) {
               AppListViewState::kFullscreenAllApps);
   EXPECT_FALSE(GetBarWidget());
 
-  // The bar should be created when the app list is in kClosed mode.
-  app_list_view->SetState(AppListViewState::kClosed);
+  // The bar should be created when the app list is dismissed.
+  app_list_controller->DismissAppList();
   EXPECT_TRUE(app_list_view->app_list_state() == AppListViewState::kClosed);
+  EXPECT_TRUE(GetBarWidget());
+  EXPECT_TRUE(IsWidgetVisible());
+}
+
+// Tests that the bar is not affected by ProductivityLauncher.
+TEST_F(PersistentDesksBarTest, ProductivityLauncher) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kProductivityLauncher);
+
+  AppListControllerImpl* app_list_controller =
+      Shell::Get()->app_list_controller();
+
+  // The bar should be created when the app list is closed.
+  NewDesk();
+  EXPECT_EQ(2u, DesksController::Get()->desks().size());
+  EXPECT_TRUE(GetBarWidget());
+  EXPECT_TRUE(IsWidgetVisible());
+
+  // The bar should still exist when the app list is opened.
+  app_list_controller->ShowAppList();
+  EXPECT_TRUE(GetBarWidget());
+  EXPECT_TRUE(IsWidgetVisible());
+
+  // The bar should still exist when the app list is closed again.
+  app_list_controller->DismissAppList();
   EXPECT_TRUE(GetBarWidget());
   EXPECT_TRUE(IsWidgetVisible());
 }

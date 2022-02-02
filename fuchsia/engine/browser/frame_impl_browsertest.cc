@@ -1162,8 +1162,8 @@ IN_PROC_BROWSER_TEST_F(FrameImplTest, ImmediateNavigationEvent) {
   cr_fuchsia::TestNavigationListener navigation_listener;
   fidl::Binding<fuchsia::web::NavigationEventListener>
       navigation_listener_binding(&navigation_listener);
-  frame.ptr()->SetNavigationEventListener(
-      navigation_listener_binding.NewBinding());
+  frame.ptr()->SetNavigationEventListener2(
+      navigation_listener_binding.NewBinding(), /*flags=*/{});
   navigation_listener.RunUntilUrlAndTitleEquals(page_url, kPage1Title);
 }
 
@@ -1224,7 +1224,7 @@ IN_PROC_BROWSER_TEST_F(FrameImplTest, InvalidHeader) {
     controller->LoadUrl(
         "http://site.ext/", std::move(load_url_params),
         cr_fuchsia::CallbackToFitFunction(result.GetCallback()));
-    result.Wait();
+    ASSERT_TRUE(result.Wait());
 
     ASSERT_TRUE(result.Get().is_err());
     EXPECT_EQ(result.Get().err(),

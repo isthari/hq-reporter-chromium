@@ -296,6 +296,7 @@
 <translation id="3556731189587832921">English (US) with International PC keyboard</translation>
 <translation id="3567221313191587603">Select a file, and toggle <ph name="OFFLINE_CHECKBOX_NAME" /> on for offline access to your files.</translation>
 <translation id="357479282490346887">Lithuanian</translation>
+<translation id="3587482841069643663">All</translation>
 <translation id="3592251141500063301">Could not make <ph name="FILE_NAME" /> available offline</translation>
 <translation id="3601151620448429694"><ph name="NETWORK_NAME" /> · <ph name="CARRIER_NAME" /></translation>
 <translation id="3603385196401704894">Canadian French</translation>
@@ -680,6 +681,7 @@
 <translation id="6935521024859866267">Upside Down</translation>
 <translation id="6943836128787782965">HTTP get failed</translation>
 <translation id="6949408524333579394">Serbian transliteration</translation>
+<translation id="6954309393500027528">Pasting this file is blocked by your administrator</translation>
 <translation id="6960565108681981554">Not activated. Contact your operator.</translation>
 <translation id="696203921837389374">Enable syncing over mobile data</translation>
 <translation id="6965382102122355670">OK</translation>

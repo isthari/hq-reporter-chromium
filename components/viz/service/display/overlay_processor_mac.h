@@ -40,6 +40,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorMac
   bool IsOverlaySupported() const override;
   gfx::Rect GetPreviousFrameOverlaysBoundingRect() const override;
   gfx::Rect GetAndResetOverlayDamage() override;
+  void SetIsVideoCaptureEnabled(bool enabled) override;
 
   // Returns true if the platform supports hw overlays and surface occluding
   // damage rect needs to be computed since it will be used by overlay
@@ -67,6 +68,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorMac
   // processor.
   void AdjustOutputSurfaceOverlay(
       absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) override;
+
+  gfx::CALayerResult GetCALayerErrorCode() const override;
 
  private:
   // The damage that should be added the next frame for drawing to the output

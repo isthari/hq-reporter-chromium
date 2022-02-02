@@ -16,10 +16,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "net/base/escape.h"
 #include "url/url_constants.h"
 
-#ifdef OS_ANDROID
+#if BUILDFLAG(IS_ANDROID)
 #include "base/android/jni_string.h"
 #include "components/omnibox/browser/jni_headers/SuggestionAnswer_jni.h"
 
@@ -419,7 +420,7 @@ void SuggestionAnswer::LogAnswerUsed(
 const char SuggestionAnswer::kAnswerUsedUmaHistogramName[] =
     "Omnibox.SuggestionUsed.AnswerInSuggest";
 
-#ifdef OS_ANDROID
+#if BUILDFLAG(IS_ANDROID)
 namespace {
 
 ScopedJavaLocalRef<jobject> CreateJavaTextField(
@@ -470,4 +471,4 @@ ScopedJavaLocalRef<jobject> SuggestionAnswer::CreateJavaObject() const {
       env, static_cast<int>(type_), CreateJavaImageLine(env, &first_line_),
       CreateJavaImageLine(env, &second_line_));
 }
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)

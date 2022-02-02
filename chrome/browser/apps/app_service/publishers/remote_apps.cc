@@ -64,9 +64,16 @@ void RemoteApps::DeleteApp(const std::string& app_id) {
 std::unique_ptr<App> RemoteApps::CreateApp(
     const ash::RemoteAppsModel::AppInfo& info) {
   std::unique_ptr<App> app = AppPublisher::MakeApp(
-      AppType::kRemote, info.id, Readiness::kReady, info.name);
+      AppType::kRemote, info.id, Readiness::kReady, info.name,
+      InstallReason::kUser, apps::InstallSource::kUnknown);
   app->icon_key =
       std::move(*icon_key_factory_.CreateIconKey(IconEffects::kNone));
+  app->show_in_launcher = true;
+  app->show_in_management = false;
+  app->show_in_search = true;
+  app->show_in_shelf = false;
+  app->handles_intents = true;
+  app->allow_uninstall = false;
   return app;
 }
 
@@ -116,7 +123,7 @@ void RemoteApps::LoadIcon(const std::string& app_id,
   icon->is_placeholder_icon = is_placeholder_icon;
   IconEffects icon_effects = (icon_type == IconType::kStandard)
                                  ? IconEffects::kCrOsStandardIcon
-                                 : IconEffects::kResizeAndPad;
+                                 : IconEffects::kMdIconStyle;
   ApplyIconEffects(icon_effects, size_hint_in_dip, std::move(icon),
                    std::move(callback));
 }
@@ -171,7 +178,7 @@ void RemoteApps::LoadIcon(const std::string& app_id,
   icon->is_placeholder_icon = is_placeholder_icon;
   IconEffects icon_effects = (icon_type == mojom::IconType::kStandard)
                                  ? IconEffects::kCrOsStandardIcon
-                                 : IconEffects::kResizeAndPad;
+                                 : IconEffects::kMdIconStyle;
   apps::ApplyIconEffects(
       icon_effects, size_hint_in_dip, std::move(icon),
       IconValueToMojomIconValueCallback(std::move(callback)));

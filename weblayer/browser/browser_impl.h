@@ -14,7 +14,7 @@
 #include "build/build_config.h"
 #include "weblayer/public/browser.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/android/scoped_java_ref.h"
 #endif
 
@@ -61,7 +61,7 @@ class BrowserImpl : public Browser {
   // Called from BrowserPersister when restore has completed.
   void OnRestoreCompleted();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   bool CompositorHasSurface();
 
   base::android::ScopedJavaGlobalRef<jobject> java_browser() {
@@ -83,9 +83,10 @@ class BrowserImpl : public Browser {
   void RestoreStateIfNecessary(
       JNIEnv* env,
       const base::android::JavaParamRef<jstring>& j_persistence_id,
-      const base::android::JavaParamRef<jbyteArray>& j_persistence_crypto_key,
-      const base::android::JavaParamRef<jbyteArray>&
-          j_minimal_persistence_state);
+      const base::android::JavaParamRef<jbyteArray>& j_persistence_crypto_key);
+  void RestoreMinimalState(JNIEnv* env,
+                           const base::android::JavaParamRef<jbyteArray>&
+                               j_minimal_persistence_state);
   void WebPreferencesChanged(JNIEnv* env);
   void OnFragmentStart(JNIEnv* env);
   void OnFragmentResume(JNIEnv* env);
@@ -111,7 +112,7 @@ class BrowserImpl : public Browser {
   bool GetPasswordEchoEnabled();
   void SetWebPreferences(blink::web_pref::WebPreferences* prefs);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // On Android the Java Tab class owns the C++ Tab. DestroyTab() calls to the
   // Java Tab class to initiate deletion. This function is called from the Java
   // side to remove the tab from the browser and shortly followed by deleting
@@ -140,7 +141,7 @@ class BrowserImpl : public Browser {
   // For creation.
   friend class Browser;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   friend BrowserImpl* CreateBrowserForAndroid(
       ProfileImpl*,
       const base::android::JavaParamRef<jobject>&);
@@ -156,7 +157,7 @@ class BrowserImpl : public Browser {
   // Returns the path used by |browser_persister_|.
   base::FilePath GetBrowserPersisterDataPath();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void UpdateFragmentResumedState(bool state);
 
   bool fragment_resumed_ = false;

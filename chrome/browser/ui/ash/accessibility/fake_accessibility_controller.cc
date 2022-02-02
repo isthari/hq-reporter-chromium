@@ -107,4 +107,6 @@ void FakeAccessibilityController::
 
 void FakeAccessibilityController::UpdateDictationBubble(
     bool visible,
-    const absl::optional<std::u16string>& text) {}
+    ash::DictationBubbleIconType icon,
+    const absl::optional<std::u16string>& text,
+    const absl::optional<std::vector<std::string>>& hints) {}

@@ -61,9 +61,23 @@ void FakePersonalizationAppWallpaperProvider::FetchImagesForCollection(
   std::move(callback).Run(std::move(images));
 }
 
+void FakePersonalizationAppWallpaperProvider::FetchGooglePhotosAlbums(
+    const absl::optional<std::string>& resume_token,
+    FetchGooglePhotosAlbumsCallback callback) {
+  std::move(callback).Run(
+      ash::personalization_app::mojom::FetchGooglePhotosAlbumsResponse::New());
+}
+
 void FakePersonalizationAppWallpaperProvider::FetchGooglePhotosCount(
     FetchGooglePhotosCountCallback callback) {
   std::move(callback).Run(0);
+}
+
+void FakePersonalizationAppWallpaperProvider::FetchGooglePhotosPhotos(
+    const absl::optional<std::string>& resume_token,
+    FetchGooglePhotosPhotosCallback callback) {
+  std::move(callback).Run(
+      ash::personalization_app::mojom::FetchGooglePhotosPhotosResponse::New());
 }
 
 void FakePersonalizationAppWallpaperProvider::GetLocalImages(

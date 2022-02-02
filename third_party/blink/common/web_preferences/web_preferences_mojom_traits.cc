@@ -46,10 +46,8 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
           &out->low_priority_iframes_threshold) ||
       !data.ReadNetworkQualityEstimatorWebHoldback(
           &out->network_quality_estimator_web_holdback) ||
-      !data.ReadWebAppScope(&out->web_app_scope) ||
-      !data.ReadLitepageSubresourceRedirectOrigin(
-          &out->litepage_subresource_redirect_origin)
-#if defined(OS_ANDROID)
+      !data.ReadWebAppScope(&out->web_app_scope)
+#if BUILDFLAG(IS_ANDROID)
       || !data.ReadDefaultVideoPosterUrl(&out->default_video_poster_url)
 #endif
   )
@@ -99,8 +97,6 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
   out->accelerated_2d_canvas_enabled = data.accelerated_2d_canvas_enabled();
   out->new_canvas_2d_api_enabled = data.new_canvas_2d_api_enabled();
   out->canvas_2d_layers_enabled = data.canvas_2d_layers_enabled();
-  out->canvas_context_lost_in_background_enabled =
-      data.canvas_context_lost_in_background_enabled();
   out->antialiased_2d_canvas_disabled = data.antialiased_2d_canvas_disabled();
   out->antialiased_clips_2d_canvas_enabled =
       data.antialiased_clips_2d_canvas_enabled();
@@ -167,7 +163,7 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
   out->double_tap_to_zoom_enabled = data.double_tap_to_zoom_enabled();
   out->fullscreen_supported = data.fullscreen_supported();
   out->text_autosizing_enabled = data.text_autosizing_enabled();
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   out->font_scale_factor = data.font_scale_factor();
   out->device_scale_adjustment = data.device_scale_adjustment();
   out->force_enable_zoom = data.force_enable_zoom();

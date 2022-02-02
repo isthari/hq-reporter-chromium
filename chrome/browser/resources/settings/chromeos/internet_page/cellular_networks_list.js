@@ -232,7 +232,7 @@ Polymer({
   created() {
     this.networkConfig_ =
         MojoInterfaceProviderImpl.getInstance().getMojoServiceRemote();
-    this.fetchESimPendingProfileList_();
+    this.fetchEuiccAndESimPendingProfileList_();
   },
 
   /** @override */
@@ -258,7 +258,7 @@ Polymer({
    * ESimManagerListenerBehavior override
    */
   onAvailableEuiccListChanged() {
-    this.fetchESimPendingProfileList_();
+    this.fetchEuiccAndESimPendingProfileList_();
   },
 
   /**
@@ -282,12 +282,21 @@ Polymer({
   },
 
   /** @private */
-  fetchESimPendingProfileList_() {
+  fetchEuiccAndESimPendingProfileList_() {
     getEuicc().then(euicc => {
       if (!euicc) {
         return;
       }
       this.euicc_ = euicc;
+
+      // Restricting managed cellular network should not show pending eSIM
+      // profiles.
+      if (this.isESimPolicyEnabled_ && this.globalPolicy &&
+          this.globalPolicy.allowOnlyPolicyCellularNetworks) {
+        this.eSimPendingProfileItems_ = [];
+        return;
+      }
+
       this.fetchESimPendingProfileListForEuicc_(euicc);
     });
   },
@@ -607,5 +616,41 @@ Polymer({
     }
 
     return '';
+  },
+
+  /**
+   * Return true if the "No available eSIM profiles" subtext message or
+   * download eSIM profile link should be shown in eSIM section. This message
+   * should not be shown when adding new eSIM profiles.
+   * @return {boolean}
+   * @private
+   */
+  shouldShowNoESimMessageOrDownloadLink_(
+      inhibitReason, eSimNetworks, eSimPendingProfiles) {
+    const mojom = chromeos.networkConfig.mojom.InhibitReason;
+    if (inhibitReason === mojom.kInstallingProfile) {
+      return false;
+    }
+
+    return !this.shouldShowNetworkSublist_(eSimNetworks, eSimPendingProfiles);
+  },
+
+  /**
+   * Return true if the "No available eSIM profiles" subtext message should be
+   * shown in eSIM section. This message should not be shown when the download
+   * eSIM profile link is shown.
+   * @return {boolean}
+   * @private
+   */
+  shouldShowNoESimSubtextMessage_() {
+    if (!this.isESimPolicyEnabled_) {
+      return false;
+    }
+    if (this.globalPolicy &&
+        this.globalPolicy.allowOnlyPolicyCellularNetworks) {
+      return true;
+    }
+
+    return false;
   },
 });

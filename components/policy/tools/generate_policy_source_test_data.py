@@ -200,7 +200,7 @@ namespace internal {
 struct SchemaData;
 }
 %(windows_only_part)s
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 // Sets default profile policies values for enterprise users.
 void SetEnterpriseUsersProfileDefaults(PolicyMap* policy_map);
 // Sets default system-wide policies values for enterprise users.
@@ -333,7 +333,7 @@ EXPECTED_POLICY_CONSTANTS_SOURCE = '''\
 
 namespace policy {
 
-const __attribute__((unused)) PolicyDetails kChromePolicyDetails[] = {
+[[maybe_unused]] const PolicyDetails kChromePolicyDetails[] = {
 // is_deprecated is_future is_device_policy id max_external_data_size, risk tags
   // ExampleStringPolicy
   { false,        false,    false,              1,                     0, {  } },
@@ -392,7 +392,7 @@ bool CompareKeys(const internal::PropertyNode& node,
 
 }  // namespace
 %(windows_only_part)s
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 void SetEnterpriseUsersProfileDefaults(PolicyMap* policy_map) {
 
 }

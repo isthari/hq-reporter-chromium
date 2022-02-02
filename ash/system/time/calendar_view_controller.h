@@ -20,14 +20,10 @@
 
 namespace ash {
 
-namespace {
-
 // A simple std::list of calendar events, used to store a single day's events
 // in EventMap. Not to be confused with google_apis::calendar::EventList,
 // which represents the return value of a query from the GoogleCalendar API.
 using SingleDayEventList = std::list<google_apis::calendar::CalendarEvent>;
-
-}  // namespace
 
 // Controller of the `CalendarView`.
 class ASH_EXPORT CalendarViewController {
@@ -113,9 +109,7 @@ class ASH_EXPORT CalendarViewController {
   bool was_on_later_month() { return was_on_later_month_; }
 
   // The currently selected date to show the event list.
-  absl::optional<base::Time::Exploded> selected_date() {
-    return selected_date_;
-  }
+  absl::optional<base::Time> selected_date() { return selected_date_; }
 
   // The row index of the currently selected date. This is used for auto
   // scrolling to this row when the event list is expanded.
@@ -155,7 +149,7 @@ class ASH_EXPORT CalendarViewController {
 
   // A callback passed into the`CalendarDateCellView`, which is called when the
   // cell is clicked to show the event list view.
-  void ShowEventListView(base::Time::Exploded selected_date, int row_index);
+  void ShowEventListView(base::Time selected_date, int row_index);
 
   // A callback passed into the`CalendarEventListView`, which is called when the
   // close button is clicked to close the event list view.
@@ -265,7 +259,7 @@ class ASH_EXPORT CalendarViewController {
   bool is_event_list_showing_ = false;
 
   // The currently selected date.
-  absl::optional<base::Time::Exploded> selected_date_;
+  absl::optional<base::Time> selected_date_;
 
   // The row index of the currently selected date.
   int selected_date_row_index_;

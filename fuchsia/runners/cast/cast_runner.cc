@@ -37,6 +37,7 @@ namespace {
 // All services must be listed in cast_runner.cmx.
 static constexpr const char* kServices[] = {
     "fuchsia.accessibility.semantics.SemanticsManager",
+    "fuchsia.buildinfo.Provider",
     "fuchsia.device.NameProvider",
     "fuchsia.fonts.Provider",
     "fuchsia.input.virtualkeyboard.ControllerCreator",
@@ -55,6 +56,8 @@ static constexpr const char* kServices[] = {
     "fuchsia.process.Launcher",
     "fuchsia.settings.Display",
     "fuchsia.sysmem.Allocator",
+    "fuchsia.ui.composition.Allocator",
+    "fuchsia.ui.composition.Flatland",
     "fuchsia.ui.input3.Keyboard",
     "fuchsia.ui.scenic.Scenic",
     "fuchsia.vulkan.loader.Loader",
@@ -603,6 +606,7 @@ CastRunner::GetIsolatedContextParamsWithFuchsiaDirs(
     std::vector<fuchsia::web::ContentDirectoryProvider> content_directories) {
   fuchsia::web::CreateContextParams params = GetCommonContextParams();
   EnsureSoftwareVideoDecodersAreDisabled(params.mutable_features());
+  *params.mutable_features() |= fuchsia::web::ContextFeatureFlags::NETWORK;
   params.set_remote_debugging_port(kEphemeralRemoteDebuggingPort);
   params.set_content_directories(std::move(content_directories));
   zx_status_t status = isolated_services_->ConnectClient(

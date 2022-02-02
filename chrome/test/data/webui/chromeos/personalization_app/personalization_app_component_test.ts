@@ -6,6 +6,8 @@ import 'chrome://personalization/strings.m.js';
 import 'chrome://webui-test/mojo_webui_test_support.js';
 
 import {AmbientSubpageTest} from './ambient_subpage_element_test.js';
+import {AvatarListTest} from './avatar_list_element_test.js';
+import {GooglePhotosAlbumsTest} from './google_photos_albums_element_test.js';
 import {GooglePhotosCollectionTest} from './google_photos_collection_element_test.js';
 import {GooglePhotosPhotosByAlbumIdTest} from './google_photos_photos_by_album_id_element_test.js';
 import {LocalImagesTest} from './local_images_element_test.js';
@@ -14,9 +16,11 @@ import {PersonalizationMainTest} from './personalization_main_element_test.js';
 import {PersonalizationRouterTest} from './personalization_router_element_test.js';
 import {PersonalizationThemeTest} from './personalization_theme_element_test.js';
 import {PersonalizationToastTest} from './personalization_toast_element_test.js';
+import {UserPreviewTest} from './user_preview_element_test.js';
 import {UserSubpageTest} from './user_subpage_element_test.js';
 import {WallpaperCollectionsTest} from './wallpaper_collections_element_test.js';
 import {WallpaperFullscreenTest} from './wallpaper_fullscreen_element_test.js';
+import {WallpaperGridItemTest} from './wallpaper_grid_item_element_test.js';
 import {WallpaperImagesTest} from './wallpaper_images_element_test.js';
 import {WallpaperObserverTest} from './wallpaper_observer_test.js';
 import {WallpaperPreviewTest} from './wallpaper_preview_element_test.js';
@@ -28,6 +32,8 @@ window.console.warn = () => {};
 
 const testCases = [
   AmbientSubpageTest,
+  AvatarListTest,
+  GooglePhotosAlbumsTest,
   GooglePhotosCollectionTest,
   GooglePhotosPhotosByAlbumIdTest,
   LocalImagesTest,
@@ -36,13 +42,15 @@ const testCases = [
   PersonalizationRouterTest,
   PersonalizationThemeTest,
   PersonalizationToastTest,
+  UserPreviewTest,
   UserSubpageTest,
   WallpaperCollectionsTest,
   WallpaperFullscreenTest,
+  WallpaperGridItemTest,
   WallpaperImagesTest,
+  WallpaperObserverTest,
   WallpaperPreviewTest,
   WallpaperSelectedTest,
-  WallpaperObserverTest,
 ];
 
 for (const testCase of testCases) {

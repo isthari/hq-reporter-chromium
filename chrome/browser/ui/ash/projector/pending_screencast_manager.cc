@@ -20,6 +20,7 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/projector/projector_utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -167,13 +168,13 @@ PendingSreencastManager::~PendingSreencastManager() {
   if (session_manager) {
     session_manager->RemoveObserver(this);
     auto* drivefs_host = GetDriveFsHostForActiveProfile();
-    if (drivefs_host)
+    if (observed_drive_fs_host_ && drivefs_host)
       drivefs_host->RemoveObserver(this);
   }
 }
 
 void PendingSreencastManager::OnUnmounted() {
-  if (pending_screencast_cache_.empty()) {
+  if (!pending_screencast_cache_.empty()) {
     pending_screencast_cache_.clear();
     // Since DriveFS is unmounted, screencasts stop uploading. Notifies pending
     // screencast status has changed.
@@ -217,10 +218,19 @@ void PendingSreencastManager::OnSyncingStatusUpdate(
 void PendingSreencastManager::OnError(const drivefs::mojom::DriveError& error) {
 }
 
-void PendingSreencastManager::OnUserSessionStarted(bool is_primary_user) {
+void PendingSreencastManager::OnUserProfileLoaded(const AccountId& account_id) {
+  if (observed_drive_fs_host_)
+    return;
+
+  auto* profile = ProfileManager::GetActiveUserProfile();
+  if (!IsProjectorAllowedForProfile(profile))
+    return;
+
   auto* drivefs_host = GetDriveFsHostForActiveProfile();
-  if (drivefs_host)
+  if (drivefs_host) {
     GetDriveFsHostForActiveProfile()->AddObserver(this);
+    observed_drive_fs_host_ = true;
+  }
 }
 
 const ash::PendingScreencastSet&

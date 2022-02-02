@@ -125,7 +125,8 @@ void TestURLRequestContext::Init() {
   // In-memory cookie store.
   if (!cookie_store()) {
     context_storage_.set_cookie_store(std::make_unique<CookieMonster>(
-        nullptr /* store */, nullptr /* netlog */));
+        nullptr /* store */, nullptr /* netlog */,
+        false /* first_party_sets_enabled */));
   }
 
   if (!http_user_agent_settings()) {
@@ -195,8 +196,10 @@ std::unique_ptr<URLRequestContextBuilder> CreateTestURLRequestContextBuilder() {
   builder->SetHttpAuthHandlerFactory(HttpAuthHandlerFactory::CreateDefault());
   builder->SetHttpServerProperties(std::make_unique<HttpServerProperties>());
   builder->set_quic_context(std::make_unique<QuicContext>());
-  builder->SetCookieStore(std::make_unique<CookieMonster>(/*store=*/nullptr,
-                                                          /*netlog=*/nullptr));
+  builder->SetCookieStore(
+      std::make_unique<CookieMonster>(/*store=*/nullptr,
+                                      /*netlog=*/nullptr,
+                                      /*first_party_sets_enabled=*/false));
   builder->set_http_user_agent_settings(
       std::make_unique<StaticHttpUserAgentSettings>("en-us,fr", std::string()));
   return builder;
@@ -643,12 +646,12 @@ bool TestNetworkDelegate::OnAnnotateAndMoveUserBlockedCookies(
   return allow;
 }
 
-bool TestNetworkDelegate::OnForcePrivacyMode(
+NetworkDelegate::PrivacySetting TestNetworkDelegate::OnForcePrivacyMode(
     const GURL& url,
     const SiteForCookies& site_for_cookies,
     const absl::optional<url::Origin>& top_frame_origin,
     SamePartyContext::Type same_party_context_type) const {
-  return false;
+  return NetworkDelegate::PrivacySetting::kStateAllowed;
 }
 
 bool TestNetworkDelegate::OnCanSetCookie(const URLRequest& request,
@@ -706,13 +709,17 @@ bool FilteringTestNetworkDelegate::OnCanSetCookie(
   return TestNetworkDelegate::OnCanSetCookie(request, cookie, options, allowed);
 }
 
-bool FilteringTestNetworkDelegate::OnForcePrivacyMode(
+NetworkDelegate::PrivacySetting
+FilteringTestNetworkDelegate::OnForcePrivacyMode(
     const GURL& url,
     const SiteForCookies& site_for_cookies,
     const absl::optional<url::Origin>& top_frame_origin,
     SamePartyContext::Type same_party_context_type) const {
-  if (force_privacy_mode_)
-    return true;
+  if (force_privacy_mode_) {
+    return partitioned_state_allowed_
+               ? NetworkDelegate::PrivacySetting::kPartitionedStateAllowedOnly
+               : NetworkDelegate::PrivacySetting::kStateDisallowed;
+  }
 
   return TestNetworkDelegate::OnForcePrivacyMode(
       url, site_for_cookies, top_frame_origin, same_party_context_type);

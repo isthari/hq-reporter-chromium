@@ -45,9 +45,6 @@ tast_disabled_tests_from_chrome_all = [
   # crbug.com/1263234
   "quicksettings.ManagedDeviceInfo",
 
-  # b/201197372
-  "crostini.AppEmacs",
-
   # crbug.com/1273743
   "crostini.Launcher.local_wayland_bullseye_stable",
   "crostini.Launcher.local_wayland_buster_stable",
@@ -104,9 +101,8 @@ tast_disabled_tests_from_chrome_all = [
   # https://crbug.com/1279285: Flaky.
   "policy.AllowWakeLocks",
 
-  # https://crbug.com/1281802
-  "graphics.TraceReplay",
-  "graphics.TraceReplay.glxgears_stable",
+  # https://crbug.com/1285206
+  "policy.DeveloperToolsAvailability",
 
   # https://crbug.com/1281645
   "quicksettings.LockScreen",
@@ -139,9 +135,8 @@ tast_disabled_tests_from_chrome_all = [
   "inputs.PhysicalKeyboardAutocorrect.en_us_1",
   "inputs.PhysicalKeyboardDeadKeys.us_intl_acute",
 
-  # https://crbug.com/1283328
-  "crostini.Basic.bullseye_stable",
-  "crostini.SSHFSMount.bullseye_stable",
+  # https://crbug.com/1260046
+  "wmp.WindowCycle",
 ]
 
 # To disable a specific test in lacros_all_tast_tests, add it the following

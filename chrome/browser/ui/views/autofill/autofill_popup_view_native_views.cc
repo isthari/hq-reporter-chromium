@@ -13,6 +13,7 @@
 #include "base/feature_list.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/ui/views/chrome_typography_provider.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/autofill/core/browser/metrics/autofill_metrics.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/browser/ui/popup_types.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
@@ -56,8 +58,8 @@
 #include "ui/views/controls/separator.h"
 #include "ui/views/controls/throbber.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/flex_layout.h"
+#include "ui/views/layout/table_layout_view.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/style/typography_provider.h"
 #include "ui/views/view.h"
@@ -125,18 +127,20 @@ int GetHorizontalMargin() {
 }
 
 // Builds a column set for |layout| used in the autofill dropdown.
-void BuildColumnSet(views::GridLayout* layout) {
-  views::ColumnSet* column_set = layout->AddColumnSet(0);
+void BuildColumnSet(views::TableLayoutView* layout_view) {
   const int column_divider = ChromeLayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_RELATED_LABEL_HORIZONTAL_LIST);
 
-  column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
-                        views::GridLayout::kFixedSize,
-                        views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
-  column_set->AddPaddingColumn(views::GridLayout::kFixedSize, column_divider);
-  column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
-                        views::GridLayout::kFixedSize,
-                        views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
+  layout_view
+      ->AddColumn(views::LayoutAlignment::kStart,
+                  views::LayoutAlignment::kStretch,
+                  views::TableLayout::kFixedSize,
+                  views::TableLayout::ColumnSize::kUsePreferred, 0, 0)
+      .AddPaddingColumn(views::TableLayout::kFixedSize, column_divider)
+      .AddColumn(views::LayoutAlignment::kStart,
+                 views::LayoutAlignment::kStretch,
+                 views::TableLayout::kFixedSize,
+                 views::TableLayout::ColumnSize::kUsePreferred, 0, 0);
 }
 
 std::unique_ptr<views::ImageView> ImageViewFromImageSkia(
@@ -402,15 +406,26 @@ class AutofillPopupItemView : public AutofillPopupRowView {
   // GetSubtexts();
   void UpdateLayoutSize(views::BoxLayout* layout_manager, int64_t num_subtexts);
 
+  // Returns true if the mouse is within the bounds of this item. This is not
+  // affected by whether or not the item is overlaid by another popup.
+  bool IsMouseInsideItemBounds() const { return IsMouseHovered(); }
+
+  // We want a mouse click to accept a suggestion only if the user has made an
+  // explicit choice. Therefore, we shall ignore mouse clicks unless the mouse
+  // has been moved into the item's screen bounds. For example, if the item is
+  // hovered by the mouse at the time it's first shown, we want to ignore clicks
+  // until the mouse has left and re-entered the bounds of the item
+  // (crbug.com/1240472, crbug.com/1241585, crbug.com/1287364).
+  bool mouse_observed_outside_item_bounds_ = false;
+
+  // TODO(crbug/1279268): Remove when AutofillIgnoreEarlyClicksOnPopup is
+  // launched.
+  bool clicked_too_early_ = false;
+
   const int frontend_id_;
 
   // All the labels inside this view.
   std::vector<views::Label*> inner_labels_;
-
-  // The Autofill popup may be hovered by the mouse after its creation. In this
-  // case, we want to ignore clicks on the hovered menu item until the user made
-  // an explicit choice. See crbug.com/1240472, crbug.com/1241585.
-  bool mouse_observed_outside_of_item_ = false;
 };
 
 int AutofillPopupItemView::GetFrontendId() const {
@@ -616,15 +631,16 @@ void AutofillPopupItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 
 void AutofillPopupItemView::OnPaint(gfx::Canvas* canvas) {
   AutofillPopupRowView::OnPaint(canvas);
-  mouse_observed_outside_of_item_ |= !IsMouseHovered();
+  mouse_observed_outside_item_bounds_ |= !IsMouseInsideItemBounds();
 }
 
 void AutofillPopupItemView::OnMouseEntered(const ui::MouseEvent& event) {
-  // OnMouseEntered() also fires if the had been hovering over the item and
-  // moved only a little bit. In that case, clicks shall still be ignored and we
-  // don't want to show a preview.
-  if (!mouse_observed_outside_of_item_)
+  // OnMouseEntered() does not imply that the mouse had been outside of the
+  // item's bounds before: OnMouseEntered() also fires if the mouse moves just a
+  // little bit on the item. We don't want to show a preview in such a case.
+  if (!mouse_observed_outside_item_bounds_)
     return;
+
   base::WeakPtr<AutofillPopupController> controller =
       popup_view()->controller();
   if (controller)
@@ -632,7 +648,11 @@ void AutofillPopupItemView::OnMouseEntered(const ui::MouseEvent& event) {
 }
 
 void AutofillPopupItemView::OnMouseExited(const ui::MouseEvent& event) {
-  mouse_observed_outside_of_item_ = true;
+  // OnMouseExited() does not imply that the mouse has left the item's screen
+  // bounds: OnMouseExited() also fires (on Windows, at least) even when another
+  // popup overlays this item (crbug.com/1287364).
+  mouse_observed_outside_item_bounds_ |= !IsMouseInsideItemBounds();
+
   base::WeakPtr<AutofillPopupController> controller =
       popup_view()->controller();
   if (controller)
@@ -640,11 +660,28 @@ void AutofillPopupItemView::OnMouseExited(const ui::MouseEvent& event) {
 }
 
 void AutofillPopupItemView::OnMouseReleased(const ui::MouseEvent& event) {
-  // Ignore mouse clicks in case the popup appeared directly under the mouse
-  // cursor and we have no indication that the user intentionally selected the
-  // current item.
-  if (!mouse_observed_outside_of_item_)
+  // Ignore mouse clicks unless the user made the explicit choice to selected
+  // the current item.
+  if (!mouse_observed_outside_item_bounds_)
     return;
+
+  // Ignore clicks immediately after the popup was shown. This is to prevent
+  // users accidentally accepting suggestions (crbug.com/1279268).
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillIgnoreEarlyClicksOnPopup) &&
+      popup_view()->time_delta_since_popup_shown() <=
+          features::kAutofillIgnoreEarlyClicksOnPopupDuration.Get()) {
+    clicked_too_early_ = true;
+    AutofillMetrics::LogSuggestionClick(
+        AutofillMetrics::SuggestionClickResult::kIgnored);
+    return;
+  }
+
+  AutofillMetrics::LogSuggestionClick(
+      !clicked_too_early_
+          ? AutofillMetrics::SuggestionClickResult::kAccepted
+          : AutofillMetrics::SuggestionClickResult::kAcceptedAfterIgnored);
+
   base::WeakPtr<AutofillPopupController> controller =
       popup_view()->controller();
   if (controller && event.IsOnlyLeftMouseButton() &&
@@ -702,11 +739,9 @@ void AutofillPopupItemView::CreateContent() {
       CreateSubtextViews();
   std::unique_ptr<views::View> description_label = CreateDescriptionView();
 
-  std::unique_ptr<views::View> all_labels = std::make_unique<views::View>();
-  views::GridLayout* grid_layout =
-      all_labels->SetLayoutManager(std::make_unique<views::GridLayout>());
-  BuildColumnSet(grid_layout);
-  grid_layout->StartRow(0, 0);
+  auto all_labels = std::make_unique<views::TableLayoutView>();
+  BuildColumnSet(all_labels.get());
+  all_labels->AddRows(1, 0);
 
   // Create the first line text view.
   if (minor_text_label) {
@@ -727,22 +762,22 @@ void AutofillPopupItemView::CreateContent() {
 
     first_line_container->AddChildView(std::move(main_text_label));
     first_line_container->AddChildView(std::move(minor_text_label));
-    grid_layout->AddView(std::move(first_line_container));
+    all_labels->AddChildView(std::move(first_line_container));
   } else {
-    grid_layout->AddView(std::move(main_text_label));
+    all_labels->AddChildView(std::move(main_text_label));
   }
 
   if (description_label) {
-    grid_layout->AddView(std::move(description_label));
+    all_labels->AddChildView(std::move(description_label));
   } else {
-    grid_layout->SkipColumns(1);
+    all_labels->AddChildView(std::make_unique<views::View>());
   }
 
   UpdateLayoutSize(layout_manager, subtext_labels.size());
   for (std::unique_ptr<views::View>& subtext_label : subtext_labels) {
-    grid_layout->StartRowWithPadding(0, 0, 0, kAdjacentLabelsVerticalSpacing);
-    grid_layout->AddView(std::move(subtext_label));
-    grid_layout->SkipColumns(1);
+    all_labels->AddPaddingRow(0, kAdjacentLabelsVerticalSpacing).AddRows(1, 0);
+    all_labels->AddChildView(std::move(subtext_label));
+    all_labels->AddChildView(std::make_unique<views::View>());
   }
 
   AddChildView(std::move(all_labels));
@@ -1174,7 +1209,7 @@ void AutofillPopupSeparatorView::GetAccessibleNodeData(
 }
 
 void AutofillPopupSeparatorView::CreateContent() {
-  SetLayoutManager(std::make_unique<views::FillLayout>());
+  SetUseDefaultFillLayout(true);
   AddChildView(std::make_unique<PopupSeparator>(popup_view()));
 }
 
@@ -1229,7 +1264,7 @@ void AutofillPopupWarningView::CreateContent() {
   int horizontal_margin = GetHorizontalMargin();
   int vertical_margin = AutofillPopupBaseView::GetCornerRadius();
 
-  SetLayoutManager(std::make_unique<views::FillLayout>());
+  SetUseDefaultFillLayout(true);
   SetBorder(views::CreateEmptyBorder(
       gfx::Insets(vertical_margin, horizontal_margin)));
 
@@ -1551,7 +1586,7 @@ void AutofillPopupViewNativeViews::CreateChildViews() {
           (footer_item_line_numbers.empty()) ? GetContentsVerticalPadding() : 0,
           0)));
 
-      padding_wrapper->SetLayoutManager(std::make_unique<views::FillLayout>());
+      padding_wrapper->SetUseDefaultFillLayout(true);
       padding_wrapper->AddChildView(scroll_view_.get());
       content_view->AddChildView(padding_wrapper);
       content_layout->SetFlexForView(padding_wrapper, 1);
@@ -1723,7 +1758,7 @@ END_METADATA
 // static
 AutofillPopupView* AutofillPopupView::Create(
     base::WeakPtr<AutofillPopupController> controller) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // It's possible for the container_view to not be in a window. In that case,
   // cancel the popup since we can't fully set it up.
   if (!platform_util::GetTopLevel(controller->container_view()))
@@ -1734,7 +1769,7 @@ AutofillPopupView* AutofillPopupView::Create(
       views::Widget::GetTopLevelWidgetForNativeView(
           controller->container_view());
 
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   // If the top level widget can't be found, cancel the popup since we can't
   // fully set it up. On Mac Cocoa browser, |observing_widget| is null
   // because the parent is not a views::Widget.

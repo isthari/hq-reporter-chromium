@@ -738,7 +738,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoPaintForEmptyDocument) {
 }
 
 // TODO(crbug.com/986642): Flaky on Win and Linux.
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_NoPaintForEmptyDocumentInChildFrame \
   DISABLED_NoPaintForEmptyDocumentInChildFrame
 #else
@@ -998,8 +998,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWrite) {
                                       1);
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteBlock) {
@@ -1015,8 +1013,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteBlock) {
 
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 1);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      1);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteReload) {
@@ -1031,23 +1027,16 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteReload) {
 
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 1);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      1);
 
   // Reload should not log the histogram as the script is not blocked.
   waiter = CreatePageLoadMetricsTestWaiter();
-  waiter->AddPageExpectation(TimingField::kDocumentWriteBlockReload);
   waiter->AddPageExpectation(TimingField::kFirstContentfulPaint);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(
                      "/page_load_metrics/document_write_script_block.html")));
   waiter->Wait();
 
-  histogram_tester_->ExpectTotalCount(
-      internal::kHistogramDocWriteBlockReloadCount, 1);
-
   waiter = CreatePageLoadMetricsTestWaiter();
-  waiter->AddPageExpectation(TimingField::kDocumentWriteBlockReload);
   waiter->AddPageExpectation(TimingField::kFirstContentfulPaint);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(
@@ -1056,11 +1045,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteReload) {
 
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 1);
-
-  histogram_tester_->ExpectTotalCount(
-      internal::kHistogramDocWriteBlockReloadCount, 2);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      1);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteAsync) {
@@ -1077,8 +1061,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteAsync) {
                                       1);
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteSameDomain) {
@@ -1096,8 +1078,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteSameDomain) {
                                       1);
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWriteScript) {
@@ -1114,8 +1094,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWriteScript) {
                                       1);
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
-  histogram_tester_->ExpectTotalCount(internal::kHistogramDocWriteBlockCount,
-                                      0);
 }
 
 // TODO(crbug.com/712935): Flaky on Linux dbg.
@@ -1195,7 +1173,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortReload) {
 }
 
 // TODO(crbug.com/675061): Flaky on Win7 dbg.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_AbortClose DISABLED_AbortClose
 #else
 #define MAYBE_AbortClose AbortClose
@@ -1285,7 +1263,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
 }
 
 // TODO(crbug.com/1009885): Flaky on Linux MSan builds.
-#if defined(MEMORY_SANITIZER) && (defined(OS_LINUX) || defined(OS_CHROMEOS))
+#if defined(MEMORY_SANITIZER) && (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS))
 #define MAYBE_FirstMeaningfulPaintRecorded DISABLED_FirstMeaningfulPaintRecorded
 #else
 #define MAYBE_FirstMeaningfulPaintRecorded FirstMeaningfulPaintRecorded
@@ -1654,7 +1632,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
       ->GetActiveWebContents()
       ->GetController()
       .GetBackForwardCache()
-      .DisableForTesting(content::BackForwardCache::TEST_ASSUMES_NO_CACHING);
+      .DisableForTesting(content::BackForwardCache::TEST_REQUIRES_NO_CACHING);
 
   auto waiter = CreatePageLoadMetricsTestWaiter();
   waiter->AddPageExpectation(TimingField::kLoadEvent);
@@ -1704,7 +1682,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTestWithAutoupgradesDisabled,
       ->GetActiveWebContents()
       ->GetController()
       .GetBackForwardCache()
-      .DisableForTesting(content::BackForwardCache::TEST_ASSUMES_NO_CACHING);
+      .DisableForTesting(content::BackForwardCache::TEST_REQUIRES_NO_CACHING);
 
   auto waiter = CreatePageLoadMetricsTestWaiter();
   waiter->AddPageExpectation(TimingField::kLoadEvent);
@@ -2264,7 +2242,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestorePageLoadMetricsBrowserTest,
   ExpectFirstPaintMetricsTotalCount(1);
 }
 
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_InitialForegroundTabChanged DISABLED_InitialForegroundTabChanged
 #else
 #define MAYBE_InitialForegroundTabChanged InitialForegroundTabChanged
@@ -2364,7 +2342,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestorePageLoadMetricsBrowserTest,
 }
 
 // TODO(crbug.com/1242284): Flaky on Linux.
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
 #define MAYBE_RestoreForeignSession DISABLED_RestoreForeignSession
 #else
 #define MAYBE_RestoreForeignSession RestoreForeignSession

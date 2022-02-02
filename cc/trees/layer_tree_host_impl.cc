@@ -1958,9 +1958,9 @@ float LayerTreeHostImpl::GetSDRWhiteLevel() const {
 
   // The pending tree will has the most recently updated color space, so use it.
   if (pending_tree_)
-    return pending_tree_->display_color_spaces().GetSDRWhiteLevel();
+    return pending_tree_->display_color_spaces().GetSDRMaxLuminanceNits();
   if (active_tree_)
-    return active_tree_->display_color_spaces().GetSDRWhiteLevel();
+    return active_tree_->display_color_spaces().GetSDRMaxLuminanceNits();
   return gfx::ColorSpace::kDefaultSDRWhiteLevel;
 }
 
@@ -2391,7 +2391,7 @@ RenderFrameMetadata LayerTreeHostImpl::MakeRenderFrameMetadata(
       browser_controls_offset_manager_->TopControlsHeight();
   metadata.top_controls_shown_ratio =
       browser_controls_offset_manager_->TopControlsShownRatio();
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   metadata.bottom_controls_height =
       browser_controls_offset_manager_->BottomControlsHeight();
   metadata.bottom_controls_shown_ratio =
@@ -2442,7 +2442,7 @@ RenderFrameMetadata LayerTreeHostImpl::MakeRenderFrameMetadata(
   }
 
   bool allocate_new_local_surface_id =
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
       last_draw_render_frame_metadata_ &&
       (last_draw_render_frame_metadata_->top_controls_height !=
            metadata.top_controls_height ||
@@ -2510,7 +2510,7 @@ absl::optional<EventMetricsSet> LayerTreeHostImpl::DrawLayers(
                                                      events_metrics);
   layer_tree_frame_sink_->SubmitCompositorFrame(
       std::move(compositor_frame),
-      /*hit_test_data_changed=*/false, debug_state_.show_hit_test_borders);
+      /*hit_test_data_changed=*/false);
 
 #if DCHECK_IS_ON()
   if (!doing_sync_draw_) {
@@ -3111,10 +3111,10 @@ static void PopulateHitTestRegion(viz::HitTestRegion* hit_test_region,
                                   SK_Scalar1 / device_scale_factor);
   surface_to_root_transform.FlattenTo2d();
   // TODO(sunxd): Avoid losing precision by not using inverse if possible.
-  bool ok = surface_to_root_transform.GetInverse(&hit_test_region->transform);
+  [[maybe_unused]] bool ok =
+      surface_to_root_transform.GetInverse(&hit_test_region->transform);
   // Note: If |ok| is false, the |transform| is set to the identity before
   // returning, which is what we want.
-  ALLOW_UNUSED_LOCAL(ok);
 }
 
 absl::optional<viz::HitTestRegionList> LayerTreeHostImpl::BuildHitTestData() {
@@ -3142,7 +3142,7 @@ absl::optional<viz::HitTestRegionList> LayerTreeHostImpl::BuildHitTestData() {
     // into Layer::HitTestable, so we make sure we don't skip surface layers
     // that draws content but has pointer-events: none property.
     if (!(layer->HitTestable() ||
-          (layer->is_surface_layer() && layer->DrawsContent())))
+          (layer->is_surface_layer() && layer->draws_content())))
       continue;
 
     if (layer->is_surface_layer()) {
@@ -3480,10 +3480,10 @@ void LayerTreeHostImpl::OnMemoryPressure(
 
     // TODO(crbug.com/1189208): Unlocking decoded-image-tracker images causes
     // flickering in visible trees if Out-Of-Process rasterization is enabled.
-#if defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_FUCHSIA)
   if (use_oop_rasterization() && visible())
     return;
-#endif  // defined(OS_FUCHSIA)
+#endif  // BUILDFLAG(IS_FUCHSIA)
 
   ReleaseTileResources();
   active_tree_->OnPurgeMemory();
@@ -4875,6 +4875,18 @@ void LayerTreeHostImpl::NotifyLatencyInfoSwapPromiseMonitors() {
   for (auto* monitor : latency_info_swap_promise_monitor_)
     monitor->OnSetNeedsRedrawOnImpl();
 }
+
+// These ProtectedSequenceSynchronizer methods are only called in relation to
+// data owned by mutator_host_. These data are never used by a "non-owner"
+// thread, and hence have no protected sequence.
+bool LayerTreeHostImpl::IsOwnerThread() const {
+  DCHECK(task_runner_provider_->IsImplThread());
+  return true;
+}
+bool LayerTreeHostImpl::InProtectedSequence() const {
+  return false;
+}
+void LayerTreeHostImpl::WaitForProtectedSequenceCompletion() const {}
 
 bool LayerTreeHostImpl::IsElementInPropertyTrees(
     ElementId element_id,

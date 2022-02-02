@@ -96,7 +96,6 @@
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/metrics/content/subprocess_metrics_provider.h"
-#include "components/pdf/browser/pdf_web_contents_helper.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/reputation/core/safety_tip_test_utils.h"
@@ -147,6 +146,7 @@
 #include "net/test/embedded_test_server/request_handler_util.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "pdf/buildflags.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -160,6 +160,10 @@
 #include "chrome/browser/safe_browsing/download_protection/download_feedback_service.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_service.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PDF)
+#include "components/pdf/browser/pdf_web_contents_helper.h"
 #endif
 
 using content::BrowserContext;
@@ -431,7 +435,7 @@ bool IsDownloadExternallyRemoved(DownloadItem* item) {
   return item->GetFileExternallyRemoved();
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 // Called when a download starts. Marks the download as hidden.
 void SetHiddenDownloadCallback(DownloadItem* item,
                                download::DownloadInterruptReason reason) {
@@ -1479,7 +1483,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadMimeType) {
   CheckDownload(browser(), file, file);
 }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 // Download a file and confirm that the file is correctly quarantined.
 //
 // TODO(asanka): We should enable the test on Mac as well, but currently
@@ -2275,7 +2279,7 @@ ServerRedirectRequestHandler(const net::test_server::HttpRequest& request) {
   return std::move(response);
 }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 // https://crbug.com/788160
 #define MAYBE_DownloadHistoryCheck DISABLED_DownloadHistoryCheck
 #else
@@ -2855,6 +2859,7 @@ class DownloadTestSplitCacheEnabled : public DownloadTest {
   base::test::ScopedFeatureList feature_list_;
 };
 
+#if BUILDFLAG(ENABLE_PDF)
 IN_PROC_BROWSER_TEST_F(DownloadTestSplitCacheEnabled,
                        SaveMainFramePdfFromContextMenu_IsolationInfo) {
   embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
@@ -3020,6 +3025,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTestSplitCacheEnabled,
             download_waiter->NumDownloadsSeenInState(DownloadItem::COMPLETE));
   CheckDownloadStates(1, DownloadItem::COMPLETE);
 }
+#endif  // BUILDFLAG(ENABLE_PDF)
 
 IN_PROC_BROWSER_TEST_F(DownloadTestSplitCacheEnabled,
                        SaveSubframeImageFromContextMenu_IsolationInfo) {
@@ -3288,8 +3294,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester,
 #if BUILDFLAG(IS_CHROMEOS_ASH) && \
     (!defined(NDEBUG) || defined(MEMORY_SANITIZER))
 #define MAYBE_SaveLargeImage DISABLED_SaveLargeImage
-#elif defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX) || \
-    defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS)
 // Flaking on Windows, macOS, Linux, ChromeOS. https://crbug.com/1141263
 #define MAYBE_SaveLargeImage DISABLED_SaveLargeImage
 #else
@@ -3448,7 +3454,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, SavePageNonHTMLViaPost) {
 }
 
 // TODO(crbug.com/1249757): Flaky on Windows 7.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_DownloadErrorsServer DISABLED_DownloadErrorsServer
 #else
 #define MAYBE_DownloadErrorsServer DownloadErrorsServer
@@ -3499,7 +3505,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_DownloadErrorsServer) {
   DownloadFilesCheckErrors(base::size(download_info), download_info);
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 // https://crbug.com/739766
 #define MAYBE_DownloadErrorsFile DISABLED_DownloadErrorsFile
 #else
@@ -3632,7 +3638,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadErrorReadonlyFolder) {
 // Test that we show a dangerous downloads warning for a dangerous file
 // downloaded through a blob: URL.
 IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadDangerousBlobData) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // On Windows, if SafeBrowsing is enabled, certain file types (.exe, .cab,
   // .msi) will be handled by the DownloadProtectionService. However, if the URL
   // is non-standard (e.g. blob:) then those files won't be handled by the
@@ -3692,7 +3698,7 @@ EchoReferrerRequestHandler(const net::test_server::HttpRequest& request) {
 }
 
 // TODO(https://crbug.com/1244128): Flaky on Win7
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_AltClickDownloadReferrerPolicy \
   DISABLED_AltClickDownloadReferrerPolicy
 #else
@@ -3773,7 +3779,7 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
 }
 
 // TODO(https://crbug.com/1244128): Flaky on Win7
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_SaveLinkAsReferrerPolicy DISABLED_SaveLinkAsReferrerPolicy
 #else
 #define MAYBE_SaveLinkAsReferrerPolicy SaveLinkAsReferrerPolicy
@@ -3859,7 +3865,7 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
 
 // TODO(https://crbug.com/1244128): Flaky on Win7
 // TODO(crbug.com/1269422): Flaky on Lacros
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_SaveLinkAsVsCrossOriginResourcePolicy \
   DISABLED_SaveLinkAsVsCrossOriginResourcePolicy
 #else
@@ -4018,7 +4024,7 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
 }
 
 // TODO(https://crbug.com/1244128): Flaky on Win7
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_DownloadCrossDomainReferrerPolicy \
   DISABLED_DownloadCrossDomainReferrerPolicy
 #else
@@ -4291,7 +4297,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadTest_Renaming) {
 
 // Test that the entire download pipeline handles unicode correctly.
 // Disabled on Windows due to flaky timeouts: crbug.com/446695
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_DownloadTest_CrazyFilenames DISABLED_DownloadTest_CrazyFilenames
 #else
 #define MAYBE_DownloadTest_CrazyFilenames DownloadTest_CrazyFilenames
@@ -4333,9 +4339,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_DownloadTest_CrazyFilenames) {
     const wchar_t* const crazy_w = kCrazyFilenames[index];
     ASSERT_TRUE(base::WideToUTF8(crazy_w, wcslen(crazy_w), &crazy8));
     base::FilePath file_path(origin_directory.Append(
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
         crazy_w
-#elif defined(OS_POSIX)
+#elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
         crazy8
 #endif
         ));
@@ -4406,7 +4412,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadTest_PauseResumeCancel) {
 // quarantining files on Mac because it is not a cocoa app.
 // TODO(benjhayden) test the equivalents on other platforms.
 
-#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
     defined(ARCH_CPU_ARM_FAMILY)
 // Timing out on ARM linux: http://crbug.com/238459
 #define MAYBE_DownloadTest_PercentComplete DISABLED_DownloadTest_PercentComplete
@@ -5197,9 +5203,10 @@ class DisableSafeBrowsingOnInProgressDownload
   bool final_state_seen_;
 };
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 const char kDangerousMockFilePath[] = "/downloads/dangerous/dangerous.exe";
-#elif defined(OS_POSIX)
+#elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
+// TODO(crbug.com/1264058): Find an actually "dangerous" extension for Fuchsia.
 const char kDangerousMockFilePath[] = "/downloads/dangerous/dangerous.sh";
 #endif
 
@@ -5485,7 +5492,7 @@ IN_PROC_BROWSER_TEST_F(
 
 // The rest of these tests rely on the download shelf, which ChromeOS doesn't
 // use.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 // Test that the download shelf is shown by starting a download.
 IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadAndWait) {
   embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
@@ -5753,4 +5760,4 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxDenyInstallClosesShelf) {
   // Download shelf should close.
   EXPECT_FALSE(browser()->window()->IsDownloadShelfVisible());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)

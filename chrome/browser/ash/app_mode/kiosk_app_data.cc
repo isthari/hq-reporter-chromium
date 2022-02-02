@@ -414,8 +414,8 @@ void KioskAppData::SetCache(const std::string& name,
   const std::string required_platform_version_key =
       app_key + '.' + kKeyRequiredPlatformVersion;
 
-  dict_update->SetString(required_platform_version_key,
-                         required_platform_version);
+  dict_update->SetStringPath(required_platform_version_key,
+                             required_platform_version);
 }
 
 void KioskAppData::OnExtensionIconLoaded(const gfx::Image& icon) {
@@ -539,12 +539,14 @@ bool KioskAppData::CheckResponseKeyValue(const std::string& extension_id,
                                          const base::DictionaryValue* response,
                                          const char* key,
                                          std::string* value) {
-  if (!response->GetString(key, value)) {
+  const std::string* value_ptr = response->FindStringKey(key);
+  if (!value_ptr) {
     LOG(ERROR) << "Webstore response error (" << key
                << "): " << ValueToString(*response);
     OnWebstoreResponseParseFailure(extension_id, kInvalidWebstoreResponseError);
     return false;
   }
+  *value = *value_ptr;
   return true;
 }
 

@@ -286,7 +286,7 @@ class BrowserCloseManagerBrowserTest : public InProcessBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     command_line->AppendSwitch(
-        chromeos::switches::kIgnoreUserProfileMappingForTests);
+        ash::switches::kIgnoreUserProfileMappingForTests);
 #endif
   }
 
@@ -399,7 +399,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest, PRE_TestSessionRestore) {
 // Flaky on chromium.chromeos, chromium.linux, and chromium.mac bots. See
 // https://crbug.com/1145235. It was flaky on Windows, but  crrev.com/c/2559156,
 // which added retries to ReplaceFile, should fix the Windows flakiness.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_TestSessionRestore TestSessionRestore
 #else
 #define MAYBE_TestSessionRestore DISABLED_TestSessionRestore
@@ -619,7 +619,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
 }
 
 // Flaky on Windows 7 (dbg) trybot, see https://crbug.com/751081.
-#if defined(OS_WIN) && !defined(NDEBUG)
+#if BUILDFLAG(IS_WIN) && !defined(NDEBUG)
 #define MAYBE_TestAddWindowDuringShutdown DISABLED_TestAddWindowDuringShutdown
 #else
 #define MAYBE_TestAddWindowDuringShutdown TestAddWindowDuringShutdown
@@ -735,7 +735,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
 
 // TODO(crbug/713201):
 // BrowserCloseManagerBrowserTest.AddBeforeUnloadDuringClosing flaky on Mac.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_AddBeforeUnloadDuringClosing DISABLED_AddBeforeUnloadDuringClosing
 #else
 #define MAYBE_AddBeforeUnloadDuringClosing AddBeforeUnloadDuringClosing
@@ -924,7 +924,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
 // Mac has its own in-progress download prompt in app_controller_mac.mm, so
 // BrowserCloseManager should simply close all browsers. If there are no
 // browsers, it should not crash.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest, TestWithDownloads) {
   ASSERT_NO_FATAL_FAILURE(CreateStalledDownload(browser()));
 
@@ -939,7 +939,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest, TestWithDownloads) {
   TestBrowserCloseManager::AttemptClose(
       TestBrowserCloseManager::NO_USER_CHOICE);
 }
-#else  // defined(OS_MAC)
+#else  // BUILDFLAG(IS_MAC)
 
 // Test shutdown with a DANGEROUS_URL download undecided.
 IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
@@ -1120,7 +1120,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
                 ->GetVisibleURL());
   EXPECT_EQ(GURL("about:blank"), other_profile_browser->tab_strip_model()
                                      ->GetActiveWebContents()
-                                     ->GetLastCommittedURL());
+                                     ->GetVisibleURL());
 
   TestBrowserCloseManager::AttemptClose(
       TestBrowserCloseManager::USER_CHOICE_USER_ALLOWS_CLOSE);
@@ -1158,7 +1158,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
   EXPECT_TRUE(BrowserList::GetInstance()->empty());
 }
 
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
 

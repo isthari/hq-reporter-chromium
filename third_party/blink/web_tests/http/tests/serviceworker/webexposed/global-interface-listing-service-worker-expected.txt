@@ -15,6 +15,7 @@ interface AbortSignal : EventTarget
     getter onabort
     getter reason
     method constructor
+    method throwIfAborted
     setter onabort
 interface BackgroundFetchEvent : ExtendableEvent
     attribute @@toStringTag
@@ -544,7 +545,6 @@ interface FileSystemFileHandle : FileSystemHandle
     method createWritable
     method getFile
     method move
-    method rename
 interface FileSystemHandle
     attribute @@toStringTag
     getter kind
@@ -554,7 +554,6 @@ interface FileSystemHandle
     method move
     method queryPermission
     method remove
-    method rename
     method requestPermission
 interface FileSystemWritableFileStream : WritableStream
     attribute @@toStringTag
@@ -793,6 +792,37 @@ interface MediaCapabilities
     method constructor
     method decodingInfo
     method encodingInfo
+interface MediaStreamTrack : EventTarget
+    attribute @@toStringTag
+    getter contentHint
+    getter enabled
+    getter id
+    getter kind
+    getter label
+    getter muted
+    getter oncapturehandlechange
+    getter onended
+    getter onmute
+    getter onunmute
+    getter readyState
+    method applyConstraints
+    method clone
+    method constructor
+    method getCapabilities
+    method getCaptureHandle
+    method getConstraints
+    method getSettings
+    method stop
+    setter contentHint
+    setter enabled
+    setter oncapturehandlechange
+    setter onended
+    setter onmute
+    setter onunmute
+interface MediaStreamTrackGenerator : MediaStreamTrack
+    attribute @@toStringTag
+    getter writable
+    method constructor
 interface MessageChannel
     attribute @@toStringTag
     getter port1

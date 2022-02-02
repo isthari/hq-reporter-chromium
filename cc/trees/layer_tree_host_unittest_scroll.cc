@@ -1057,7 +1057,7 @@ MULTI_THREAD_TEST_F(LayerTreeHostScrollTestImplOnlyScroll);
 
 // TODO(crbug.com/574283): Mac currently doesn't support smooth scrolling wheel
 // events.
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
 // This test simulates scrolling on the impl thread such that it starts a scroll
 // animation. It ensures that RequestScrollAnimationEndNotification() correctly
 // notifies the callback after the animation ends.
@@ -1163,14 +1163,15 @@ class SmoothScrollAnimationEndNotification : public LayerTreeHostScrollTest {
 };
 
 MULTI_THREAD_TEST_F(SmoothScrollAnimationEndNotification);
-#endif  // !defined(OS_MAC)
+#endif  // !BUILDFLAG(IS_MAC)
 
 void DoGestureScroll(LayerTreeHostImpl* host_impl,
                      const scoped_refptr<Layer>& scroller,
-                     gfx::Vector2dF offset) {
+                     gfx::Vector2dF offset,
+                     ElementId scroller_element_id) {
   ScrollStateData begin_scroll_state_data;
   begin_scroll_state_data.set_current_native_scrolling_element(
-      scroller->element_id());
+      scroller_element_id);
   begin_scroll_state_data.delta_x_hint = offset.x();
   begin_scroll_state_data.delta_y_hint = offset.y();
   std::unique_ptr<ScrollState> begin_scroll_state(
@@ -1180,7 +1181,7 @@ void DoGestureScroll(LayerTreeHostImpl* host_impl,
   EXPECT_EQ(ScrollThread::SCROLL_ON_IMPL_THREAD, scroll_status.thread);
   auto* scrolling_node = host_impl->CurrentlyScrollingNode();
   EXPECT_TRUE(scrolling_node);
-  EXPECT_EQ(scrolling_node->element_id, scroller->element_id());
+  EXPECT_EQ(scrolling_node->element_id, scroller_element_id);
 
   ScrollStateData update_scroll_state_data;
   update_scroll_state_data.delta_x = offset.x();
@@ -1209,7 +1210,8 @@ class LayerTreeHostScrollTestImplOnlyScrollSnap
     Layer* root = layer_tree_host()->root_layer();
     container_ = Layer::Create();
     scroller_ = Layer::Create();
-    scroller_->SetElementId(LayerIdToElementIdForTesting(scroller_->id()));
+    scroller_element_id_ = LayerIdToElementIdForTesting(scroller_->id());
+    scroller_->SetElementId(scroller_element_id_);
 
     container_->SetBounds(gfx::Size(100, 100));
     CopyProperties(root, container_.get());
@@ -1256,7 +1258,8 @@ class LayerTreeHostScrollTestImplOnlyScrollSnap
       LayerImpl* scroller_impl =
           host_impl->active_tree()->LayerById(scroller_->id());
 
-      DoGestureScroll(host_impl, scroller_, impl_thread_scroll_);
+      DoGestureScroll(host_impl, scroller_, impl_thread_scroll_,
+                      scroller_element_id_);
 
       EXPECT_TRUE(
           host_impl->GetInputHandler().animating_for_snap_for_testing());
@@ -1302,13 +1305,14 @@ class LayerTreeHostScrollTestImplOnlyScrollSnap
   gfx::PointF initial_scroll_;
   gfx::Vector2dF impl_thread_scroll_;
 
+  ElementId scroller_element_id_;
   ElementId snap_area_id_;
 
   bool snap_animation_finished_ = false;
 };
 
 // TODO(crbug.com/1201662): Flaky on Fuchsia, ChromeOS, and Linux.
-#if !defined(OS_FUCHSIA) && !defined(OS_CHROMEOS) && !defined(OS_LINUX)
+#if !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_LINUX)
 MULTI_THREAD_TEST_F(LayerTreeHostScrollTestImplOnlyScrollSnap);
 #endif
 
@@ -1334,8 +1338,10 @@ class LayerTreeHostScrollTestImplOnlyMultipleScrollSnap
     container_ = Layer::Create();
     scroller_a_ = Layer::Create();
     scroller_b_ = Layer::Create();
-    scroller_a_->SetElementId(LayerIdToElementIdForTesting(scroller_a_->id()));
-    scroller_b_->SetElementId(LayerIdToElementIdForTesting(scroller_b_->id()));
+    scroller_a_element_id_ = LayerIdToElementIdForTesting(scroller_a_->id());
+    scroller_a_->SetElementId(scroller_a_element_id_);
+    scroller_b_element_id_ = LayerIdToElementIdForTesting(scroller_b_->id());
+    scroller_b_->SetElementId(scroller_b_element_id_);
 
     container_->SetBounds(gfx::Size(100, 100));
     CopyProperties(root, container_.get());
@@ -1432,8 +1438,10 @@ class LayerTreeHostScrollTestImplOnlyMultipleScrollSnap
       LayerImpl* scroller_impl_b =
           host_impl->active_tree()->LayerById(scroller_b_->id());
 
-      DoGestureScroll(host_impl, scroller_a_, impl_thread_scroll_a_);
-      DoGestureScroll(host_impl, scroller_b_, impl_thread_scroll_b_);
+      DoGestureScroll(host_impl, scroller_a_, impl_thread_scroll_a_,
+                      scroller_a_element_id_);
+      DoGestureScroll(host_impl, scroller_b_, impl_thread_scroll_b_,
+                      scroller_b_element_id_);
 
       EXPECT_VECTOR2DF_EQ(impl_thread_scroll_a_, ScrollDelta(scroller_impl_a));
       EXPECT_VECTOR2DF_EQ(impl_thread_scroll_b_, ScrollDelta(scroller_impl_b));
@@ -1452,12 +1460,14 @@ class LayerTreeHostScrollTestImplOnlyMultipleScrollSnap
   gfx::Vector2dF impl_thread_scroll_a_;
   gfx::Vector2dF impl_thread_scroll_b_;
 
+  ElementId scroller_a_element_id_;
+  ElementId scroller_b_element_id_;
   ElementId snap_area_a_id_;
   ElementId snap_area_b_id_;
 };
 
 // TODO(crbug.com/1243814): Test is flaky on Chrome OS (both Ash and Lacros).
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 MULTI_THREAD_TEST_F(LayerTreeHostScrollTestImplOnlyMultipleScrollSnap);
 #endif
 
@@ -1725,7 +1735,7 @@ class LayerTreeHostScrollTestImplScrollUnderMainThreadScrollingParent
 
 // This test is flaky in the single threaded configuration, only on the
 // chromeos-amd64-generic-rel bot. https://crbug.com/1093078.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 // SINGLE_THREAD_TEST_F(
 //    LayerTreeHostScrollTestImplScrollUnderMainThreadScrollingParent);
 MULTI_THREAD_TEST_F(

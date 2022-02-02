@@ -888,7 +888,7 @@ bool PropertyTreeManager::SupportsShaderBasedRoundedCorner(
   // on Mac. Instead of letting it fall back to the (worse for memory and
   // battery) non-CALayerOverlay system for such cases, fall back to a
   // non-shader border-radius mask for the effect node.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   if (radii.TopLeft() != radii.TopRight() ||
       radii.TopLeft() != radii.BottomRight() ||
       radii.TopLeft() != radii.BottomLeft()) {
@@ -1236,7 +1236,7 @@ void PropertyTreeManager::UpdateConditionalRenderSurfaceReasons(
   Vector<int> effect_layer_counts(static_cast<wtf_size_t>(effect_tree.size()));
   // Initialize the vector to count directly controlled layers.
   for (const auto& layer : layers) {
-    if (layer->DrawsContent())
+    if (layer->draws_content())
       effect_layer_counts[layer->effect_tree_index()]++;
   }
 

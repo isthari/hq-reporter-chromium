@@ -140,17 +140,53 @@ const char kMessageStreamConnectToServiceTime[] =
     "TotalConnectTime";
 const char kDeviceMetadataFetchResult[] =
     "Bluetooth.ChromeOS.FastPair.DeviceMetadataFetcher.Result";
+const char kDeviceMetadataFetchNetError[] =
+    "Bluetooth.ChromeOS.FastPair.DeviceMetadataFetcher.Get.NetError";
+const char kDeviceMetadataFetchHttpResponseError[] =
+    "Bluetooth.ChromeOS.FastPair.DeviceMetadataFetcher.Get.HttpResponseError";
 const char kFootprintsFetcherDeleteResult[] =
     "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Delete.Result";
+const char kFootprintsFetcherDeleteNetError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Delete.NetError";
+const char kFootprintsFetcherDeleteHttpResponseError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Delete.HttpResponseError";
 const char kFootprintsFetcherPostResult[] =
     "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Post.Result";
+const char kFootprintsFetcherPostNetError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Post.NetError";
+const char kFootprintsFetcherPostHttpResponseError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Post.HttpResponseError";
 const char kFootprintsFetcherGetResult[] =
     "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Get.Result";
+const char kFootprintsFetcherGetNetError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Get.NetError";
+const char kFootprintsFetcherGetHttpResponseError[] =
+    "Bluetooth.ChromeOS.FastPair.FootprintsFetcher.Get.HttpResponseError";
 const char kFastPairRepositoryCacheResult[] =
     "Bluetooth.ChromeOS.FastPair.FastPairRepository.Cache.Result";
 const char kHandshakeResult[] = "Bluetooth.ChromeOS.FastPair.Handshake.Result";
 const char kHandshakeFailureReason[] =
     "Bluetooth.ChromeOS.FastPair.Handshake.FailureReason";
+const char kBleScanSessionResult[] =
+    "Bluetooth.ChromeOS.FastPair.Scanner.StartSession.Result";
+const char kBleScanFilterResult[] =
+    "Bluetooth.ChromeOS.FastPair.CreateScanFilter.Result";
+const char kFastPairVersion[] =
+    "Bluetooth.ChromeOS.FastPair.Discovered.Version";
+const char kNavigateToSettings[] =
+    "Bluetooth.ChromeOS.FastPair.NavigateToSettings.Result";
+const char kConnectDeviceResult[] =
+    "Bluetooth.ChromeOS.FastPair.ConnectDevice.Result";
+const char kPairDeviceResult[] =
+    "Bluetooth.ChromeOS.FastPair.PairDevice.Result";
+const char kPairDeviceErrorReason[] =
+    "Bluetooth.ChromeOS.FastPair.PairDevice.ErrorReason";
+const char kConfirmPasskeyAskTime[] =
+    "Bluetooth.ChromeOS.FastPair.RequestPasskey.Latency";
+const char kConfirmPasskeyConfirmTime[] =
+    "Bluetooth.ChromeOS.FastPair.ConfirmPasskey.Latency";
+const char kFastPairRetryCount[] =
+    "Bluetooth.ChromeOS.FastPair.PairRetry.Count";
 
 }  // namespace
 
@@ -392,20 +428,60 @@ void RecordMessageStreamConnectToServiceTime(
                           total_connect_time);
 }
 
-void RecordDeviceMetadataFetchResult(bool success) {
-  base::UmaHistogramBoolean(kDeviceMetadataFetchResult, success);
+void RecordDeviceMetadataFetchResult(const FastPairHttpResult& result) {
+  base::UmaHistogramBoolean(kDeviceMetadataFetchResult, result.IsSuccess());
+
+  if (result.net_error()) {
+    base::UmaHistogramSparse(kDeviceMetadataFetchNetError,
+                             -*result.net_error());
+  }
+
+  if (result.http_response_error()) {
+    base::UmaHistogramSparse(kDeviceMetadataFetchHttpResponseError,
+                             *result.http_response_error());
+  }
 }
 
-void RecordFootprintsFetcherDeleteResult(bool success) {
-  base::UmaHistogramBoolean(kFootprintsFetcherDeleteResult, success);
+void RecordFootprintsFetcherDeleteResult(const FastPairHttpResult& result) {
+  base::UmaHistogramBoolean(kFootprintsFetcherDeleteResult, result.IsSuccess());
+
+  if (result.net_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherDeleteNetError,
+                             -*result.net_error());
+  }
+
+  if (result.http_response_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherDeleteHttpResponseError,
+                             *result.http_response_error());
+  }
 }
 
-void RecordFootprintsFetcherPostResult(bool success) {
-  base::UmaHistogramBoolean(kFootprintsFetcherPostResult, success);
+void RecordFootprintsFetcherPostResult(const FastPairHttpResult& result) {
+  base::UmaHistogramBoolean(kFootprintsFetcherPostResult, result.IsSuccess());
+
+  if (result.net_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherPostNetError,
+                             -*result.net_error());
+  }
+
+  if (result.http_response_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherPostHttpResponseError,
+                             *result.http_response_error());
+  }
 }
 
-void RecordFootprintsFetcherGetResult(bool success) {
-  base::UmaHistogramBoolean(kFootprintsFetcherGetResult, success);
+void RecordFootprintsFetcherGetResult(const FastPairHttpResult& result) {
+  base::UmaHistogramBoolean(kFootprintsFetcherGetResult, result.IsSuccess());
+
+  if (result.net_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherGetNetError,
+                             -*result.net_error());
+  }
+
+  if (result.http_response_error()) {
+    base::UmaHistogramSparse(kFootprintsFetcherGetHttpResponseError,
+                             *result.http_response_error());
+  }
 }
 
 void RecordFastPairRepositoryCacheResult(bool success) {
@@ -417,6 +493,50 @@ void RecordHandshakeResult(bool success) {
 }
 void RecordHandshakeFailureReason(HandshakeFailureReason failure_reason) {
   base::UmaHistogramEnumeration(kHandshakeFailureReason, failure_reason);
+}
+
+void RecordBluetoothLowEnergyScannerStartSessionResult(bool success) {
+  base::UmaHistogramBoolean(kBleScanSessionResult, success);
+}
+
+void RecordBluetoothLowEnergyScanFilterResult(bool success) {
+  base::UmaHistogramBoolean(kBleScanFilterResult, success);
+}
+
+void RecordFastPairDiscoveredVersion(FastPairVersion version) {
+  base::UmaHistogramEnumeration(kFastPairVersion, version);
+}
+
+void RecordNavigateToSettingsResult(bool success) {
+  base::UmaHistogramBoolean(kNavigateToSettings, success);
+}
+
+void RecordConnectDeviceResult(bool success) {
+  base::UmaHistogramBoolean(kConnectDeviceResult, success);
+}
+
+void RecordPairDeviceResult(bool success) {
+  base::UmaHistogramBoolean(kPairDeviceResult, success);
+}
+
+void RecordPairDeviceErrorReason(
+    device::BluetoothDevice::ConnectErrorCode error_code) {
+  base::UmaHistogramEnumeration(
+      kPairDeviceErrorReason, error_code,
+      device::BluetoothDevice::NUM_CONNECT_ERROR_CODES);
+}
+
+void RecordConfirmPasskeyConfirmTime(base::TimeDelta total_confirm_time) {
+  base::UmaHistogramTimes(kConfirmPasskeyConfirmTime, total_confirm_time);
+}
+
+void RecordConfirmPasskeyAskTime(base::TimeDelta total_ask_time) {
+  base::UmaHistogramTimes(kConfirmPasskeyAskTime, total_ask_time);
+}
+
+void RecordPairFailureRetry(int num_retries) {
+  base::UmaHistogramExactLinear(kFastPairRetryCount, num_retries,
+                                /*exclusive_max=*/10);
 }
 
 }  // namespace quick_pair

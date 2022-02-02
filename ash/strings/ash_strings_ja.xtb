@@ -82,6 +82,7 @@
 <translation id="1346748346194534595">右</translation>
 <translation id="1351937230027495976">メニューを折りたたむ</translation>
 <translation id="1364382257761975320">Chromebook のロックを解除するには、指紋認証を使用します</translation>
+<translation id="1364618750746929654">音声文字変換を生成できません</translation>
 <translation id="1383597849754832576">読み上げファイルをダウンロードできません。しばらくしてからもう一度お試しください。</translation>
 <translation id="1383876407941801731">検索</translation>
 <translation id="1391102559483454063">オン</translation>
@@ -409,7 +410,6 @@
 <translation id="3640092422335864171"><ph name="NAME" /> を保存</translation>
 <translation id="3649505501900178324">更新の期限が過ぎています</translation>
 <translation id="366222428570480733"><ph name="USER_EMAIL_ADDRESS" /> の管理対象ユーザー</translation>
-<translation id="3665889125180354336">マイク録音</translation>
 <translation id="3680908746918359504">すべてのマーカーを消去</translation>
 <translation id="36813544980941320">スマートフォンと <ph name="DEVICE_NAME" /> で Wi-Fi ネットワークが共有されます</translation>
 <translation id="3694122362646626770">ウェブサイト</translation>
@@ -424,7 +424,7 @@
 <translation id="3742055079367172538">スクリーンショット撮影完了</translation>
 <translation id="3771549900096082774">ハイ コントラスト モード</translation>
 <translation id="3773700760453577392"><ph name="USER_EMAIL" /> へのマルチログインは、管理者によって禁止されています。続行するには、すべてのユーザーがログアウトする必要があります。</translation>
-<translation id="3779139509281456663"><ph name="NAME" /> を接続中</translation>
+<translation id="3779139509281456663"><ph name="NAME" /> を接続しています</translation>
 <translation id="3783640748446814672">alt</translation>
 <translation id="3784455785234192852">ロック</translation>
 <translation id="3796746699333205839">アプリケーションがカメラとマイクを使用しています</translation>
@@ -578,6 +578,7 @@
 <translation id="4733161265940833579"><ph name="BATTERY_PERCENTAGE" />%（左）</translation>
 <translation id="4734965478015604180">横</translation>
 <translation id="4735498845456076464">キーボード ショートカット「<ph name="LAUNCHER_KEY_NAME" />+数字」が変更されました。ファンクション キーを使用するには、<ph name="LAUNCHER_KEY_NAME" />+最上列のキーを押してください。</translation>
+<translation id="473775607612524610">更新</translation>
 <translation id="4759238208242260848">ダウンロード</translation>
 <translation id="4774338217796918551">明日の <ph name="COME_BACK_TIME" /> になったら利用を再開できます。</translation>
 <translation id="4776917500594043016"><ph name="USER_EMAIL_ADDRESS" /> のパスワード</translation>
@@ -679,6 +680,7 @@
 <translation id="54609108002486618">管理対象</translation>
 <translation id="5465662442746197494">不明点がある場合</translation>
 <translation id="547979256943495781">シェルフは右側にあります</translation>
+<translation id="5491186829646618080">利用可能なファームウェアのアップデートがあります</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">管理者によって eSIM プロファイルがすべて削除されています。詳しくは管理者にお問い合わせください。</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> を接続しています。</translation>
@@ -972,6 +974,7 @@
 <translation id="7514365320538308">ダウンロード</translation>
 <translation id="7526573455193969409">ネットワークが監視されている可能性があります</translation>
 <translation id="7536035074519304529">IP アドレス: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">キーボードのバックライトはオンです</translation>
 <translation id="7548434653388805669">おやすみの時間です</translation>
 <translation id="7551643184018910560">シェルフに固定</translation>
 <translation id="7561982940498449837">メニューを閉じる</translation>
@@ -1056,6 +1059,7 @@
 <translation id="8036504271468642248">前の文</translation>
 <translation id="8042893070933512245">ユーザー補助機能の設定メニューを開く</translation>
 <translation id="8042925093898452104">詳細情報を閉じる</translation>
+<translation id="8044457332620420407">キーボードのバックライトはオフです</translation>
 <translation id="8048123526339889627">Bluetooth 設定</translation>
 <translation id="8051716679295756675">「<ph name="DESK_TEMPLATE_NAME" />」という名前のテンプレートはすでに存在しています</translation>
 <translation id="8052898407431791827">クリップボードにコピーしました</translation>
@@ -1176,6 +1180,7 @@
 <translation id="8876661425082386199">接続を確認してください</translation>
 <translation id="8877788021141246043">リマインダーを設定して</translation>
 <translation id="8878886163241303700">画面を拡張しています</translation>
+<translation id="888982883502837004">デバイスで利用可能なファームウェアのアップデートがあります。確認して更新するにはクリックしてください。</translation>
 <translation id="8896630965521842259">「<ph name="DESK_TEMPLATE_NAME" />」を完全に削除します</translation>
 <translation id="890616557918890486">ソースを変更</translation>
 <translation id="8909138438987180327">電池残量は <ph name="PERCENTAGE" />% です。</translation>

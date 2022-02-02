@@ -97,15 +97,15 @@ void ArcAsh::AddObserver(mojo::PendingRemote<mojom::ArcObserver> observer) {
   observers_.Add(std::move(remote));
 }
 
-void ArcAsh::OnArcIntentHelperBridgeDestruction() {
+void ArcAsh::OnArcIntentHelperBridgeShutdown() {
   // This method should not be called if profie_ is not set.
   DCHECK(profile_);
 
   // Remove observers here instead of ~ArcAsh() since ArcIntentHelperBridge
-  // is destroyed before ~ArcAsh() is called.
+  // is shut down before ~ArcAsh() is called.
   // Both of them are destroyed in
   // ChromeBrowserMainPartsAsh::PostMainMessageLoopRun(), but
-  // ArcIntentHelperBridge is destroyed in
+  // ArcIntentHelperBridge is shut down and destroyed in
   // ChromeBrowserMainPartsLinux::PostMainMessageLoopRun() while ArcAsh is
   // destroyed in crosapi_manager_.reset() which runs later.
   auto* bridge = arc::ArcIntentHelperBridge::GetForBrowserContext(profile_);
@@ -273,8 +273,9 @@ void ArcAsh::ConvertTextSelectionActions(
     }
 
     // Generate ImageSkia icon.
+    auto icon_png_data = std::move(action->icon->icon_png_data);
     apps::ArcRawIconPngDataToImageSkia(
-        std::move(action->icon->icon_png_data), kSmallIconSizeInDip,
+        std::move(icon_png_data), kSmallIconSizeInDip,
         base::BindOnce(&ArcAsh::ConvertTextSelectionAction,
                        weak_ptr_factory_.GetWeakPtr(), converted_action,
                        std::move(action), barrier_closure));
@@ -314,6 +315,46 @@ void ArcAsh::HandleUrl(const std::string& url,
   }
 
   instance->HandleUrl(url, package_name);
+}
+
+void ArcAsh::HandleIntent(mojom::IntentInfoPtr intent,
+                          mojom::ActivityNamePtr activity) {
+  auto* intent_helper_holder = GetIntentHelperHolder();
+  if (!intent_helper_holder)
+    return;
+
+  auto* instance =
+      ARC_GET_INSTANCE_FOR_METHOD(intent_helper_holder, HandleIntent);
+  if (!instance) {
+    LOG(WARNING) << "HandleIntent is not supported.";
+    return;
+  }
+
+  arc::mojom::IntentInfoPtr converted_intent = arc::mojom::IntentInfo::New();
+  converted_intent->action = intent->action;
+  converted_intent->categories = intent->categories;
+  converted_intent->data = intent->data;
+  converted_intent->type = intent->type;
+  converted_intent->ui_bypassed = intent->ui_bypassed;
+  converted_intent->extras = intent->extras;
+  instance->HandleIntent(std::move(converted_intent),
+                         arc::mojom::ActivityName::New(
+                             activity->package_name, activity->activity_name));
+}
+
+void ArcAsh::AddPreferredPackage(const std::string& package_name) {
+  auto* intent_helper_holder = GetIntentHelperHolder();
+  if (!intent_helper_holder)
+    return;
+
+  auto* instance =
+      ARC_GET_INSTANCE_FOR_METHOD(intent_helper_holder, AddPreferredPackage);
+  if (!instance) {
+    LOG(WARNING) << "AddPreferredPackage is not supported.";
+    return;
+  }
+
+  instance->AddPreferredPackage(package_name);
 }
 
 void ArcAsh::OnIconInvalidated(const std::string& package_name) {

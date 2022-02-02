@@ -386,6 +386,14 @@ DisplayMode WebAppRegistrar::GetEffectiveDisplayModeFromManifest(
   return GetAppDisplayMode(app_id);
 }
 
+std::string WebAppRegistrar::GetComputedUnhashedAppId(
+    const AppId& app_id) const {
+  auto* web_app = GetAppById(app_id);
+  return web_app ? GenerateAppIdUnhashed(web_app->manifest_id(),
+                                         web_app->start_url())
+                 : std::string();
+}
+
 bool WebAppRegistrar::IsTabbedWindowModeEnabled(const AppId& app_id) const {
   if (!base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip))
     return false;
@@ -591,6 +599,13 @@ blink::mojom::CaptureLinks WebAppRegistrar::GetAppCaptureLinks(
                  : blink::mojom::CaptureLinks::kUndefined;
 }
 
+blink::mojom::HandleLinks WebAppRegistrar::GetAppHandleLinks(
+    const AppId& app_id) const {
+  auto* web_app = GetAppById(app_id);
+  return web_app ? web_app->handle_links()
+                 : blink::mojom::HandleLinks::kUndefined;
+}
+
 const apps::FileHandlers* WebAppRegistrar::GetAppFileHandlers(
     const AppId& app_id) const {
   auto* web_app = GetAppById(app_id);
@@ -625,6 +640,13 @@ ApiApprovalState WebAppRegistrar::GetAppFileHandlerApprovalState(
   // TODO(estade): also consult the policy manager when File Handler policies
   // exist.
   return web_app->file_handler_approval_state();
+}
+
+bool WebAppRegistrar::ExpectThatFileHandlersAreRegisteredWithOs(
+    const AppId& app_id) const {
+  const WebApp* web_app = GetAppById(app_id);
+  return web_app && web_app->file_handler_os_integration_state() ==
+                        OsIntegrationState::kEnabled;
 }
 
 absl::optional<GURL> WebAppRegistrar::GetAppScopeInternal(

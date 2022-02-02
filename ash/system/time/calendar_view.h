@@ -97,10 +97,10 @@ class ASH_EXPORT CalendarView : public CalendarViewController::Observer,
   // The header of each month view which shows the month's name. If the year of
   // this month is not the same as the current month, the year is also shown in
   // this view.
-  class MonthYearHeaderView;
+  class MonthHeaderLabelView;
 
-  // The types to create the `MonthYearHeaderView` which are in corresponding to
-  // the 3 months: `previous_month_`, `current_month_` and `next_month_`.
+  // The types to create the `MonthHeaderLabelView` which are in corresponding
+  // to the 3 months: `previous_month_`, `current_month_` and `next_month_`.
   enum LabelType { PREVIOUS, CURRENT, NEXT };
 
   friend class CalendarViewTest;
@@ -158,7 +158,7 @@ class ASH_EXPORT CalendarView : public CalendarViewController::Observer,
 
   // Resets the the month views' opacity and position. In case the animation is
   // aborted in the middle and the view's are not in the original status.
-  void RestoreMonthStatus(bool is_scrolling_up);
+  void RestoreMonthStatus();
 
   // Auto scrolls to today. If the view is big enough we scroll to the first row
   // of today's month, otherwise we scroll to the position of today's row.
@@ -179,6 +179,11 @@ class ASH_EXPORT CalendarView : public CalendarViewController::Observer,
 
   // Adjusts the Chrome Vox box position for date cells in the scroll view.
   void AdjustDateCellVoxBounds();
+
+  // Handles the position and status of `event_list_` and other views after the
+  // opening event list animation. Such as restoring the position of them,
+  // re-enabling animation and etc.
+  void OnOpenEventListAnimationComplete();
 
   // Unowned.
   UnifiedSystemTrayController* controller_;

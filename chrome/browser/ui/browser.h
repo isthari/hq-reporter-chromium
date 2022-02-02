@@ -45,7 +45,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #error This file should only be included on desktop.
 #endif
 
@@ -91,10 +91,6 @@ class Image;
 
 namespace ui {
 struct SelectedFileInfo;
-}
-
-namespace viz {
-class SurfaceId;
 }
 
 namespace web_app {
@@ -263,7 +259,7 @@ class Browser : public TabStripModelObserver,
 
     CreationSource creation_source = CreationSource::kUnknown;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     // The id from the restore data to restore the browser window.
     int32_t restore_id = kDefaultRestoreId;
 #endif
@@ -662,9 +658,7 @@ class Browser : public TabStripModelObserver,
       const GURL& initiator_url,
       blink::mojom::NavigationBlockedReason reason) override;
   content::PictureInPictureResult EnterPictureInPicture(
-      content::WebContents* web_contents,
-      const viz::SurfaceId&,
-      const gfx::Size&) override;
+      content::WebContents* web_contents) override;
   void ExitPictureInPicture() override;
   bool IsBackForwardCacheSupported() override;
   bool IsPrerender2Supported() override;

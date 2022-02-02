@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import './shimless_rma_fonts_css.js';
 import './shimless_rma_shared_css.js';
 import './base_page.js';
 import './icons.js';
@@ -79,14 +80,14 @@ export class ReimagingDeviceInformationPage extends
       disableResetWhiteLabel_: {
         type: Boolean,
         computed: 'getDisableResetWhiteLabel_(' +
-            'originalWhiteLabelIndex_, whiteLabelIndex_)',
+            'originalWhiteLabelIndex_, whiteLabelIndex_, allButtonsDisabled)',
       },
 
       /** @protected */
       disableResetDramPartNumber_: {
         type: Boolean,
         computed: 'getDisableResetDramPartNumber_(' +
-            'originalDramPartNumber_, dramPartNumber_)',
+            'originalDramPartNumber_, dramPartNumber_, allButtonsDisabled)',
       },
 
       /** @protected */
@@ -303,12 +304,14 @@ export class ReimagingDeviceInformationPage extends
 
   /** @protected */
   getDisableResetWhiteLabel_() {
-    return this.originalWhiteLabelIndex_ === this.whiteLabelIndex_;
+    return this.originalWhiteLabelIndex_ === this.whiteLabelIndex_ ||
+        this.allButtonsDisabled;
   }
 
   /** @protected */
   getDisableResetDramPartNumber_() {
-    return this.originalDramPartNumber_ === this.dramPartNumber_;
+    return this.originalDramPartNumber_ === this.dramPartNumber_ ||
+        this.allButtonsDisabled;
   }
 
   /** @protected */

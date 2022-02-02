@@ -209,17 +209,9 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest,
   EXPECT_EQ(nullptr, DevToolsWindow::FindDevToolsWindow(agent_host_.get()));
 }
 
-// Flaky/failing on Linux/CrOS/Mac builds: crbug.com/1284536
-#if defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MAC)
-#define MAYBE_NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation \
-  DISABLED_NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation
-#else
-#define MAYBE_NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation \
-  NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation
-#endif
 IN_PROC_BROWSER_TEST_F(
     DevToolsProtocolTest,
-    MAYBE_NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation) {
+    NoPendingUrlShownWhenAttachedToBrowserInitiatedFailedNavigation) {
   GURL url("invalid.scheme:for-sure");
   ui_test_utils::AllBrowserTabAddedWaiter tab_added_waiter;
 
@@ -228,6 +220,11 @@ IN_PROC_BROWSER_TEST_F(
           url, content::Referrer(), WindowOpenDisposition::NEW_FOREGROUND_TAB,
           ui::PAGE_TRANSITION_TYPED, false));
   tab_added_waiter.Wait();
+  // WaitForLoadStop() checks for the existence of the last committed
+  // NavigationEntry, which will only be there if we have initial
+  // NavigationEntries.
+  ASSERT_EQ(WaitForLoadStop(web_contents),
+            blink::features::IsInitialNavigationEntryEnabled());
   content::NavigationController& navigation_controller =
       web_contents->GetController();
   content::NavigationEntry* pending_entry =
@@ -244,7 +241,11 @@ IN_PROC_BROWSER_TEST_F(
   // attaches, so that any modified page content is not attributed to the failed
   // URL. (crbug/1192417)
   EXPECT_EQ(nullptr, navigation_controller.GetPendingEntry());
-  EXPECT_EQ(GURL(""), navigation_controller.GetVisibleEntry()->GetURL());
+  if (blink::features::IsInitialNavigationEntryEnabled()) {
+    EXPECT_EQ(GURL(""), navigation_controller.GetVisibleEntry()->GetURL());
+  } else {
+    EXPECT_EQ(nullptr, navigation_controller.GetVisibleEntry());
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest,

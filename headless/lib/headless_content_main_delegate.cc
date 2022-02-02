@@ -44,7 +44,8 @@
 #include "ui/ozone/public/ozone_switches.h"
 
 #if defined(HEADLESS_USE_EMBEDDED_RESOURCES)
-#include "headless/embedded_resource_pak.h"
+#include "headless/embedded_resource_pack_data.h"
+#include "headless/embedded_resource_pack_strings.h"
 #endif
 
 #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
@@ -86,16 +87,14 @@ const char kLogFileName[] = "CHROME_LOG_FILE";
 const char kHeadlessCrashKey[] = "headless";
 
 void InitializeResourceBundle(const base::CommandLine& command_line) {
-  const std::string locale =
-      command_line.GetSwitchValueASCII(::switches::kLang);
-  ui::ResourceBundle::InitSharedInstanceWithLocale(
-      locale, nullptr, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
-
-#ifdef HEADLESS_USE_EMBEDDED_RESOURCES
-  ui::ResourceBundle::GetSharedInstance().AddDataPackFromBuffer(
-      {kHeadlessResourcePak.contents, kHeadlessResourcePak.length},
+#if defined(HEADLESS_USE_EMBEDDED_RESOURCES)
+  ui::ResourceBundle::InitSharedInstanceWithBuffer(
+      {kHeadlessResourcePackStrings.contents,
+       kHeadlessResourcePackStrings.length},
       ui::kScaleFactorNone);
-
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromBuffer(
+      {kHeadlessResourcePackData.contents, kHeadlessResourcePackData.length},
+      ui::k100Percent);
 #else
   base::FilePath resource_dir;
   bool result = base::PathService::Get(base::DIR_ASSETS, &resource_dir);
@@ -104,17 +103,21 @@ void InitializeResourceBundle(const base::CommandLine& command_line) {
   // Try loading the headless library pak file first. If it doesn't exist (i.e.,
   // when we're running with the --headless switch), fall back to the browser's
   // resource pak.
-  base::FilePath headless_pak =
-      resource_dir.Append(FILE_PATH_LITERAL("headless_lib.pak"));
-  if (base::PathExists(headless_pak)) {
+  base::FilePath string_pack =
+      resource_dir.Append(FILE_PATH_LITERAL("headless_lib_strings.pak"));
+  if (base::PathExists(string_pack)) {
+    ui::ResourceBundle::InitSharedInstanceWithPakPath(string_pack);
+    base::FilePath data_pack =
+        resource_dir.Append(FILE_PATH_LITERAL("headless_lib_data.pak"));
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        headless_pak, ui::kScaleFactorNone);
+        data_pack, ui::k100Percent);
     return;
   }
-
+  const std::string locale =
+      command_line.GetSwitchValueASCII(::switches::kLang);
+  ui::ResourceBundle::InitSharedInstanceWithLocale(
+      locale, nullptr, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
   // Otherwise, load resources.pak, chrome_100 and chrome_200.
-  base::FilePath resources_pak =
-      resource_dir.Append(FILE_PATH_LITERAL("resources.pak"));
   base::FilePath chrome_100_pak =
       resource_dir.Append(FILE_PATH_LITERAL("chrome_100_percent.pak"));
   base::FilePath chrome_200_pak =
@@ -123,9 +126,7 @@ void InitializeResourceBundle(const base::CommandLine& command_line) {
 #if BUILDFLAG(IS_MAC) && !defined(COMPONENT_BUILD)
   // In non component builds, check if fall back in Resources/ folder is
   // available.
-  if (!base::PathExists(resources_pak)) {
-    resources_pak =
-        resource_dir.Append(FILE_PATH_LITERAL("Resources/resources.pak"));
+  if (!base::PathExists(chrome_100_pak)) {
     chrome_100_pak = resource_dir.Append(
         FILE_PATH_LITERAL("Resources/chrome_100_percent.pak"));
     chrome_200_pak = resource_dir.Append(
@@ -133,8 +134,6 @@ void InitializeResourceBundle(const base::CommandLine& command_line) {
   }
 #endif
 
-  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-      resources_pak, ui::kScaleFactorNone);
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(chrome_100_pak,
                                                               ui::k100Percent);
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(chrome_200_pak,
@@ -310,8 +309,13 @@ void HeadlessContentMainDelegate::InitLogging(
 
 void HeadlessContentMainDelegate::InitCrashReporter(
     const base::CommandLine& command_line) {
-  if (!options()->enable_crash_reporter)
+  if (!options()->enable_crash_reporter
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+      && !command_line.HasSwitch(crash_reporter::switches::kCrashpadHandlerPid)
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+  ) {
     return;
+  }
 
 #if BUILDFLAG(IS_FUCHSIA)
   // TODO(crbug.com/1226159): Implement this when crash reporting is available
@@ -319,18 +323,18 @@ void HeadlessContentMainDelegate::InitCrashReporter(
   NOTIMPLEMENTED();
 #else
   crash_reporter::SetCrashReporterClient(g_headless_crash_client.Pointer());
-  g_headless_crash_client.Pointer()->set_crash_dumps_dir(
-      options()->crash_dumps_dir);
-
   crash_reporter::InitializeCrashKeys();
-  crash_keys::SetSwitchesFromCommandLine(command_line, nullptr);
 
-#if !BUILDFLAG(IS_WIN)
   const std::string process_type =
       command_line.GetSwitchValueASCII(::switches::kProcessType);
-  if (process_type != switches::kZygoteProcess)
+  if (process_type != switches::kZygoteProcess) {
+    g_headless_crash_client.Pointer()->set_crash_dumps_dir(
+        options()->crash_dumps_dir);
+#if !BUILDFLAG(IS_WIN)
     crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
 #endif  // !BUILDFLAG(IS_WIN)
+    crash_keys::SetSwitchesFromCommandLine(command_line, nullptr);
+  }
 #endif  // BUILDFLAG(IS_FUCHSIA)
 
   // Mark any bug reports from headless mode as such.
@@ -417,6 +421,7 @@ void HeadlessContentMainDelegate::ZygoteForked() {
     const std::string process_type =
         command_line.GetSwitchValueASCII(::switches::kProcessType);
     crash_reporter::InitializeCrashpad(false, process_type);
+    crash_keys::SetSwitchesFromCommandLine(command_line, nullptr);
   }
 }
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)

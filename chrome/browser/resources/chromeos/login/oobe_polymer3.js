@@ -3,7 +3,8 @@
 // found in the LICENSE file.
 
 import {Oobe} from './cr_ui.m.js';
-import {DebuggerUI} from './debug/debug.m.js';
+import {invokePolymerMethod} from './display_manager.m.js';
+import * as OobeDebugger from './debug/debug.m.js';
 import {loadTimeData} from './i18n_setup.js';
 import 'chrome://oobe/components/test_util.m.js';
 import 'chrome://oobe/test_api/test_api.m.js';
@@ -20,17 +21,20 @@ import 'chrome://oobe/screens/common/enable_kiosk.m.js';
 import 'chrome://oobe/screens/common/error_message.m.js';
 import 'chrome://oobe/screens/common/family_link_notice.m.js';
 import 'chrome://oobe/screens/common/fingerprint_setup.m.js';
+import 'chrome://oobe/screens/common/gaia_signin.m.js';
 import 'chrome://oobe/screens/common/gesture_navigation.m.js';
 import 'chrome://oobe/screens/common/guest_tos.m.js';
 import 'chrome://oobe/screens/common/hw_data_collection.m.js';
 import 'chrome://oobe/screens/common/managed_terms_of_service.m.js';
 import 'chrome://oobe/screens/common/marketing_opt_in.m.js';
+import 'chrome://oobe/screens/common/multidevice_setup.m.js';
 import 'chrome://oobe/screens/common/offline_ad_login.m.js';
 import 'chrome://oobe/screens/common/oobe_reset.m.js';
 import 'chrome://oobe/screens/common/os_install.m.js';
 import 'chrome://oobe/screens/common/os_trial.m.js';
 import 'chrome://oobe/screens/common/parental_handoff.m.js';
 import 'chrome://oobe/screens/common/pin_setup.m.js';
+import 'chrome://oobe/screens/common/recommend_apps.m.js';
 import 'chrome://oobe/screens/common/saml_confirm_password.m.js';
 import 'chrome://oobe/screens/common/signin_fatal_error.m.js';
 import 'chrome://oobe/screens/common/sync_consent.m.js';
@@ -48,6 +52,7 @@ import 'chrome://oobe/screens/oobe/auto_enrollment_check.m.js';
 import 'chrome://oobe/screens/oobe/demo_preferences.m.js';
 import 'chrome://oobe/screens/oobe/demo_setup.m.js';
 import 'chrome://oobe/screens/oobe/enable_debugging.m.js';
+import 'chrome://oobe/screens/oobe/enterprise_enrollment.m.js';
 import 'chrome://oobe/screens/oobe/hid_detection.m.js';
 import 'chrome://oobe/screens/oobe/oobe_eula.m.js';
 import 'chrome://oobe/screens/oobe/oobe_network.m.js';
@@ -59,7 +64,7 @@ function initializeDebugger() {
   if (document.readyState === 'loading')
     return;
   document.removeEventListener('DOMContentLoaded', initializeDebugger);
-  DebuggerUI.getInstance().register(document.body);
+  OobeDebugger.DebuggerUI.getInstance().register(document.body);
 }
 
 // Create the global values attached to `window` that are used
@@ -70,9 +75,13 @@ function prepareGlobalValues(globalValue) {
         globalValue.cr = {};
     }
     if (globalValue.cr.ui == undefined) {
-        globalValue.cr.ui = {};
+      globalValue.cr.ui = {};
+    }
+    if (globalValue.cr.ui.login == undefined) {
+      globalValue.cr.ui.login = {};
     }
 
+    // Expose some values in the global object that are needed by OOBE.
     globalValue.cr.ui.Oobe = Oobe;
     globalValue.Oobe = Oobe;
 }
@@ -82,11 +91,13 @@ function prepareGlobalValues(globalValue) {
     prepareGlobalValues(window);
     Oobe.initialize();
 
-    // Initialize debugger.
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeDebugger);
-      } else {
-        initializeDebugger();
+    // Initialize the debugger if it has been defined.
+    if (OobeDebugger.DebuggerUI) {
+      if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initializeDebugger);
+        } else {
+          initializeDebugger();
+      }
     }
 
     // Make the WebUI visible.

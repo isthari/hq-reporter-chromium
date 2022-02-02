@@ -20,6 +20,8 @@
 #include "ash/app_list/model/app_list_test_model.h"
 #include "ash/app_list/model/search/test_search_result.h"
 #include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/app_list/views/app_list_bubble_apps_page.h"
+#include "ash/app_list/views/app_list_bubble_search_page.h"
 #include "ash/app_list/views/app_list_bubble_view.h"
 #include "ash/app_list/views/app_list_folder_view.h"
 #include "ash/app_list/views/app_list_item_view.h"
@@ -34,6 +36,7 @@
 #include "ash/app_list/views/paged_apps_grid_view.h"
 #include "ash/app_list/views/scrollable_apps_grid_view.h"
 #include "ash/app_list/views/search_box_view.h"
+#include "ash/app_list/views/search_result_page_view.h"
 #include "ash/app_list/views/search_result_tile_item_view.h"
 #include "ash/app_list/views/suggestion_chip_container_view.h"
 #include "ash/constants/ash_features.h"
@@ -49,6 +52,7 @@
 #include "ash/shelf/shelf_view.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/layer_animation_stopped_waiter.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -1517,6 +1521,15 @@ TEST_P(AppsGridViewDragTest, MouseDragItemIntoFolder) {
   EXPECT_EQ(folder_item->id(), item_1->folder_id());
   std::string expected_items = folder_item->id() + ",Item 2";
   EXPECT_EQ(expected_items, model_->GetModelContent());
+
+  EXPECT_EQ(is_productivity_launcher_enabled_,
+            GetAppListTestHelper()->IsInFolderView());
+  if (is_productivity_launcher_enabled_) {
+    EXPECT_EQ(folder_item, app_list_folder_view_->folder_item());
+    EXPECT_TRUE(app_list_folder_view_->folder_header_view()
+                    ->GetFolderNameViewForTest()
+                    ->HasFocus());
+  }
 }
 
 TEST_P(AppsGridViewDragTest, MouseDragSecondItemIntoFolder) {
@@ -1545,6 +1558,137 @@ TEST_P(AppsGridViewDragTest, MouseDragSecondItemIntoFolder) {
   AppListItem* item_2 = model_->FindItem("Item 2");
   EXPECT_TRUE(item_2->IsInFolder());
   EXPECT_EQ(folder_item->id(), item_2->folder_id());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconAnimatesAfterDragToFolder) {
+  model_->CreateAndPopulateFolderWithApps(2);
+  model_->PopulateApps(1);
+  UpdateLayout();
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  InitiateDragForItemAtCurrentPageAt(AppsGridView::MOUSE, 0, 1,
+                                     apps_grid_view_);
+
+  // Dragging item_2 to the folder adds Item_2 to the folder.
+  gfx::Point to = GetItemRectOnCurrentPageAt(0, 0).CenterPoint();
+  UpdateDrag(AppsGridView::MOUSE, to, apps_grid_view_, 10 /*steps*/);
+  EndDrag(apps_grid_view_, false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  ASSERT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+
+  LayerAnimationStoppedWaiter animation_waiter;
+  animation_waiter.Wait(drag_icon_layer);
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconHiddenImmediatelyWhenGridHides) {
+  model_->CreateAndPopulateFolderWithApps(2);
+  model_->PopulateApps(1);
+  UpdateLayout();
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  InitiateDragForItemAtCurrentPageAt(AppsGridView::MOUSE, 0, 1,
+                                     apps_grid_view_);
+
+  // Dragging item_2 to the folder adds Item_2 to the folder.
+  gfx::Point to = GetItemRectOnCurrentPageAt(0, 0).CenterPoint();
+  UpdateDrag(AppsGridView::MOUSE, to, apps_grid_view_, 10 /*steps*/);
+
+  // Start typing to close the apps page, and open search results.
+  GetEventGenerator()->GestureTapAt(
+      search_box_view_->GetBoundsInScreen().CenterPoint());
+  GetEventGenerator()->PressAndReleaseKey(ui::VKEY_A);
+
+  auto* helper = GetAppListTestHelper();
+  if (is_productivity_launcher_enabled_) {
+    // Wait for page switch animation.
+    LayerAnimationStoppedWaiter().Wait(
+        helper->GetBubbleAppsPage()->GetPageAnimationLayerForTest());
+    ASSERT_FALSE(helper->GetBubbleAppsPage()->GetVisible());
+    ASSERT_TRUE(helper->GetBubbleSearchPage()->GetVisible());
+  } else {
+    ASSERT_TRUE(helper->GetFullscreenSearchResultPageView()->GetVisible());
+  }
+
+  // Verify the drag icon is hidden immediately.
+  EXPECT_FALSE(test_api_->GetDragIconLayer());
+  EXPECT_FALSE(apps_grid_view_->drag_item());
+  EXPECT_FALSE(apps_grid_view_->IsDragging());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconAnimatesAfterDragToCreateFolder) {
+  model_->PopulateApps(3);
+  UpdateLayout();
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  InitiateDragForItemAtCurrentPageAt(AppsGridView::MOUSE, 0, 1,
+                                     apps_grid_view_);
+
+  // Dragging item_1 over item_0 creates a folder.
+  gfx::Point to = GetItemRectOnCurrentPageAt(0, 0).CenterPoint();
+  UpdateDrag(AppsGridView::MOUSE, to, apps_grid_view_, 10 /*steps*/);
+  EndDrag(apps_grid_view_, false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  ASSERT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+
+  LayerAnimationStoppedWaiter animation_waiter;
+  animation_waiter.Wait(drag_icon_layer);
+  EXPECT_EQ(is_productivity_launcher_enabled_,
+            GetAppListTestHelper()->IsInFolderView());
+}
+
+TEST_P(AppsGridViewDragTest, FolderNotOpenedIfGridHidesDuringIconDrop) {
+  model_->PopulateApps(3);
+  UpdateLayout();
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  InitiateDragForItemAtCurrentPageAt(AppsGridView::MOUSE, 0, 1,
+                                     apps_grid_view_);
+
+  // Dragging item_1 over Item_0 creates a folder.
+  gfx::Point to = GetItemRectOnCurrentPageAt(0, 0).CenterPoint();
+  UpdateDrag(AppsGridView::MOUSE, to, apps_grid_view_, 10 /*steps*/);
+  EndDrag(apps_grid_view_, false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  ASSERT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+
+  // Start typing to close the apps page, and open search results - verify the
+  // folder does not get opened, and that the icon drop animation gets canceled.
+  GetEventGenerator()->GestureTapAt(
+      search_box_view_->GetBoundsInScreen().CenterPoint());
+  GetEventGenerator()->PressAndReleaseKey(ui::VKEY_A);
+
+  auto* helper = GetAppListTestHelper();
+  if (is_productivity_launcher_enabled_) {
+    // Wait for page switch animation.
+    LayerAnimationStoppedWaiter().Wait(
+        helper->GetBubbleAppsPage()->GetPageAnimationLayerForTest());
+    ASSERT_FALSE(helper->GetBubbleAppsPage()->GetVisible());
+    ASSERT_TRUE(helper->GetBubbleSearchPage()->GetVisible());
+  } else {
+    ASSERT_TRUE(helper->GetFullscreenSearchResultPageView()->GetVisible());
+  }
+
+  EXPECT_FALSE(test_api_->GetDragIconLayer());
+  EXPECT_FALSE(helper->IsInFolderView());
 }
 
 TEST_P(AppsGridViewClamshellTest, CheckFolderWithMultiplePagesContents) {
@@ -1609,6 +1753,138 @@ TEST_P(AppsGridViewDragTest, MouseDragItemOutOfFolder) {
   EXPECT_EQ(std::string(folder_item->id() + ",Item 0"),
             model_->GetModelContent());
   EXPECT_EQ(kTotalItems - 1, folder_item->ChildItemCount());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconAnimatesAfterDragOutOfFolder) {
+  model_->CreateAndPopulateFolderWithApps(5);
+  test_api_->Update();
+  test_api_->PressItemAt(0);
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Drag the first folder child out of the folder.
+  AppListItemView* drag_view = InitiateDragForItemAtCurrentPageAt(
+      AppsGridView::MOUSE, 0, 0, folder_apps_grid_view());
+  gfx::Point empty_space =
+      app_list_folder_view()->GetLocalBounds().bottom_center() +
+      gfx::Vector2d(0, drag_view->height()
+                    /*padding to completely exit folder view*/);
+  UpdateDrag(AppsGridView::MOUSE, empty_space, folder_apps_grid_view(),
+             10 /*steps*/);
+  // Fire the reparent timer that should be started when an item is dragged out
+  // of folder bounds.
+  ASSERT_TRUE(folder_apps_grid_view()->FireFolderItemReparentTimerForTest());
+
+  // Calculate the coordinates for the drop point. Note that we we are dropping
+  // into the app list view not the folder view. The (0,1) spot is empty.
+  gfx::Point drop_point = GetItemRectOnCurrentPageAt(0, 1).CenterPoint();
+  views::View::ConvertPointToTarget(apps_grid_view_, folder_apps_grid_view(),
+                                    &drop_point);
+  UpdateDrag(AppsGridView::MOUSE, drop_point, folder_apps_grid_view(),
+             5 /*steps*/);
+  EndDrag(folder_apps_grid_view(), false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  EXPECT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconAnimatesAfterDragToAnotherFolder) {
+  model_->CreateAndPopulateFolderWithApps(5);
+  model_->CreateAndPopulateFolderWithApps(5);
+  test_api_->Update();
+  test_api_->PressItemAt(0);
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Drag the first folder child out of the folder.
+  AppListItemView* drag_view = InitiateDragForItemAtCurrentPageAt(
+      AppsGridView::MOUSE, 0, 0, folder_apps_grid_view());
+  gfx::Point empty_space =
+      app_list_folder_view()->GetLocalBounds().bottom_center() +
+      gfx::Vector2d(0, drag_view->height()
+                    /*padding to completely exit folder view*/);
+  UpdateDrag(AppsGridView::MOUSE, empty_space, folder_apps_grid_view(),
+             10 /*steps*/);
+  // Fire the reparent timer that should be started when an item is dragged out
+  // of folder bounds.
+  ASSERT_TRUE(folder_apps_grid_view()->FireFolderItemReparentTimerForTest());
+
+  // Calculate the coordinates for the drop point.
+  gfx::Point drop_point = GetItemRectOnCurrentPageAt(0, 1).CenterPoint();
+  views::View::ConvertPointToTarget(apps_grid_view_, folder_apps_grid_view(),
+                                    &drop_point);
+  UpdateDrag(AppsGridView::MOUSE, drop_point, folder_apps_grid_view(),
+             5 /*steps*/);
+  EndDrag(folder_apps_grid_view(), false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  ASSERT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+
+  LayerAnimationStoppedWaiter animation_waiter;
+  animation_waiter.Wait(drag_icon_layer);
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+}
+
+TEST_P(AppsGridViewDragTest,
+       DragIconAnimatesAfterDragThatDeletesOriginalFolder) {
+  model_->PopulateApps(2);
+  model_->CreateSingleItemFolder("folder_id", "item_id");
+  test_api_->Update();
+  test_api_->PressItemAt(2);
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Drag the only folder child out of the folder.
+  AppListItemView* drag_view = InitiateDragForItemAtCurrentPageAt(
+      AppsGridView::MOUSE, 0, 0, folder_apps_grid_view());
+  gfx::Point empty_space =
+      app_list_folder_view()->GetLocalBounds().bottom_center() +
+      gfx::Vector2d(0, drag_view->height()
+                    /*padding to completely exit folder view*/);
+  UpdateDrag(AppsGridView::MOUSE, empty_space, folder_apps_grid_view(),
+             10 /*steps*/);
+  // Fire the reparent timer that should be started when an item is dragged out
+  // of folder bounds.
+  ASSERT_TRUE(folder_apps_grid_view()->FireFolderItemReparentTimerForTest());
+
+  // Calculate the coordinates for the drop point. Note that we we are dropping
+  // into the app list view not the folder view. The (0,3) spot is empty.
+  gfx::Point drop_point = GetItemRectOnCurrentPageAt(0, 3).CenterPoint();
+  views::View::ConvertPointToTarget(apps_grid_view_, folder_apps_grid_view(),
+                                    &drop_point);
+  UpdateDrag(AppsGridView::MOUSE, drop_point, folder_apps_grid_view(),
+             5 /*steps*/);
+  EndDrag(folder_apps_grid_view(), false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  EXPECT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
+}
+
+TEST_P(AppsGridViewDragTest, DragIconAnimatesAfterReorderDrag) {
+  model_->PopulateApps(3);
+  test_api_->Update();
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Drag the first item to an empty slot in the grid.
+  InitiateDragForItemAtCurrentPageAt(AppsGridView::MOUSE, 0, 0,
+                                     apps_grid_view_);
+  gfx::Point drop_point = GetItemRectOnCurrentPageAt(0, 3).CenterPoint();
+  UpdateDrag(AppsGridView::MOUSE, drop_point, apps_grid_view_, 5 /*steps*/);
+  EndDrag(apps_grid_view_, false /*cancel*/);
+
+  ui::Layer* drag_icon_layer = test_api_->GetDragIconLayer();
+  ASSERT_TRUE(drag_icon_layer);
+  EXPECT_TRUE(drag_icon_layer->GetAnimator()->is_animating());
 }
 
 TEST_F(AppsGridViewNonBubbleTest, SwitchPageFolderItem) {
@@ -1640,7 +1916,6 @@ TEST_P(AppsGridViewDragNonBubbleTest, MouseDragItemOutOfFolderSecondPage) {
       model_->CreateAndPopulateFolderWithApps(kTotalItems);
   test_api_->Update();
   test_api_->PressItemAt(0);
-  AppsGridViewTestApi folder_grid_test_api(folder_apps_grid_view());
   // Switch to second page.
   AnimateFolderViewPageFlip(1);
   // Drag the first folder child on the second page out of the folder.
@@ -1677,6 +1952,7 @@ TEST_P(AppsGridViewDragNonBubbleTest, MouseDragItemOutOfFolderSecondPage) {
   EXPECT_EQ(std::string(folder_item->id() + ",Item 16"),
             model_->GetModelContent());
   EXPECT_EQ(kTotalItems - 1, folder_item->ChildItemCount());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
 }
 
 TEST_P(AppsGridViewDragNonBubbleTest, MouseDropItemFromFolderSecondPage) {
@@ -1739,6 +2015,7 @@ TEST_P(AppsGridViewDragNonBubbleTest, MouseDropItemFromFolderSecondPage) {
                         "28,Item 29,Item 30,Item 31,Item 32,Item 33,Item 34"),
             model_->GetModelContent());
   EXPECT_EQ(kTotalItems - 1, folder_item->ChildItemCount());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
 }
 
 TEST_P(AppsGridViewDragTest, MouseDragMaxItemsInFolder) {
@@ -1763,6 +2040,7 @@ TEST_P(AppsGridViewDragTest, MouseDragMaxItemsInFolder) {
   EXPECT_EQ(folder_item->id(), model_->top_level_item_list()->item_at(0)->id());
   EXPECT_EQ(kTotalItems + 1, folder_item->ChildItemCount());
   EXPECT_TRUE(folder_item->IsFolderFull());
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
 }
 
 TEST_P(AppsGridViewDragTest, MouseDragExceedMaxItemsInFolder) {
@@ -2539,14 +2817,19 @@ TEST_P(AppsGridViewClamshellAndTabletTest, ControlShiftArrowFoldersItemBasic) {
   AppListItemView* first_item = GetItemViewInTopLevelGrid(0);
   const std::string first_item_id = first_item->item()->id();
   const std::string second_item_id = GetItemViewInTopLevelGrid(1)->item()->id();
-  apps_grid_view_->GetFocusManager()->SetFocusedView(first_item);
 
-  SimulateKeyPress(ui::VKEY_RIGHT, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  ui::test::EventGenerator* const event_generator = GetEventGenerator();
+  // Press an arrow key to engage keyboard traversal in fullscreen launcher.
+  event_generator->PressAndReleaseKey(ui::VKEY_DOWN);
+
+  // Focus first item, and folder it.
+  apps_grid_view_->GetFocusManager()->SetFocusedView(first_item);
+  event_generator->PressAndReleaseKey(ui::VKEY_RIGHT,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   // Test that the first item in the grid is now a folder with the first and
-  // second items, and that the folder is the selected view.
+  // second items.
   AppListItemView* new_folder = GetItemViewInTopLevelGrid(0);
-  ASSERT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
   AppListFolderItem* folder_item =
       static_cast<AppListFolderItem*>(new_folder->item());
   EXPECT_TRUE(folder_item->is_folder());
@@ -2556,10 +2839,32 @@ TEST_P(AppsGridViewClamshellAndTabletTest, ControlShiftArrowFoldersItemBasic) {
   histogram_tester.ExpectBucketCount(GetItemMoveTypeHistogramName(),
                                      kMoveByKeyboardIntoFolder, 1);
 
+  // With productivity launcher enabled, the folder is expected to get opened
+  // after creation.
+  EXPECT_EQ(!is_productivity_launcher_enabled_,
+            apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_EQ(is_productivity_launcher_enabled_,
+            GetAppListTestHelper()->IsInFolderView());
+  if (is_productivity_launcher_enabled_) {
+    EXPECT_EQ(folder_item, app_list_folder_view_->folder_item());
+    EXPECT_TRUE(app_list_folder_view_->folder_header_view()
+                    ->GetFolderNameViewForTest()
+                    ->HasFocus());
+
+    // Close the folder.
+    event_generator->PressAndReleaseKey(ui::VKEY_UP);
+    event_generator->PressAndReleaseKey(ui::VKEY_ESCAPE);
+    EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+  }
+  ASSERT_TRUE(new_folder->HasFocus());
+  ASSERT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
+
   // Test that, when a folder is selected, control+shift+arrow does nothing.
-  SimulateKeyPress(ui::VKEY_RIGHT, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_RIGHT,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_TRUE(new_folder->HasFocus());
   EXPECT_EQ(2u, folder_item->ChildItemCount());
   histogram_tester.ExpectBucketCount(GetItemMoveTypeHistogramName(),
                                      kMoveByKeyboardIntoFolder, 1);
@@ -2569,29 +2874,37 @@ TEST_P(AppsGridViewClamshellAndTabletTest, ControlShiftArrowFoldersItemBasic) {
   apps_grid_view_->GetFocusManager()->SetFocusedView(
       GetItemViewInTopLevelGrid(1));
 
-  SimulateKeyPress(ui::VKEY_LEFT, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_LEFT,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_TRUE(new_folder->HasFocus());
   EXPECT_EQ(3u, folder_item->ChildItemCount());
   histogram_tester.ExpectBucketCount(GetItemMoveTypeHistogramName(),
                                      kMoveByKeyboardIntoFolder, 2);
 
   // Move selection to the item below the folder and put it in the folder.
-  SimulateKeyPress(ui::VKEY_DOWN);
-  SimulateKeyPress(ui::VKEY_UP, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_UP,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_TRUE(new_folder->HasFocus());
   EXPECT_EQ(4u, folder_item->ChildItemCount());
   histogram_tester.ExpectBucketCount(GetItemMoveTypeHistogramName(),
                                      kMoveByKeyboardIntoFolder, 3);
 
   // Move the folder to the second row, then put the item above the folder in
   // the folder.
-  SimulateKeyPress(ui::VKEY_DOWN, ui::EF_CONTROL_DOWN);
-  SimulateKeyPress(ui::VKEY_UP);
-  SimulateKeyPress(ui::VKEY_DOWN, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_DOWN, ui::EF_CONTROL_DOWN);
+  event_generator->PressAndReleaseKey(ui::VKEY_UP);
+  event_generator->PressAndReleaseKey(ui::VKEY_DOWN,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
+  EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_TRUE(new_folder->HasFocus());
   EXPECT_EQ(5u, folder_item->ChildItemCount());
   histogram_tester.ExpectBucketCount(GetItemMoveTypeHistogramName(),
                                      kMoveByKeyboardIntoFolder, 4);
@@ -2848,20 +3161,44 @@ TEST_P(AppsGridViewClamshellAndTabletTest,
   const std::string first_item_id = moving_item->item()->id();
   const std::string second_item_id =
       GetItemViewInTopLevelGrid(kNumberOfApps - 1)->item()->id();
-  apps_grid_view_->GetFocusManager()->SetFocusedView(moving_item);
 
-  SimulateKeyPress(ui::VKEY_RIGHT, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  ui::test::EventGenerator* const event_generator = GetEventGenerator();
+  // Press an arrow key to engage keyboard traversal in fullscreen launcher.
+  event_generator->PressAndReleaseKey(ui::VKEY_DOWN);
+
+  apps_grid_view_->GetFocusManager()->SetFocusedView(moving_item);
+  event_generator->PressAndReleaseKey(ui::VKEY_RIGHT,
+                                      ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   // Test that the first item in the grid is now a folder with the first and
   // second items, and that the folder is the selected view.
   AppListItemView* new_folder = GetItemViewInTopLevelGrid(kNumberOfApps - 2);
-  ASSERT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
   AppListFolderItem* folder_item =
       static_cast<AppListFolderItem*>(new_folder->item());
   EXPECT_TRUE(folder_item->is_folder());
   EXPECT_EQ(2u, folder_item->ChildItemCount());
   EXPECT_TRUE(folder_item->FindChildItem(first_item_id));
   EXPECT_TRUE(folder_item->FindChildItem(second_item_id));
+
+  // With productivity launcher enabled, the folder is expected to get opened
+  // after creation.
+  EXPECT_EQ(!is_productivity_launcher_enabled_,
+            apps_grid_view_->IsSelectedView(new_folder));
+  EXPECT_EQ(is_productivity_launcher_enabled_,
+            GetAppListTestHelper()->IsInFolderView());
+  if (is_productivity_launcher_enabled_) {
+    EXPECT_EQ(folder_item, app_list_folder_view_->folder_item());
+    EXPECT_TRUE(app_list_folder_view_->folder_header_view()
+                    ->GetFolderNameViewForTest()
+                    ->HasFocus());
+
+    // Close the folder.
+    event_generator->PressAndReleaseKey(ui::VKEY_UP);
+    event_generator->PressAndReleaseKey(ui::VKEY_ESCAPE);
+    EXPECT_FALSE(GetAppListTestHelper()->IsInFolderView());
+  }
+  EXPECT_TRUE(new_folder->HasFocus());
+  EXPECT_TRUE(apps_grid_view_->IsSelectedView(new_folder));
 }
 
 TEST_P(AppsGridViewTabletTest, TouchDragFlipToNextPage) {
@@ -4432,7 +4769,7 @@ TEST_P(AppsGridViewCardifiedStateTest, BackgroundCardBoundsOnSecondPage) {
   InitiateDragForItemAtCurrentPageAt(AppsGridView::TOUCH, 0, 0,
                                      paged_apps_grid_view_);
   const gfx::Point to_in_next_page =
-      test_api_->GetItemTileRectAtVisualIndex(1, 0).CenterPoint();
+      test_api_->GetItemTileRectAtVisualIndex(1, 0).left_center();
   // Drag the first item to the next page to create another page.
   UpdateDragToNeighborPage(true /* next_page */, to_in_next_page);
 

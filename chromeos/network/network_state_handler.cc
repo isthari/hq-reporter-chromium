@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
@@ -1321,7 +1322,9 @@ void NetworkStateHandler::UpdateManagedList(ManagedState::ManagedType type,
   }
 
   UpdateManagedWifiNetworkAvailable();
-
+  if (features::IsESimPolicyEnabled()) {
+    UpdateBlockedCellularNetworks();
+  }
   if (type != ManagedState::ManagedType::MANAGED_TYPE_NETWORK)
     return;
 
@@ -1353,6 +1356,15 @@ void NetworkStateHandler::UpdateManagedList(ManagedState::ManagedType type,
     if (tether_network)
       tether_network->set_tether_guid(std::string());
   }
+}
+
+void NetworkStateHandler::UpdateBlockedCellularNetworks() {
+  DeviceState* device =
+      GetModifiableDeviceStateByType(NetworkTypePattern::Cellular());
+  if (!device || !device->update_received())
+    return;  // May be null in tests.
+
+  UpdateBlockedNetworksInternal(NetworkTypePattern::Cellular());
 }
 
 void NetworkStateHandler::ProfileListChanged(const base::Value& profile_list) {
@@ -1575,6 +1587,10 @@ void NetworkStateHandler::UpdateDeviceProperty(const std::string& device_path,
 
     if (device->type() == shill::kTypeWifi && !device->scanning())
       UpdateManagedWifiNetworkAvailable();
+    if (device->type() == shill::kTypeCellular && !device->scanning() &&
+        features::IsESimPolicyEnabled()) {
+      UpdateBlockedCellularNetworks();
+    }
   }
   if (key == shill::kEapAuthenticationCompletedProperty) {
     // Notify a change for each Ethernet service using this device.
@@ -1661,6 +1677,8 @@ void NetworkStateHandler::ManagedStateListChanged(
       UpdateNetworkStats();
       NotifyIfActiveNetworksChanged();
       NotifyNetworkListChanged();
+      if (features::IsESimPolicyEnabled())
+        UpdateBlockedCellularNetworks();
       UpdateManagedWifiNetworkAvailable();
       // ManagedStateListChanged only gets executed if all pending updates have
       // completed. Profile networks are loaded if a user is logged in and all

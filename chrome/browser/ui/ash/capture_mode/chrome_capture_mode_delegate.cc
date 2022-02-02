@@ -31,6 +31,8 @@
 #include "content/public/browser/audio_service.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/service_process_host.h"
+#include "content/public/browser/video_capture_service.h"
+#include "services/video_capture/public/mojom/video_capture_service.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/base/window_open_disposition.h"
 
@@ -171,6 +173,13 @@ void ChromeCaptureModeDelegate::StopObservingRestrictedContent(
       std::move(callback));
 }
 
+void ChromeCaptureModeDelegate::OnCaptureImageAttempted(
+    const aura::Window* window,
+    const gfx::Rect& bounds) {
+  policy::DlpContentManagerAsh::Get()->OnImageCapture(
+      ConvertToScreenshotArea(window, bounds));
+}
+
 mojo::Remote<recording::mojom::RecordingService>
 ChromeCaptureModeDelegate::LaunchRecordingService() {
   return content::ServiceProcessHost::Launch<
@@ -214,4 +223,10 @@ std::unique_ptr<ash::RecordingOverlayView>
 ChromeCaptureModeDelegate::CreateRecordingOverlayView() const {
   return std::make_unique<RecordingOverlayViewImpl>(
       ProfileManager::GetPrimaryUserProfile());
+}
+
+void ChromeCaptureModeDelegate::ConnectToVideoSourceProvider(
+    mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider> receiver) {
+  content::GetVideoCaptureService().ConnectToVideoSourceProvider(
+      std::move(receiver));
 }

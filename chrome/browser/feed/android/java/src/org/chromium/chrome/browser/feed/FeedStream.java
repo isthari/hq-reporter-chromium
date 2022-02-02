@@ -8,14 +8,12 @@ import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.app.Activity;
 import android.util.TypedValue;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
-import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,10 +31,6 @@ import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.feed.sections.SectionType;
-import org.chromium.chrome.browser.feed.sort_ui.SortChipProperties;
-import org.chromium.chrome.browser.feed.sort_ui.SortView;
-import org.chromium.chrome.browser.feed.sort_ui.SortViewBinder;
-import org.chromium.chrome.browser.feed.v2.ContentOrder;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -54,17 +48,17 @@ import org.chromium.chrome.browser.xsurface.SurfaceActionsHandler;
 import org.chromium.chrome.browser.xsurface.SurfaceScope;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController.StateChangeReason;
+import org.chromium.components.browser_ui.bottomsheet.EmptyBottomSheetObserver;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.browser_ui.widget.animation.Interpolators;
 import org.chromium.components.feed.proto.FeedUiProto;
+import org.chromium.components.feed.proto.wire.ReliabilityLoggingEnums.DiscoverLaunchResult;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.display.DisplayAndroid;
-import org.chromium.ui.modelutil.ListModel;
-import org.chromium.ui.modelutil.ListModelChangeProcessor;
-import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.mojom.WindowOpenDisposition;
 import org.chromium.url.GURL;
 
@@ -152,9 +146,22 @@ public class FeedStream implements Stream {
             FeedStreamJni.get().reportOtherUserAction(
                     mNativeFeedStream, FeedStream.this, FeedUserActionType.OPENED_CONTEXT_MENU);
 
+            // Remember the currently focused view so that we can get back to it once the bottom
+            // sheet is closed. This is to fix the problem that the last focused view is not
+            // restored after opening and closing the bottom sheet.
+            mLastFocusedView = mActivity.getCurrentFocus();
+
             // Make a sheetContent with the view.
             mBottomSheetContent = new CardMenuBottomSheetContent(view);
             mBottomSheetOriginatingSliceId = getSliceIdFromView(actionSourceView);
+            mBottomSheetController.addObserver(new EmptyBottomSheetObserver() {
+                @Override
+                public void onSheetClosed(@StateChangeReason int reason) {
+                    if (mLastFocusedView == null) return;
+                    mLastFocusedView.requestFocus();
+                    mLastFocusedView = null;
+                }
+            });
             mBottomSheetController.requestShowContent(mBottomSheetContent, true);
         }
 
@@ -166,6 +173,13 @@ public class FeedStream implements Stream {
         private void openSuggestionUrl(String url, int disposition) {
             boolean inNewTab = (disposition == WindowOpenDisposition.NEW_BACKGROUND_TAB
                     || disposition == WindowOpenDisposition.OFF_THE_RECORD);
+
+            if (disposition != WindowOpenDisposition.NEW_BACKGROUND_TAB
+                    && mLaunchReliabilityLogger != null
+                    && mLaunchReliabilityLogger.isLaunchInProgress()) {
+                mLaunchReliabilityLogger.logLaunchFinished(
+                        System.nanoTime(), DiscoverLaunchResult.CARD_TAPPED.getNumber());
+            }
             // This postTask is necessary so that other click-handlers have a chance
             // to run before we begin navigating. On start surface, navigation immediately
             // triggers unbind, which can break event handling.
@@ -195,17 +209,12 @@ public class FeedStream implements Stream {
         static final String XSURFACE_CARD_URL = "Card URL";
 
         @Override
-        public void processThereAndBackAgainData(byte[] data) {
-            assert ThreadUtils.runningOnUiThread();
-            FeedStreamJni.get().processThereAndBackAgain(mNativeFeedStream, FeedStream.this, data);
-        }
-
-        @Override
         public void processThereAndBackAgainData(byte[] data, LoggingParameters loggingParameters) {
             assert ThreadUtils.runningOnUiThread();
             // TODO(crbug.com/1268575): Forward loggingParameters to FeedApi, and check that they
             // match the current state.
-            FeedStreamJni.get().processThereAndBackAgain(mNativeFeedStream, FeedStream.this, data);
+            FeedStreamJni.get().processThereAndBackAgain(mNativeFeedStream, FeedStream.this, data,
+                    FeedLoggingParameters.convertToProto(loggingParameters).toByteArray());
         }
 
         @Override
@@ -404,6 +413,7 @@ public class FeedStream implements Stream {
     private final Map<String, Object> mHandlersMap;
     private RotationObserver mRotationObserver;
     private FeedReliabilityLoggingBridge mReliabilityLoggingBridge;
+    private FeedLaunchReliabilityLogger mLaunchReliabilityLogger;
 
     // Things valid only when bound.
     private @Nullable RecyclerView mRecyclerView;
@@ -423,9 +433,7 @@ public class FeedStream implements Stream {
     private final BottomSheetController mBottomSheetController;
     private BottomSheetContent mBottomSheetContent;
     private String mBottomSheetOriginatingSliceId;
-
-    // Sort options drawer.
-    private View mSortView;
+    private View mLastFocusedView;
 
     /**
      * Creates a new Feed Stream.
@@ -493,42 +501,12 @@ public class FeedStream implements Stream {
         // Sort options only available for web feed right now.
         if (!isInterestFeed) {
             mUnreadContentObserver = new UnreadContentObserver(/*isWebFeed=*/true);
-
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.WEB_FEED_SORT)) {
-                @ContentOrder
-                int currentSort = FeedServiceBridge.getContentOrderForWebFeed();
-
-                mSortView =
-                        LayoutInflater.from(activity).inflate(R.layout.feed_options_panel, null);
-                SortView chipView = mSortView.findViewById(R.id.button_bar);
-                ListModel<PropertyModel> sortModel = new ListModel<>();
-                ListModelChangeProcessor<ListModel<PropertyModel>, SortView, Void> processor =
-                        new ListModelChangeProcessor<>(sortModel, chipView, new SortViewBinder());
-                sortModel.addObserver(processor);
-
-                sortModel.add(
-                        createSortModel(ContentOrder.REVERSE_CHRON, R.string.latest, currentSort));
-
-                sortModel.add(createSortModel(
-                        ContentOrder.GROUPED, R.string.feed_sort_publisher, currentSort));
-            }
         }
     }
 
-    private PropertyModel createSortModel(
-            @ContentOrder int order, @StringRes int stringResource, @ContentOrder int currentSort) {
-        return new PropertyModel.Builder(SortChipProperties.ALL_KEYS)
-                .with(SortChipProperties.NAME_KEY,
-                        mActivity.getResources().getString(stringResource))
-                .with(SortChipProperties.ON_SELECT_CALLBACK_KEY,
-                        () -> FeedServiceBridge.setContentOrderForWebFeed(order))
-                .with(SortChipProperties.IS_INITIALLY_SELECTED_KEY, currentSort == order)
-                .build();
-    }
-
     @Override
-    public View getOptionsView() {
-        return mSortView;
+    public boolean supportsOptions() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.WEB_FEED_SORT) && !mIsInterestFeed;
     }
 
     @Override
@@ -555,6 +533,7 @@ public class FeedStream implements Stream {
             FeedScrollState savedInstanceState, SurfaceScope surfaceScope,
             HybridListRenderer renderer, FeedLaunchReliabilityLogger launchReliabilityLogger,
             int headerCount) {
+        mLaunchReliabilityLogger = launchReliabilityLogger;
         launchReliabilityLogger.sendPendingEvents(
                 mIsInterestFeed ? StreamType.FOR_YOU : StreamType.WEB_FEED,
                 FeedStreamJni.get().getSurfaceId(mNativeFeedStream, FeedStream.this));
@@ -685,8 +664,9 @@ public class FeedStream implements Stream {
     }
 
     @Override
-    public boolean isActivityLoggingEnabled() {
-        return FeedStreamJni.get().isActivityLoggingEnabled(mNativeFeedStream, this);
+    public void recordActionManage() {
+        FeedStreamJni.get().reportOtherUserAction(
+                mNativeFeedStream, FeedStream.this, FeedUserActionType.TAPPED_MANAGE);
     }
 
     @Override
@@ -1133,7 +1113,6 @@ public class FeedStream implements Stream {
     @VisibleForTesting
     public interface Natives {
         long init(FeedStream caller, boolean isForYou, long nativeFeedReliabilityLoggingBridge);
-        boolean isActivityLoggingEnabled(long nativeFeedStream, FeedStream caller);
         void reportFeedViewed(long nativeFeedStream, FeedStream caller);
         void reportSliceViewed(long nativeFeedStream, FeedStream caller, String sliceId);
         void reportPageLoaded(long nativeFeedStream, FeedStream caller, boolean inNewTab);
@@ -1146,7 +1125,8 @@ public class FeedStream implements Stream {
         void reportStreamScrollStart(long nativeFeedStream, FeedStream caller);
         void loadMore(long nativeFeedStream, FeedStream caller, Callback<Boolean> callback);
         void manualRefresh(long nativeFeedStream, FeedStream caller, Callback<Boolean> callback);
-        void processThereAndBackAgain(long nativeFeedStream, FeedStream caller, byte[] data);
+        void processThereAndBackAgain(
+                long nativeFeedStream, FeedStream caller, byte[] data, byte[] loggingParameters);
         int executeEphemeralChange(long nativeFeedStream, FeedStream caller, byte[] data);
         void commitEphemeralChange(long nativeFeedStream, FeedStream caller, int changeId);
         void discardEphemeralChange(long nativeFeedStream, FeedStream caller, int changeId);

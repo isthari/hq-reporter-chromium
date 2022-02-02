@@ -64,11 +64,12 @@ NSString* GetTextFieldForID(int category_id) {
 
 // Returns the GREYElementInteraction* for the item on the password list with
 // the given |matcher|. It scrolls in |direction| if necessary to ensure that
-// the matched item is interactable.
+// the matched item is sufficiently visible, thus interactable.
 GREYElementInteraction* GetInteractionForListItem(id<GREYMatcher> matcher,
                                                   GREYDirection direction) {
   return [[EarlGrey
-      selectElementWithMatcher:grey_allOf(matcher, grey_interactable(), nil)]
+      selectElementWithMatcher:grey_allOf(matcher, grey_sufficientlyVisible(),
+                                          nil)]
          usingSearchAction:grey_scrollInDirection(direction, kScrollAmount)
       onElementWithMatcher:grey_accessibilityID(kPasswordsTableViewId)];
 }
@@ -256,6 +257,11 @@ id<GREYMatcher> AddPasswordSaveButton() {
   return grey_accessibilityID(kPasswordsAddPasswordSaveButtonId);
 }
 
+// Matcher for the toolbar's edit done button.
+id<GREYMatcher> SettingToolbarEditDoneButton() {
+  return grey_accessibilityID(kSettingsToolbarEditDoneButtonId);
+}
+
 // Saves an example form in the store.
 void SaveExamplePasswordForm() {
   GREYAssert(
@@ -317,6 +323,13 @@ void CopyPasswordDetailWithID(int detail_id) {
       performAction:grey_tap()];
 }
 
+id<GREYMatcher> EditDoneButton() {
+  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
+    return SettingToolbarEditDoneButton();
+  }
+  return NavigationBarDoneButton();
+}
+
 }  // namespace
 
 // Various tests for the Save Passwords section of the settings.
@@ -372,7 +385,7 @@ void CopyPasswordDetailWithID(int detail_id) {
 
   TapEdit();
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   // Inspect "password details" view.
@@ -1237,9 +1250,12 @@ void CopyPasswordDetailWithID(int detail_id) {
   [PasswordSettingsAppInterface mockReauthenticationModuleExpectedResult:
                                     ReauthenticationResult::kSuccess];
 
-  [[EarlGrey
+  [[[EarlGrey
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_IOS_EXPORT_PASSWORDS)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown,
+                                                  kScrollAmount)
+      onElementWithMatcher:grey_accessibilityID(kPasswordsTableViewId)]
       performAction:grey_tap()];
 
   [GetInteractionForPasswordsExportConfirmAlert(
@@ -1421,7 +1437,7 @@ void CopyPasswordDetailWithID(int detail_id) {
   //      assertWithMatcher:grey_nil()];
 
   // Get out of edit mode.
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   // Remove filter search term.
@@ -1458,14 +1474,14 @@ void CopyPasswordDetailWithID(int detail_id) {
   [[EarlGrey selectElementWithMatcher:PasswordDetailPassword()]
       performAction:grey_replaceText(@"")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
                                    grey_not(grey_enabled()), nil)];
 
   [[EarlGrey selectElementWithMatcher:PasswordDetailPassword()]
       performAction:grey_replaceText(@"new password")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:EditConfirmationButton()]
@@ -1509,7 +1525,7 @@ void CopyPasswordDetailWithID(int detail_id) {
   [[EarlGrey selectElementWithMatcher:PasswordDetailUsername()]
       performAction:grey_replaceText(@"")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:EditConfirmationButton()]
@@ -1523,7 +1539,7 @@ void CopyPasswordDetailWithID(int detail_id) {
   [[EarlGrey selectElementWithMatcher:PasswordDetailUsername()]
       performAction:grey_replaceText(@"new username")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:EditConfirmationButton()]
@@ -1580,7 +1596,7 @@ void CopyPasswordDetailWithID(int detail_id) {
   [[EarlGrey selectElementWithMatcher:PasswordDetailUsername()]
       performAction:grey_replaceText(@"concrete username2")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
                                    grey_not(grey_enabled()), nil)];
 
@@ -1846,7 +1862,7 @@ void CopyPasswordDetailWithID(int detail_id) {
   [[EarlGrey selectElementWithMatcher:PasswordDetailUsername()]
       performAction:grey_replaceText(@"new username")];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:EditDoneButton()]
       performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:EditConfirmationButton()]

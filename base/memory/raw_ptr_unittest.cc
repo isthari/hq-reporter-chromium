@@ -12,7 +12,6 @@
 
 #include "base/allocator/buildflags.h"
 #include "base/allocator/partition_allocator/partition_alloc.h"
-#include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -211,10 +210,9 @@ TEST_F(RawPtrTest, BoolOpNotCast) {
   is_valid = ptr || is_valid;      // volatile, so won't be optimized
   if (ptr)
     is_valid = true;
-  bool is_not_valid = !ptr;
+  [[maybe_unused]] bool is_not_valid = !ptr;
   if (!ptr)
     is_not_valid = true;
-  ALLOW_UNUSED_LOCAL(is_not_valid);
   std::ignore = IsValidNoCast(ptr);
   std::ignore = IsValidNoCast2(ptr);
   FuncThatAcceptsBool(!ptr);
@@ -234,9 +232,8 @@ bool IsValidWithCast(CountingRawPtr<int> ptr) {
 // costly, so the caller has to be careful not to trigger this path.
 TEST_F(RawPtrTest, CastNotBoolOp) {
   CountingRawPtr<int> ptr = nullptr;
-  bool is_valid = ptr;
+  [[maybe_unused]] bool is_valid = ptr;
   is_valid = IsValidWithCast(ptr);
-  ALLOW_UNUSED_LOCAL(is_valid);
   FuncThatAcceptsBool(ptr);
   EXPECT_EQ(g_get_for_comparison_cnt, 0);
   EXPECT_EQ(g_get_for_extraction_cnt, 3);
@@ -892,90 +889,6 @@ class PmfTestDerived : public PmfTestBase {
   int MemFunc(float, double) { return 22; }
 };
 
-TEST_F(RawPtrTest, PointerToMemberFunction) {
-  PmfTestDerived object;
-  int (PmfTestBase::*pmf_base_base)(char, double) const = &PmfTestBase::MemFunc;
-  int (PmfTestDerived::*pmf_derived_base)(char, double) const =
-      &PmfTestDerived::MemFunc;
-  int (PmfTestDerived::*pmf_derived_derived)(float, double) =
-      &PmfTestDerived::MemFunc;
-  int base_count = g_pointer_to_member_operator_cnt;
-  EXPECT_EQ(base_count, 0);
-
-  // Test for `derived_ptr`
-  CountingRawPtr<PmfTestDerived> derived_ptr = &object;
-
-  static_assert(
-      std::is_same<decltype(derived_ptr->*pmf_base_base),
-                   const decltype(derived_ptr)::PendingMemberFunctionCall<
-                       decltype(pmf_base_base), int, char, double>>::value);
-  static_assert(
-      std::is_same<decltype(derived_ptr->*pmf_derived_base),
-                   const decltype(derived_ptr)::PendingMemberFunctionCall<
-                       decltype(pmf_derived_base), int, char, double>>::value);
-  static_assert(std::is_same<
-                decltype(derived_ptr->*pmf_derived_derived),
-                const decltype(derived_ptr)::PendingMemberFunctionCall<
-                    decltype(pmf_derived_derived), int, float, double>>::value);
-
-  base_count = g_pointer_to_member_operator_cnt;
-  EXPECT_EQ((derived_ptr->*pmf_base_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 1);
-  EXPECT_EQ((derived_ptr->*pmf_derived_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 2);
-  EXPECT_EQ((derived_ptr->*pmf_derived_derived)(0, 0), 22);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 3);
-
-  // Test for `derived_ptr_const`
-  const CountingRawPtr<PmfTestDerived> derived_ptr_const = &object;
-
-  static_assert(
-      std::is_same<decltype(derived_ptr_const->*pmf_base_base),
-                   const decltype(derived_ptr_const)::PendingMemberFunctionCall<
-                       decltype(pmf_base_base), int, char, double>>::value);
-  static_assert(
-      std::is_same<decltype(derived_ptr_const->*pmf_derived_base),
-                   const decltype(derived_ptr_const)::PendingMemberFunctionCall<
-                       decltype(pmf_derived_base), int, char, double>>::value);
-  static_assert(std::is_same<
-                decltype(derived_ptr_const->*pmf_derived_derived),
-                const decltype(derived_ptr_const)::PendingMemberFunctionCall<
-                    decltype(pmf_derived_derived), int, float, double>>::value);
-
-  base_count = g_pointer_to_member_operator_cnt;
-  EXPECT_EQ((derived_ptr_const->*pmf_base_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 1);
-  EXPECT_EQ((derived_ptr_const->*pmf_derived_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 2);
-  EXPECT_EQ((derived_ptr_const->*pmf_derived_derived)(0, 0), 22);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 3);
-
-  // Test for `const_derived_ptr`
-  CountingRawPtr<const PmfTestDerived> const_derived_ptr = &object;
-
-  static_assert(
-      std::is_same<decltype(const_derived_ptr->*pmf_base_base),
-                   const decltype(const_derived_ptr)::PendingMemberFunctionCall<
-                       decltype(pmf_base_base), int, char, double>>::value);
-  static_assert(
-      std::is_same<decltype(const_derived_ptr->*pmf_derived_base),
-                   const decltype(const_derived_ptr)::PendingMemberFunctionCall<
-                       decltype(pmf_derived_base), int, char, double>>::value);
-  static_assert(std::is_same<
-                decltype(const_derived_ptr->*pmf_derived_derived),
-                const decltype(const_derived_ptr)::PendingMemberFunctionCall<
-                    decltype(pmf_derived_derived), int, float, double>>::value);
-
-  base_count = g_pointer_to_member_operator_cnt;
-  EXPECT_EQ((const_derived_ptr->*pmf_base_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 1);
-  EXPECT_EQ((const_derived_ptr->*pmf_derived_base)(0, 0), 11);
-  EXPECT_EQ(g_pointer_to_member_operator_cnt, base_count + 2);
-  // Despite that it's possible to make a temporary PendingMemberFunctionCall
-  // object for the case of `const_derived_ptr->*pmf_derived_derived`, it's not
-  // possible to invoke the member function due to constness.
-}
-
 }  // namespace
 
 namespace base {
@@ -1140,6 +1053,68 @@ TEST(BackupRefPtrImpl, ReinterpretCast) {
 
 #endif  // BUILDFLAG(USE_BACKUP_REF_PTR) &&
         // !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
+
+#if BUILDFLAG(USE_ASAN_BACKUP_REF_PTR)
+
+struct AsanStruct {
+  int x;
+
+  void func() { ++x; }
+};
+
+TEST(AsanBackupRefPtrImpl, Dereference) {
+  raw_ptr<AsanStruct> protected_ptr = new AsanStruct;
+
+  // The four statements below should succeed.
+  (*protected_ptr).x = 1;
+  (*protected_ptr).func();
+  ++(protected_ptr->x);
+  protected_ptr->func();
+
+  delete protected_ptr.get();
+
+  EXPECT_DEATH_IF_SUPPORTED((*protected_ptr).x = 1,
+                            "BackupRefPtr: Dereferencing a raw_ptr");
+  EXPECT_DEATH_IF_SUPPORTED((*protected_ptr).func(),
+                            "BackupRefPtr: Dereferencing a raw_ptr");
+  EXPECT_DEATH_IF_SUPPORTED(++(protected_ptr->x),
+                            "BackupRefPtr: Dereferencing a raw_ptr");
+  EXPECT_DEATH_IF_SUPPORTED(protected_ptr->func(),
+                            "BackupRefPtr: Dereferencing a raw_ptr");
+}
+
+TEST(AsanBackupRefPtrImpl, Extraction) {
+  raw_ptr<AsanStruct> protected_ptr = new AsanStruct;
+
+  AsanStruct* ptr1 = protected_ptr;  // Shouldn't crash.
+  ptr1->x = 0;
+
+  delete protected_ptr.get();
+
+  EXPECT_DEATH_IF_SUPPORTED(
+      {
+        AsanStruct* ptr2 = protected_ptr;
+        ptr2->x = 1;
+      },
+      "BackupRefPtr: Extracting from a raw_ptr");
+}
+
+TEST(AsanBackupRefPtrImpl, Instantiation) {
+  AsanStruct* ptr = new AsanStruct;
+
+  raw_ptr<AsanStruct> protected_ptr1 = ptr;  // Shouldn't crash.
+  protected_ptr1 = nullptr;
+
+  delete ptr;
+
+  EXPECT_DEATH_IF_SUPPORTED(
+      {
+        raw_ptr<AsanStruct> protected_ptr2 = ptr;
+        ALLOW_UNUSED_LOCAL(protected_ptr2);
+      },
+      "BackupRefPtr: Constructing a raw_ptr");
+}
+#endif
 
 }  // namespace internal
 }  // namespace base

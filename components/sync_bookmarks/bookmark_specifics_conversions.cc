@@ -23,8 +23,8 @@
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/sync/base/unique_position.h"
-#include "components/sync/engine/entity_data.h"
 #include "components/sync/protocol/bookmark_specifics.pb.h"
+#include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync_bookmarks/switches.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
@@ -70,10 +70,10 @@ void LogFaviconContainedInSpecifics(bool contains_favicon) {
 void UpdateBookmarkSpecificsMetaInfo(
     const bookmarks::BookmarkNode::MetaInfoMap* metainfo_map,
     sync_pb::BookmarkSpecifics* bm_specifics) {
-  for (const std::pair<const std::string, std::string>& pair : *metainfo_map) {
+  for (const auto& [key, value] : *metainfo_map) {
     sync_pb::MetaInfo* meta_info = bm_specifics->add_meta_info();
-    meta_info->set_key(pair.first);
-    meta_info->set_value(pair.second);
+    meta_info->set_key(key);
+    meta_info->set_value(value);
   }
 }
 

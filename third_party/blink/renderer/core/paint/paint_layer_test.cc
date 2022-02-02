@@ -196,16 +196,10 @@ TEST_P(PaintLayerTest, NonCompositedScrollingNeedsRepaint) {
       gfx::Vector2d(1000, 1000),
       content_layer->ContainingLayer()->PixelSnappedScrolledContentOffset());
 
-  if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
-    EXPECT_FALSE(scroll_layer->SelfNeedsRepaint());
-    // The content layer needs repaint because its cull rect changed.
-    EXPECT_TRUE(content_layer->SelfNeedsRepaint());
-  } else {
-    EXPECT_TRUE(scroll_layer->SelfNeedsRepaint());
-    // We don't set the layer needing repaint, but will repaint the layer when
-    // we find that the cull rect changes during paint.
-    EXPECT_FALSE(content_layer->SelfNeedsRepaint());
-  }
+  EXPECT_FALSE(scroll_layer->SelfNeedsRepaint());
+  // The content layer needs repaint because its cull rect changed.
+  EXPECT_TRUE(content_layer->SelfNeedsRepaint());
+
   UpdateAllLifecyclePhasesForTest();
 }
 
@@ -2527,6 +2521,22 @@ TEST_P(PaintLayerTest, AddLayerNeedsRepaintAndCullRectUpdate) {
   ASSERT_TRUE(child_layer);
   EXPECT_TRUE(child_layer->SelfNeedsRepaint());
   EXPECT_TRUE(child_layer->NeedsCullRectUpdate());
+}
+
+TEST_P(PaintLayerTest, HitTestLayerWith3DDescendantCrash) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="target" style="transform: translate(0)">
+      <div style="transform-style: preserve-3d; transform: rotateY(1deg)"></div>
+    </div>
+  )HTML");
+
+  auto* target = GetPaintLayerByElementId("target");
+  EXPECT_TRUE(target->Has3DTransformedDescendant());
+  HitTestRequest request(0);
+  HitTestLocation location;
+  HitTestResult result(request, location);
+  // This should not crash.
+  target->HitTest(location, result, PhysicalRect(0, 0, 800, 600));
 }
 
 }  // namespace blink

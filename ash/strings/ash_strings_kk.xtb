@@ -53,6 +53,10 @@
 <translation id="1247519845643687288">Соңғы қолданбалар</translation>
 <translation id="1252999807265626933"><ph name="POWER_SOURCE" /> арқылы зарядтау</translation>
 <translation id="1255033239764210633">Ауа райы қандай?</translation>
+<translation id="1262870540683925850"><ph name="START_TIME" /> бастап 
+        <ph name="END_TIME" /> дейін, 
+        <ph name="TIME_ZONE" />, 
+        <ph name="EVENT_SUMMARY" />. Google Calendar қызметінде іс-шара туралы толығырақ мәлімет алу үшін оны таңдаңыз.</translation>
 <translation id="1266097335951928626">Алдыңғы камераны қосу</translation>
 <translation id="1267032506238418139">Таңбаша өзгерісі</translation>
 <translation id="1269405891096105529">Қонақ режимінде перифериялық құрылғыға қолдау көрсетілмейді.</translation>
@@ -78,6 +82,7 @@
 <translation id="1346748346194534595">Оңға</translation>
 <translation id="1351937230027495976">Мәзірді жию</translation>
 <translation id="1364382257761975320">Chromebook құлпын ашу үшін саусақ ізін пайдаланыңыз.</translation>
+<translation id="1364618750746929654">Транскрипция жасалмайды.</translation>
 <translation id="1383597849754832576">Автоматты субтитр файлдары жүктеп алынбады. Кейінірек қайталап көріңіз.</translation>
 <translation id="1383876407941801731">Іздеу</translation>
 <translation id="1391102559483454063">Қосулы</translation>
@@ -405,7 +410,6 @@
 <translation id="3640092422335864171"><ph name="NAME" /> құрылғысын сақтау</translation>
 <translation id="3649505501900178324">Жаңарту мерзімі өтіп кетті</translation>
 <translation id="366222428570480733">Басқарылатын пайдаланушы: <ph name="USER_EMAIL_ADDRESS" /></translation>
-<translation id="3665889125180354336">Микрофон арқылы жазу</translation>
 <translation id="3680908746918359504">Барлық маркерді өшіру</translation>
 <translation id="36813544980941320">Телефоныңыз бен <ph name="DEVICE_NAME" /> құрылғысында бірдей Wi-Fi желілері пайдаланылатын болады.</translation>
 <translation id="3694122362646626770">Веб-сайттар</translation>
@@ -574,6 +578,7 @@
 <translation id="4733161265940833579"><ph name="BATTERY_PERCENTAGE" />% (сол)</translation>
 <translation id="4734965478015604180">Көлденең</translation>
 <translation id="4735498845456076464"><ph name="LAUNCHER_KEY_NAME" /> + сан пернелер тіркесімінің функциясы өзгерді. Функциялық пернелерді пайдалану үшін <ph name="LAUNCHER_KEY_NAME" /> пернесі + жоғарғы қатар пернесі тіркесімін басыңыз.</translation>
+<translation id="473775607612524610">Жаңарту</translation>
 <translation id="4759238208242260848">Жүктеп алынғандар</translation>
 <translation id="4774338217796918551">Ертең сағат <ph name="COME_BACK_TIME" /> шамасында қайта қолдануыңызға болады.</translation>
 <translation id="4776917500594043016"><ph name="USER_EMAIL_ADDRESS" /> құпия сөзі</translation>
@@ -675,6 +680,7 @@
 <translation id="54609108002486618">Басқарылады</translation>
 <translation id="5465662442746197494">Көмек керек пе?</translation>
 <translation id="547979256943495781">Оң жақтағы сөре</translation>
+<translation id="5491186829646618080">Микробағдарламаның жаңа нұсқасы қолжетімді</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">Әкімшіңіз барлық eSIM профилін өшірген. Толығырақ ақпарат алу үшін әкімшіге хабарласыңыз.</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> қосылуда.</translation>
@@ -967,6 +973,7 @@
 <translation id="7514365320538308">Жүктеу</translation>
 <translation id="7526573455193969409">Желі бақылануы мүмкін</translation>
 <translation id="7536035074519304529">IP мекенжайы: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">Пернетақта жарығы қосулы</translation>
 <translation id="7548434653388805669">Ұйықтайтын уақыт болды</translation>
 <translation id="7551643184018910560">Сөреге бекіту</translation>
 <translation id="7561982940498449837">Мәзірді жабу</translation>
@@ -997,6 +1004,8 @@
 <translation id="7720410380936703141">ҚАЙТАЛАП КӨРУ</translation>
 <translation id="7723389094756330927">{NUM_NOTIFICATIONS,plural, =1{1 хабарландыру}other{# хабарландыру}}</translation>
 <translation id="7724603315864178912">Қиып алу</translation>
+<translation id="7734209118399753735"><ph name="EVENT_SUMMARY" />, 
+        <ph name="TIME_RANGE" /></translation>
 <translation id="7745560842763881396">Сөредегі қолданбаларды көрсету</translation>
 <translation id="7749443890790263709">Жұмыс үстелдерінің максималды санына жетті.</translation>
 <translation id="7749640678855296659">Микрофон өшірулі.</translation>
@@ -1049,6 +1058,7 @@
 <translation id="8036504271468642248">Алдыңғы сөйлем</translation>
 <translation id="8042893070933512245">Арнайы мүмкіндіктер параметрлері мәзірін ашу</translation>
 <translation id="8042925093898452104">Толық ақпаратты жабу</translation>
+<translation id="8044457332620420407">Пернетақта жарығы өшірулі</translation>
 <translation id="8048123526339889627">Bluetooth параметрлері</translation>
 <translation id="8051716679295756675"><ph name="DESK_TEMPLATE_NAME" /> атты үлгі бұрыннан бар.</translation>
 <translation id="8052898407431791827">Буферге көшірілді.</translation>
@@ -1169,6 +1179,7 @@
 <translation id="8876661425082386199">Интернет байланысын тексеріңіз.</translation>
 <translation id="8877788021141246043">Еске салғыш орнату</translation>
 <translation id="8878886163241303700">Экранды кеңейту</translation>
+<translation id="888982883502837004">Құрылғыңыз үшін микробағдарламаның жаңа нұсқасы қолжетімді. Көру және жаңарту үшін басыңыз.</translation>
 <translation id="8896630965521842259"><ph name="DESK_TEMPLATE_NAME" /> біржола жойылады.</translation>
 <translation id="890616557918890486">Дереккөзді өзгерту</translation>
 <translation id="8909138438987180327">Батарея қуаты: <ph name="PERCENTAGE" />.</translation>

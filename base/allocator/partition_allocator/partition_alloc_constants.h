@@ -15,14 +15,14 @@
 #include "base/allocator/partition_allocator/page_allocator_constants.h"
 #include "base/allocator/partition_allocator/partition_alloc_config.h"
 #include "base/allocator/partition_allocator/partition_alloc_forward.h"
-#include "base/memory/tagging.h"
+#include "base/allocator/partition_allocator/tagging.h"
 #include "build/build_config.h"
 
-#if defined(OS_APPLE) && defined(ARCH_CPU_64_BITS)
+#if BUILDFLAG(IS_APPLE) && defined(ARCH_CPU_64_BITS)
 #include <mach/vm_page_size.h>
 #endif
 
-namespace base {
+namespace partition_alloc::internal {
 
 // Size of a cache line. Not all CPUs in the world have a 64 bytes cache line
 // size, but as of 2021, most do. This is in particular the case for almost all
@@ -59,7 +59,7 @@ PAGE_ALLOCATOR_CONSTANTS_DECLARE_CONSTEXPR ALWAYS_INLINE size_t
 PartitionPageShift() {
   return 18;  // 256 KiB
 }
-#elif defined(OS_APPLE) && defined(ARCH_CPU_64_BITS)
+#elif BUILDFLAG(IS_APPLE) && defined(ARCH_CPU_64_BITS)
 PAGE_ALLOCATOR_CONSTANTS_DECLARE_CONSTEXPR ALWAYS_INLINE size_t
 PartitionPageShift() {
   return vm_page_shift + 2;
@@ -219,9 +219,9 @@ constexpr size_t kPoolMaxSize = 4 * kGiB;
 #endif
 constexpr size_t kMaxSuperPagesInPool = kPoolMaxSize / kSuperPageSize;
 
-static constexpr internal::pool_handle kRegularPoolHandle = 1;
-static constexpr internal::pool_handle kBRPPoolHandle = 2;
-static constexpr internal::pool_handle kConfigurablePoolHandle = 3;
+static constexpr pool_handle kRegularPoolHandle = 1;
+static constexpr pool_handle kBRPPoolHandle = 2;
+static constexpr pool_handle kConfigurablePoolHandle = 3;
 
 // Slots larger than this size will not receive MTE protection. Pages intended
 // for allocations larger than this constant should not be backed with PROT_MTE
@@ -231,7 +231,7 @@ static constexpr internal::pool_handle kConfigurablePoolHandle = 3;
 // PROT_MTE.
 constexpr size_t kMaxMemoryTaggingSize = 1024;
 
-#if HAS_MEMORY_TAGGING
+#if defined(PA_HAS_MEMORY_TAGGING)
 // Returns whether the tag of a pointer/slot overflowed and slot needs to be
 // moved to quarantine.
 constexpr ALWAYS_INLINE bool HasOverflowTag(uintptr_t ptr) {
@@ -241,7 +241,7 @@ constexpr ALWAYS_INLINE bool HasOverflowTag(uintptr_t ptr) {
                 "Overflow tag must be in tag bits");
   return (ptr & ~kMemTagUnmask) == kOverflowTag;
 }
-#endif  // HAS_MEMORY_TAGGING
+#endif  // defined(PA_HAS_MEMORY_TAGGING)
 
 PAGE_ALLOCATOR_CONSTANTS_DECLARE_CONSTEXPR ALWAYS_INLINE size_t
 NumPartitionPagesPerSuperPage() {
@@ -361,12 +361,11 @@ constexpr size_t kBitsPerSizeT = sizeof(void*) * CHAR_BIT;
 // PartitionPurgeDecommitEmptySlotSpans flag will eagerly decommit all entries
 // in the ring buffer, so with periodic purge enabled, this typically happens
 // every few seconds.
-constexpr size_t kMaxFreeableSpans = std::numeric_limits<int8_t>::max();
+constexpr size_t kEmptyCacheIndexBits = 7;
+// kMaxFreeableSpans is the buffer size, but is never used as an index value,
+// hence <= is appropriate.
+constexpr size_t kMaxFreeableSpans = 1 << kEmptyCacheIndexBits;
 constexpr size_t kDefaultEmptySlotSpanRingSize = 16;
-
-constexpr int kEmptyCacheIndexBits = 8;
-// Has to fit into SlotSpanMetadata::empty_cache_index.
-static_assert(kMaxFreeableSpans < (1 << (kEmptyCacheIndexBits - 1)), "");
 
 // If the total size in bytes of allocated but not committed pages exceeds this
 // value (probably it is a "out of virtual address space" crash), a special
@@ -399,6 +398,70 @@ enum PartitionAllocFlags {
 
   PartitionAllocLastFlag = PartitionAllocFastPathOrReturnNull
 };
+
+}  // namespace partition_alloc::internal
+
+namespace base {
+
+// TODO(https://crbug.com/1288247): Remove these 'using' declarations once
+// the migration to the new namespaces gets done.
+using ::partition_alloc::internal::DirectMapAllocationGranularity;
+using ::partition_alloc::internal::DirectMapAllocationGranularityOffsetMask;
+using ::partition_alloc::internal::DirectMapAllocationGranularityShift;
+#if defined(PA_HAS_MEMORY_TAGGING)
+using ::partition_alloc::internal::HasOverflowTag;
+#endif  // defined(PA_HAS_MEMORY_TAGGING)
+using ::partition_alloc::internal::kBitsPerSizeT;
+using ::partition_alloc::internal::kBRPPoolHandle;
+using ::partition_alloc::internal::kConfigurablePoolHandle;
+using ::partition_alloc::internal::kDefaultEmptySlotSpanRingSize;
+using ::partition_alloc::internal::kEmptyCacheIndexBits;
+using ::partition_alloc::internal::kFreedByte;
+using ::partition_alloc::internal::kGiB;
+using ::partition_alloc::internal::kInvalidBucketSize;
+using ::partition_alloc::internal::kMaxBucketed;
+using ::partition_alloc::internal::kMaxBucketedOrder;
+using ::partition_alloc::internal::kMaxBucketSpacing;
+using ::partition_alloc::internal::kMaxFreeableSpans;
+using ::partition_alloc::internal::kMaxMemoryTaggingSize;
+using ::partition_alloc::internal::kMaxPartitionPagesPerRegularSlotSpan;
+using ::partition_alloc::internal::kMaxSuperPagesInPool;
+using ::partition_alloc::internal::kMaxSupportedAlignment;
+using ::partition_alloc::internal::kMinBucketedOrder;
+using ::partition_alloc::internal::kMinDirectMappedDownsize;
+using ::partition_alloc::internal::kNumBucketedOrders;
+using ::partition_alloc::internal::kNumBuckets;
+using ::partition_alloc::internal::kNumBucketsPerOrder;
+using ::partition_alloc::internal::kNumBucketsPerOrderBits;
+using ::partition_alloc::internal::kNumPools;
+using ::partition_alloc::internal::kPartitionCachelineSize;
+using ::partition_alloc::internal::kPoolMaxSize;
+using ::partition_alloc::internal::kQuarantinedByte;
+using ::partition_alloc::internal::kReasonableSizeOfUnusedPages;
+using ::partition_alloc::internal::kRegularPoolHandle;
+using ::partition_alloc::internal::kSmallestBucket;
+using ::partition_alloc::internal::kSuperPageAlignment;
+using ::partition_alloc::internal::kSuperPageBaseMask;
+using ::partition_alloc::internal::kSuperPageOffsetMask;
+using ::partition_alloc::internal::kSuperPageShift;
+using ::partition_alloc::internal::kSuperPageSize;
+using ::partition_alloc::internal::kUninitializedByte;
+using ::partition_alloc::internal::MaxDirectMapped;
+using ::partition_alloc::internal::MaxRegularSlotSpanSize;
+using ::partition_alloc::internal::MaxSuperPagesInPool;
+using ::partition_alloc::internal::MaxSystemPagesPerRegularSlotSpan;
+using ::partition_alloc::internal::NumPartitionPagesPerSuperPage;
+using ::partition_alloc::internal::NumSystemPagesPerPartitionPage;
+using ::partition_alloc::internal::PartitionAllocFastPathOrReturnNull;
+using ::partition_alloc::internal::PartitionAllocFlags;
+using ::partition_alloc::internal::PartitionAllocLastFlag;
+using ::partition_alloc::internal::PartitionAllocNoHooks;
+using ::partition_alloc::internal::PartitionAllocReturnNull;
+using ::partition_alloc::internal::PartitionAllocZeroFill;
+using ::partition_alloc::internal::PartitionPageBaseMask;
+using ::partition_alloc::internal::PartitionPageOffsetMask;
+using ::partition_alloc::internal::PartitionPageShift;
+using ::partition_alloc::internal::PartitionPageSize;
 
 }  // namespace base
 

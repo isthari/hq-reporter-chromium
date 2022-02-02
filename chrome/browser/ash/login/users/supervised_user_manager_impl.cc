@@ -230,7 +230,7 @@ void SupervisedUserManagerImpl::SetUserStringValue(const std::string& user_id,
                                                    const std::string& value) {
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate update(local_state, key);
-  update->SetKey(user_id, base::Value(value));
+  update->SetStringKey(user_id, value);
 }
 
 void SupervisedUserManagerImpl::SetUserIntegerValue(const std::string& user_id,
@@ -238,7 +238,7 @@ void SupervisedUserManagerImpl::SetUserIntegerValue(const std::string& user_id,
                                                     const int value) {
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate update(local_state, key);
-  update->SetKey(user_id, base::Value(value));
+  update->SetIntKey(user_id, value);
 }
 
 void SupervisedUserManagerImpl::SetUserBooleanValue(const std::string& user_id,
@@ -246,7 +246,7 @@ void SupervisedUserManagerImpl::SetUserBooleanValue(const std::string& user_id,
                                                     const bool value) {
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate update(local_state, key);
-  update->SetKey(user_id, base::Value(value));
+  update->SetBoolKey(user_id, value);
 }
 
 void SupervisedUserManagerImpl::RemoveNonCryptohomeData(

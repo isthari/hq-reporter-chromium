@@ -146,9 +146,7 @@ WatchHangsInScope::WatchHangsInScope(TimeDelta timeout) {
   current_hang_watch_state->SetCurrentWatchHangsInScope(this);
 #endif
 
-  uint64_t old_flags;
-  base::TimeTicks old_deadline;
-  std::tie(old_flags, old_deadline) =
+  auto [old_flags, old_deadline] =
       current_hang_watch_state->GetFlagsAndDeadline();
 
   // TODO(crbug.com/1034046): Check whether we are over deadline already for the
@@ -322,7 +320,7 @@ HangWatcher::HangWatcher()
   g_instance = this;
 }
 
-#if not defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
 debug::ScopedCrashKeyString
 HangWatcher::GetTimeSinceLastCriticalMemoryPressureCrashKey() {
   DCHECK_CALLED_ON_VALID_THREAD(hang_watcher_thread_checker_);
@@ -536,9 +534,7 @@ void HangWatcher::WatchStateSnapShot::Init(
 
   // Copy hung thread information.
   for (const auto& watch_state : watch_states) {
-    uint64_t flags;
-    base::TimeTicks deadline;
-    std::tie(flags, deadline) = watch_state->GetFlagsAndDeadline();
+    auto [flags, deadline] = watch_state->GetFlagsAndDeadline();
 
     if (deadline <= deadline_ignore_threshold) {
       found_deadline_before_ignore_threshold = true;
@@ -697,7 +693,7 @@ void HangWatcher::DoDumpWithoutCrashing(
   capture_in_progress_.store(true, std::memory_order_relaxed);
   base::AutoLock scope_lock(capture_lock_);
 
-#if not defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
   const std::string list_of_hung_thread_ids =
       watch_state_snapshot.PrepareHungThreadListCrashKey();
 
@@ -982,7 +978,7 @@ HangWatchState::HangWatchState(HangWatcher::ThreadType thread_type)
 // On macOS the thread ids used by CrashPad are not the same as the ones
 // provided by PlatformThread. Make sure to use the same for correct
 // attribution.
-#ifdef OS_MAC
+#if BUILDFLAG(IS_MAC)
   pthread_threadid_np(pthread_self(), &thread_id_);
 #else
   thread_id_ = PlatformThread::CurrentId();

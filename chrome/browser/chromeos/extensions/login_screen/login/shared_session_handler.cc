@@ -67,10 +67,10 @@ SharedSessionHandler::~SharedSessionHandler() = default;
 
 absl::optional<std::string>
 SharedSessionHandler::LaunchSharedManagedGuestSession(
-    const std::string& extension_id,
     const std::string& password) {
   if (!IsDeviceRestrictedManagedGuestSessionEnabled()) {
-    return extensions::login_api_errors::kNoPermissionToUseApi;
+    return extensions::login_api_errors::
+        kDeviceRestrictedManagedGuestSessionNotEnabled;
   }
 
   if (session_manager::SessionManager::Get()->session_state() !=
@@ -99,7 +99,7 @@ SharedSessionHandler::LaunchSharedManagedGuestSession(
   ash::UserContext context(user_manager::USER_TYPE_PUBLIC_ACCOUNT,
                            user->GetAccountId());
   context.SetKey(ash::Key(session_secret_));
-  context.SetManagedGuestSessionLaunchExtensionId(extension_id);
+  context.SetCanLockManagedGuestSession(true);
   existing_user_controller->Login(context, chromeos::SigninSpecifics());
 
   return absl::nullopt;
@@ -109,8 +109,8 @@ void SharedSessionHandler::EnterSharedSession(
     const std::string& password,
     CallbackWithOptionalError callback) {
   if (!IsDeviceRestrictedManagedGuestSessionEnabled()) {
-    std::move(callback).Run(
-        extensions::login_api_errors::kNoPermissionToUseApi);
+    std::move(callback).Run(extensions::login_api_errors::
+                                kDeviceRestrictedManagedGuestSessionNotEnabled);
     return;
   }
 

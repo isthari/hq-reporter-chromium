@@ -11,6 +11,8 @@
 #include "chrome/browser/page_info/about_this_site_service_factory.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/page_info/core/about_this_site_service.h"
@@ -24,7 +26,7 @@
 #include "ui/events/event.h"
 #include "url/gurl.h"
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/extensions/window_controller_list.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -123,7 +125,7 @@ bool ChromePageInfoUiDelegate::ShouldShowAsk(ContentSettingsType type) {
   return permissions::PermissionUtil::IsGuardContentSetting(type);
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 bool ChromePageInfoUiDelegate::ShouldShowSiteSettings(int* link_text_id,
                                                       int* tooltip_text_id) {
   if (GetProfile()->IsGuestSession())
@@ -163,6 +165,11 @@ bool ChromePageInfoUiDelegate::IsMultipleTabsOpen() {
     }
   }
   return count > 1;
+}
+
+void ChromePageInfoUiDelegate::ShowPrivacySandboxSettings() {
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
+  chrome::ShowPrivacySandboxSettings(browser);
 }
 
 std::u16string ChromePageInfoUiDelegate::GetPermissionDetail(

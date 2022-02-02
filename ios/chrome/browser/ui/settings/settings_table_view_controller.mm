@@ -1741,6 +1741,21 @@ SyncState GetSyncStateFromBrowserState(ChromeBrowserState* browserState) {
   [_signinPromoViewMediator disconnect];
   _signinPromoViewMediator = nil;
   [self stopBrowserStateServiceObservers];
+
+  // Stop observing preferences.
+  [_showMemoryDebugToolsEnabled stop];
+  _showMemoryDebugToolsEnabled = nil;
+  [_articlesEnabled stop];
+  _articlesEnabled = nil;
+  [_allowChromeSigninPreference stop];
+  _allowChromeSigninPreference = nil;
+  [_contentSuggestionPolicyEnabled stop];
+  _contentSuggestionPolicyEnabled = nil;
+
+  _voiceLocaleCode.Destroy();
+
+  _prefChangeRegistrar.RemoveAll();
+  _prefObserverBridge.reset();
 }
 
 #pragma mark SyncObserverModelBridge
@@ -1894,10 +1909,13 @@ SyncState GetSyncStateFromBrowserState(ChromeBrowserState* browserState) {
 - (void)configureSigninPromoWithConfigurator:
             (SigninPromoViewConfigurator*)configurator
                              identityChanged:(BOOL)identityChanged {
-  DCHECK(!self.isSigninInProgress);
-  if (![self.tableViewModel
+  if (self.isSigninInProgress ||
+      ![self.tableViewModel
           hasItemForItemType:SettingsItemTypeSigninPromo
            sectionIdentifier:SettingsSectionIdentifierSignIn]) {
+    // Don't reload the sign-in promo if sign-in is in progress, to avoid having
+    // UI glitches. The table view should be reloaded once the sign-in is
+    // finished.
     return;
   }
   NSIndexPath* signinPromoCellIndexPath = [self.tableViewModel

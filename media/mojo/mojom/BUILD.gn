@@ -368,6 +368,14 @@ mojom("mojom") {
           mojom = "media.mojom.EncoderStatus"
           cpp = "::media::EncoderStatus"
         },
+        {
+          mojom = "media.mojom.DecoderStatus"
+          cpp = "::media::DecoderStatus"
+        },
+        {
+          mojom = "media.mojom.PipelineStatus"
+          cpp = "::media::PipelineStatus"
+        },
       ]
       traits_headers = [ "status_mojom_traits.h" ]
       traits_sources = [ "status_mojom_traits.cc" ]

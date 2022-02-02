@@ -11,6 +11,7 @@
 #include "components/optimization_guide/content/browser/optimization_guide_decider.h"
 #include "components/optimization_guide/content/browser/page_content_annotations_service.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
+#include "components/optimization_guide/core/optimization_guide_switches.h"
 #include "components/optimization_guide/proto/page_entities_metadata.pb.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/navigation_entry.h"
@@ -155,8 +156,16 @@ void PageContentAnnotationsWebContentsObserver::DidFinishNavigation(
       }
       const std::u16string& normalized_search_query =
           base::i18n::ToLower(base::CollapseWhitespace(*search_terms, false));
-      page_content_annotations_service_->Annotate(
-          history_visit, base::UTF16ToUTF8(normalized_search_query));
+      history_visit.text_to_annotate =
+          base::UTF16ToUTF8(normalized_search_query);
+      page_content_annotations_service_->Annotate(history_visit);
+
+      if (switches::ShouldLogPageContentAnnotationsInput()) {
+        LOG(ERROR) << "Annotating search terms: \n"
+                   << "URL: " << navigation_handle->GetURL() << "\n"
+                   << "Text: " << *(history_visit.text_to_annotate);
+      }
+
       return;
     }
   }
@@ -168,8 +177,15 @@ void PageContentAnnotationsWebContentsObserver::DidFinishNavigation(
       page_data->set_annotation_was_requested();
     }
     // Annotate the title instead.
-    page_content_annotations_service_->Annotate(
-        history_visit, base::UTF16ToUTF8(web_contents()->GetTitle()));
+    history_visit.text_to_annotate =
+        base::UTF16ToUTF8(web_contents()->GetTitle());
+    page_content_annotations_service_->Annotate(history_visit);
+
+    if (switches::ShouldLogPageContentAnnotationsInput()) {
+      LOG(ERROR) << "Annotating same document navigation: \n"
+                 << "URL: " << navigation_handle->GetURL() << "\n"
+                 << "Text: " << *(history_visit.text_to_annotate);
+    }
   }
 }
 
@@ -191,8 +207,15 @@ void PageContentAnnotationsWebContentsObserver::TitleWasSet(
   optimization_guide::HistoryVisit history_visit = optimization_guide::
       PageContentAnnotationsService::CreateHistoryVisitFromWebContents(
           web_contents(), page_data->navigation_id());
-  page_content_annotations_service_->Annotate(
-      history_visit, base::UTF16ToUTF8(entry->GetTitleForDisplay()));
+  history_visit.text_to_annotate =
+      base::UTF16ToUTF8(entry->GetTitleForDisplay());
+  page_content_annotations_service_->Annotate(history_visit);
+
+  if (switches::ShouldLogPageContentAnnotationsInput()) {
+    LOG(ERROR) << "Annotating main frame navigation: \n"
+               << "URL: " << entry->GetURL() << "\n"
+               << "Text: " << *(history_visit.text_to_annotate);
+  }
 }
 
 std::unique_ptr<PageTextObserver::ConsumerTextDumpRequest>
@@ -230,7 +253,7 @@ PageContentAnnotationsWebContentsObserver::MaybeRequestFrameTextDump(
 }
 
 void PageContentAnnotationsWebContentsObserver::OnTextDumpReceived(
-    const HistoryVisit& visit,
+    HistoryVisit visit,
     const PageTextDumpResult& result) {
   DCHECK(!features::ShouldAnnotateTitleInsteadOfPageContent());
 
@@ -241,12 +264,22 @@ void PageContentAnnotationsWebContentsObserver::OnTextDumpReceived(
   // If the page had AMP frames, then only use that content. Otherwise, use the
   // mainframe.
   if (result.GetAMPTextContent()) {
-    page_content_annotations_service_->Annotate(visit,
-                                                *result.GetAMPTextContent());
+    visit.text_to_annotate = *result.GetAMPTextContent();
+    page_content_annotations_service_->Annotate(visit);
+    if (switches::ShouldLogPageContentAnnotationsInput()) {
+      LOG(ERROR) << "Annotating AMP text content: \n"
+                 << "URL: " << visit.url << "\n"
+                 << "Text: " << *(visit.text_to_annotate);
+    }
     return;
   }
-  page_content_annotations_service_->Annotate(
-      visit, *result.GetMainFrameTextContent());
+  visit.text_to_annotate = *result.GetMainFrameTextContent();
+  page_content_annotations_service_->Annotate(visit);
+  if (switches::ShouldLogPageContentAnnotationsInput()) {
+    LOG(ERROR) << "Annotating main frame text content: \n"
+               << "URL: " << visit.url << "\n"
+               << "Text: " << *(visit.text_to_annotate);
+  }
 }
 
 void PageContentAnnotationsWebContentsObserver::OnRemotePageEntitiesReceived(

@@ -101,6 +101,7 @@
 #include "ash/shell_observer.h"
 #include "ash/shell_tab_handler.h"
 #include "ash/shutdown_controller_impl.h"
+#include "ash/style/ash_color_mixer.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/audio/display_speaker_controller.h"
 #include "ash/system/bluetooth/bluetooth_device_status_ui_handler.h"
@@ -111,6 +112,7 @@
 #include "ash/system/brightness/brightness_controller_chromeos.h"
 #include "ash/system/brightness_control_delegate.h"
 #include "ash/system/caps_lock_notification_controller.h"
+#include "ash/system/firmware_update/firmware_update_notification_controller.h"
 #include "ash/system/keyboard_brightness/keyboard_brightness_controller.h"
 #include "ash/system/keyboard_brightness_control_delegate.h"
 #include "ash/system/locale/locale_update_controller_impl.h"
@@ -190,7 +192,6 @@
 #include "chromeos/dbus/usb/usbguard_client.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 #include "chromeos/system/devicemode.h"
-#include "components/app_restore/features.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/viz/host/host_frame_sink_manager.h"
@@ -204,6 +205,7 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/chromeos/user_activity_power_manager_notifier.h"
+#include "ui/color/color_provider_manager.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/display/display.h"
@@ -895,6 +897,8 @@ Shell::~Shell() {
   // before it.
   detachable_base_handler_.reset();
 
+  firmware_update_notification_controller_.reset();
+
   pcie_peripheral_notification_controller_.reset();
 
   usb_peripheral_notification_controller_.reset();
@@ -983,6 +987,10 @@ void Shell::Init(
 
   tablet_mode_controller_ = std::make_unique<TabletModeController>();
 
+  firmware_update_notification_controller_ =
+      std::make_unique<FirmwareUpdateNotificationController>(
+          message_center::MessageCenter::Get());
+
   pcie_peripheral_notification_controller_ =
       std::make_unique<PciePeripheralNotificationController>(
           message_center::MessageCenter::Get());
@@ -1035,6 +1043,9 @@ void Shell::Init(
     env->set_context_factory(context_factory);
 
   ash_color_provider_ = std::make_unique<AshColorProvider>();
+
+  ui::ColorProviderManager::Get().AppendColorProviderInitializer(
+      base::BindRepeating(AddAshColorMixer));
 
   // Night Light depends on the display manager, the display color manager, and
   // aura::Env, so initialize it after all have been initialized.
@@ -1276,8 +1287,7 @@ void Shell::Init(
 
   // Create window restore controller after WindowTreeHostManager::InitHosts()
   // since it may need to add observers to root windows.
-  if (full_restore::features::IsFullRestoreEnabled())
-    window_restore_controller_ = std::make_unique<WindowRestoreController>();
+  window_restore_controller_ = std::make_unique<WindowRestoreController>();
 
   cursor_manager_->HideCursor();  // Hide the mouse cursor on startup.
   cursor_manager_->SetCursor(ui::mojom::CursorType::kPointer);

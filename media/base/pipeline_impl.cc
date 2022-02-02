@@ -35,9 +35,9 @@
 #include "media/base/timestamp_constants.h"
 #include "media/base/video_decoder_config.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "media/base/win/mf_feature_checks.h"
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
 static const double kDefaultPlaybackRate = 0.0;
 static const float kDefaultVolume = 1.0f;
@@ -589,7 +589,7 @@ void PipelineImpl::RendererWrapper::CreateRendererInternal(
 
   absl::optional<RendererType> renderer_type;
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (cdm_context_) {
     if (cdm_context_->RequiresMediaFoundationRenderer()) {
       renderer_type = RendererType::kMediaFoundation;
@@ -601,7 +601,7 @@ void PipelineImpl::RendererWrapper::CreateRendererInternal(
       renderer_type = RendererType::kDefault;
     }
   }
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
   // TODO(xhwang): During Resume(), the |default_renderer_| might already match
   // the |renderer_type|, in which case we shouldn't need to create a new one.
@@ -902,7 +902,7 @@ void PipelineImpl::RendererWrapper::OnVideoConfigChange(
 
 void PipelineImpl::RendererWrapper::OnPipelineError(PipelineStatus error) {
   DCHECK(media_task_runner_->BelongsToCurrentThread());
-  DCHECK_NE(PIPELINE_OK, error) << "PIPELINE_OK isn't an error!";
+  DCHECK(!error.is_ok()) << "PIPELINE_OK isn't an error!";
 
   // Preserve existing abnormal status.
   if (status_ != PIPELINE_OK)
@@ -966,7 +966,7 @@ void PipelineImpl::RendererWrapper::CompleteSeek(base::TimeDelta seek_time,
   DCHECK(state_ == kStarting || state_ == kSeeking || state_ == kResuming);
 
   if (state_ == kStarting) {
-    UMA_HISTOGRAM_ENUMERATION("Media.PipelineStatus.Start", status,
+    UMA_HISTOGRAM_ENUMERATION("Media.PipelineStatus.Start", status.code(),
                               PIPELINE_STATUS_MAX + 1);
   }
 
@@ -1540,7 +1540,7 @@ void PipelineImpl::AsyncCreateRenderer(
 void PipelineImpl::OnError(PipelineStatus error) {
   DVLOG(2) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_NE(PIPELINE_OK, error) << "PIPELINE_OK isn't an error!";
+  DCHECK(!error.is_ok()) << "PIPELINE_OK isn't an error!";
   DCHECK(IsRunning());
 
   // If the error happens during starting/seeking/suspending/resuming,

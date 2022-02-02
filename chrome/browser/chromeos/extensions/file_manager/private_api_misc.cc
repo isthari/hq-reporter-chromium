@@ -15,6 +15,9 @@
 #include "ash/components/settings/timezone_settings.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
+#include "ash/public/cpp/new_window_delegate.h"
+#include "ash/public/cpp/style/color_provider.h"
+#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -80,6 +83,7 @@
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/chromeos/styles/cros_styles.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 #include "url/gurl.h"
 
@@ -118,7 +122,7 @@ std::vector<ProfileInfo> GetLoggedInProfileInfoList() {
       continue;
     original_profiles.insert(profile);
     const user_manager::User* const user =
-        chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+        ash::ProfileHelper::Get()->GetUserByProfile(profile);
     if (!user || !user->is_logged_in())
       continue;
 
@@ -206,13 +210,17 @@ std::string Redact(const base::FilePath& path) {
   return Redact(path.value());
 }
 
+std::string SkColorToHexString(const SkColor color) {
+  return base::StringPrintf("#%02x%02x%02x", SkColorGetR(color),
+                            SkColorGetG(color), SkColorGetB(color));
+}
+
 }  // namespace
 
 ExtensionFunction::ResponseAction
 FileManagerPrivateLogoutUserForReauthenticationFunction::Run() {
-  const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(
-          Profile::FromBrowserContext(browser_context()));
+  const user_manager::User* user = ash::ProfileHelper::Get()->GetUserByProfile(
+      Profile::FromBrowserContext(browser_context()));
   if (user) {
     user_manager::UserManager::Get()->SaveUserOAuthStatus(
         user->GetAccountId(), user_manager::User::OAUTH2_TOKEN_STATUS_INVALID);
@@ -1265,11 +1273,41 @@ void FileManagerPrivateInternalGetRecentFilesFunction::
           *entry_definition_list))));
 }
 
+// TODO(crbug.com/1212768): Remove this once Files app SWA has fully launched.
+ExtensionFunction::ResponseAction
+FileManagerPrivateGetFrameColorFunction::Run() {
+  ash::ScopedLightModeAsDefault scoped_light_mode_as_default;
+  auto* color_provider = ash::ColorProvider::Get();
+  std::string frame_color = SkColorToHexString(SK_ColorWHITE);
+  if (color_provider) {
+    frame_color = SkColorToHexString(cros_styles::ResolveColor(
+        cros_styles::ColorName::kBgColor, color_provider->IsDarkModeEnabled(),
+        /*use_debug_color=*/false));
+  }
+  return RespondNow(OneArgument(base::Value(frame_color)));
+}
+
 ExtensionFunction::ResponseAction
 FileManagerPrivateIsTabletModeEnabledFunction::Run() {
   ash::TabletMode* tablet_mode = ash::TabletMode::Get();
   return RespondNow(OneArgument(
       base::Value(tablet_mode ? tablet_mode->InTabletMode() : false)));
+}
+
+ExtensionFunction::ResponseAction FileManagerPrivateOpenURLFunction::Run() {
+  using extensions::api::file_manager_private::OpenURL::Params;
+  const std::unique_ptr<Params> params(Params::Create(args()));
+  EXTENSION_FUNCTION_VALIDATE(params);
+  const GURL url(params->url);
+
+  if (!ash::NewWindowDelegate::GetPrimary()) {
+    return RespondNow(
+        Error("Could not get NewWindowDelegate's primary browser"));
+  }
+  ash::NewWindowDelegate::GetPrimary()->OpenUrl(url,
+                                                /*from_user_interaction=*/true);
+
+  return RespondNow(NoArguments());
 }
 
 ExtensionFunction::ResponseAction FileManagerPrivateOpenWindowFunction::Run() {

@@ -27,7 +27,6 @@
 #include "base/containers/contains.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/account_id/account_id.h"
-#include "components/app_restore/features.h"
 #include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_utils.h"
 #include "components/app_restore/window_properties.h"
@@ -218,7 +217,6 @@ bool WindowRestoreController::CanActivateAppList(const aura::Window* window) {
     if (topmost_visible_iter != active_desk_children.rend() &&
         (*topmost_visible_iter)
             ->GetProperty(app_restore::kLaunchedFromFullRestoreKey)) {
-      DCHECK(full_restore::features::IsFullRestoreEnabled());
       return false;
     }
   }
@@ -320,13 +318,13 @@ void WindowRestoreController::OnWidgetInitialized(views::Widget* widget) {
   // If the restored bounds are out of the screen, move the window to the bounds
   // manually as most widget types force windows to be within the work area on
   // creation.
-  // TODO(chinsenj|sammiequon): The Files app uses async Mojo calls to activate
+  // TODO(sammiequon): The Files app uses async Mojo calls to activate
   // and set its bounds, making this approach not work. In the future, we'll
   // need to address the Files app.
   MaybeRestoreOutOfBoundsWindows(window);
 }
 
-void WindowRestoreController::OnARCTaskReadyForUnparentedWindow(
+void WindowRestoreController::OnParentWindowToValidContainer(
     aura::Window* window) {
   DCHECK(window);
   DCHECK(window->GetProperty(app_restore::kParentToHiddenContainerKey));

@@ -135,13 +135,13 @@ void LoginManagerMixin::SetUpLocalState() {
 
     DictionaryPrefUpdate user_type_update(g_browser_process->local_state(),
                                           "UserType");
-    user_type_update->SetKey(user.account_id.GetAccountIdKey(),
-                             base::Value(static_cast<int>(user.user_type)));
+    user_type_update->SetIntKey(user.account_id.GetAccountIdKey(),
+                                static_cast<int>(user.user_type));
 
     DictionaryPrefUpdate user_token_update(g_browser_process->local_state(),
                                            "OAuthTokenStatus");
-    user_token_update->SetKey(user.account_id.GetUserEmail(),
-                              base::Value(static_cast<int>(user.token_status)));
+    user_token_update->SetIntKey(user.account_id.GetUserEmail(),
+                                 static_cast<int>(user.token_status));
 
     user_manager::known_user::UpdateId(user.account_id);
 

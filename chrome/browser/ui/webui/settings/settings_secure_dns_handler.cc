@@ -21,7 +21,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
-#include "net/dns/public/dns_over_https_server_config.h"
+#include "net/dns/public/dns_over_https_config.h"
 #include "net/dns/public/doh_provider_entry.h"
 #include "net/dns/public/secure_dns_mode.h"
 #include "net/dns/public/util.h"
@@ -73,14 +73,13 @@ void SecureDnsHandler::RegisterMessages() {
                           base::Unretained(this)));
 
   web_ui()->RegisterDeprecatedMessageCallback(
-      "parseCustomDnsEntry",
-      base::BindRepeating(&SecureDnsHandler::HandleParseCustomDnsEntry,
+      "isValidConfig",
+      base::BindRepeating(&SecureDnsHandler::HandleIsValidConfig,
                           base::Unretained(this)));
 
   web_ui()->RegisterDeprecatedMessageCallback(
-      "probeCustomDnsTemplate",
-      base::BindRepeating(&SecureDnsHandler::HandleProbeCustomDnsTemplate,
-                          base::Unretained(this)));
+      "probeConfig", base::BindRepeating(&SecureDnsHandler::HandleProbeConfig,
+                                         base::Unretained(this)));
 
   web_ui()->RegisterDeprecatedMessageCallback(
       "recordUserDropdownInteraction",
@@ -171,24 +170,17 @@ void SecureDnsHandler::HandleGetSecureDnsSetting(const base::ListValue* args) {
   ResolveJavascriptCallback(callback_id, *CreateSecureDnsSettingDict());
 }
 
-void SecureDnsHandler::HandleParseCustomDnsEntry(const base::ListValue* args) {
+void SecureDnsHandler::HandleIsValidConfig(const base::ListValue* args) {
   AllowJavascript();
   const base::Value& callback_id = args->GetList()[0];
   const std::string& custom_entry = args->GetList()[1].GetString();
 
-  // Return all templates in the entry, or none if they are not all valid.
-  base::Value templates(base::Value::Type::LIST);
-  if (secure_dns::IsValidGroup(custom_entry)) {
-    for (base::StringPiece t : secure_dns::SplitGroup(custom_entry)) {
-      templates.Append(t);
-    }
-  }
-  secure_dns::UpdateValidationHistogram(!templates.GetList().empty());
-  ResolveJavascriptCallback(callback_id, templates);
+  bool valid = net::DnsOverHttpsConfig::FromString(custom_entry).has_value();
+  secure_dns::UpdateValidationHistogram(valid);
+  ResolveJavascriptCallback(callback_id, base::Value(valid));
 }
 
-void SecureDnsHandler::HandleProbeCustomDnsTemplate(
-    const base::ListValue* args) {
+void SecureDnsHandler::HandleProbeConfig(const base::ListValue* args) {
   AllowJavascript();
 
   if (!probe_callback_id_.empty()) {
@@ -201,13 +193,13 @@ void SecureDnsHandler::HandleProbeCustomDnsTemplate(
   }
 
   probe_callback_id_ = args->GetList()[0].GetString();
-  const std::string& server_template = args->GetList()[1].GetString();
+  const std::string& server_templates = args->GetList()[1].GetString();
 
   net::DnsConfigOverrides overrides;
   overrides.search = std::vector<std::string>();
   overrides.attempts = 1;
   overrides.secure_dns_mode = net::SecureDnsMode::kSecure;
-  secure_dns::ApplyTemplate(&overrides, server_template);
+  secure_dns::ApplyConfig(&overrides, server_templates);
   DCHECK(!runner_);
   runner_ = std::make_unique<chrome_browser_net::DnsProbeRunner>(
       overrides, network_context_getter_);

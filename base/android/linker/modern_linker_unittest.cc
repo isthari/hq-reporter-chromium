@@ -43,7 +43,7 @@ class LibraryRangeFinder {
   size_t relro_size() const { return relro_size_; }
 
   static int VisitLibraryPhdrs(dl_phdr_info* info,
-                               size_t size UNUSED,
+                               [[maybe_unused]] size_t size,
                                void* data);
 
  private:
@@ -59,7 +59,7 @@ class LibraryRangeFinder {
 // corresponding phdr(s).
 // static
 int LibraryRangeFinder::VisitLibraryPhdrs(dl_phdr_info* info,
-                                          size_t size UNUSED,
+                                          [[maybe_unused]] size_t size,
                                           void* data) {
   auto* finder = reinterpret_cast<LibraryRangeFinder*>(data);
   ElfW(Addr) lookup_address = static_cast<ElfW(Addr)>(finder->load_address());
@@ -237,6 +237,15 @@ TEST_F(ModernLinkerTest, FindLibraryRanges) {
   EXPECT_LE(lib_info.load_address(), lib_info.get_relro_start_for_testing());
   EXPECT_LE(lib_info.get_relro_start_for_testing(),
             lib_info.load_address() + lib_info.get_load_size_for_testing());
+}
+
+TEST_F(ModernLinkerTest, FindLibraryRangesWhenLoadAddressWasReset) {
+  NativeLibInfo other_lib_info = {0, 0};
+  uintptr_t executable_start = reinterpret_cast<uintptr_t>(&__executable_start);
+  other_lib_info.set_load_address(executable_start);
+  other_lib_info.set_relro_fd_for_testing(123);
+  NativeLibInfo lib_info = {0, 0};
+  EXPECT_FALSE(lib_info.CompareRelroAndReplaceItBy(other_lib_info));
 }
 
 // Check that discovering RELRO segment address ranges and the DSO ranges agrees

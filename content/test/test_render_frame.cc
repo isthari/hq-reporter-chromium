@@ -212,10 +212,6 @@ class MockFrameHost : public mojom::FrameHost {
 
   void DidStopLoading() override {}
 
-#if defined(OS_ANDROID)
-  void UpdateUserGestureCarryoverInfo() override {}
-#endif
-
  private:
   mojom::DidCommitProvisionalLoadParamsPtr last_commit_params_;
   mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
@@ -302,9 +298,10 @@ void TestRenderFrame::NavigateWithError(
           network::NotImplementedURLLoaderFactory::Create());
   mock_navigation_client_->CommitFailedNavigation(
       std::move(common_params), std::move(commit_params),
-      false /* has_stale_copy_in_cache */, error_code,
-      0 /* extended_error_code */, resolve_error_info, error_page_content,
+      /*has_stale_copy_in_cache=*/false, error_code,
+      /*extended_error_code=*/0, resolve_error_info, error_page_content,
       std::move(pending_factory_bundle), CreateStubPolicyContainer(),
+      /*alternative_error_page_info=*/nullptr,
       base::BindOnce(&MockFrameHost::DidCommitProvisionalLoad,
                      base::Unretained(mock_frame_host_.get())));
 }

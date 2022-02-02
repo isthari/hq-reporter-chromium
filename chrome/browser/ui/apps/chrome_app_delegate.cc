@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/apps/platform_apps/audio_focus_web_contents_observer.h"
@@ -54,7 +55,7 @@
 #include "chrome/browser/ash/lock_screen_apps/state_controller.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/dlp/dlp_content_tab_helper.h"
 #endif
 
@@ -229,7 +230,7 @@ void ChromeAppDelegate::InitWebContents(content::WebContents* web_contents) {
 
   apps::AudioFocusWebContentsObserver::CreateForWebContents(web_contents);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
   policy::DlpContentTabHelper::MaybeCreateForWebContents(web_contents);
 #endif
 
@@ -397,11 +398,9 @@ bool ChromeAppDelegate::TakeFocus(content::WebContents* web_contents,
 }
 
 content::PictureInPictureResult ChromeAppDelegate::EnterPictureInPicture(
-    content::WebContents* web_contents,
-    const viz::SurfaceId& surface_id,
-    const gfx::Size& natural_size) {
+    content::WebContents* web_contents) {
   return PictureInPictureWindowManager::GetInstance()->EnterPictureInPicture(
-      web_contents, surface_id, natural_size);
+      web_contents);
 }
 
 void ChromeAppDelegate::ExitPictureInPicture() {

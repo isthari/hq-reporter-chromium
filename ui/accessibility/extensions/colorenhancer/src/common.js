@@ -17,9 +17,7 @@ function $(id) {
  * TODO(wnwen): Remove this, it's terrible.
  */
 function siteFromUrl(url) {
-  var a = document.createElement('a');
-  a.href = url;
-  return a.hostname;
+  return new URL(url).hostname;
 }
 
 
@@ -37,7 +35,7 @@ function isDisallowedUrl(url) {
  * Whether extension is loaded unpacked or from Chrome Webstore.
  * @const {boolean}
  */
-var IS_DEV_MODE = !('update_url' in chrome.runtime.getManifest());
+const IS_DEV_MODE = !('update_url' in chrome.runtime.getManifest());
 
 
 /**

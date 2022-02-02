@@ -34,6 +34,7 @@
 #include "content/public/browser/mojo_binder_policy_map.h"
 #include "content/public/browser/storage_partition_config.h"
 #include "content/public/browser/web_ui_browser_interface_broker_registry.h"
+#include "content/public/common/alternative_error_page_override_info.mojom.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/page_visibility_state.h"
 #include "content/public/common/window_container_type.mojom-forward.h"
@@ -58,7 +59,6 @@
 #include "services/network/public/mojom/websocket.mojom-forward.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/loader/previews_state.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/mojom/federated_learning/floc.mojom-forward.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom-forward.h"
@@ -69,11 +69,11 @@
 #include "url/origin.h"
 #include "url/url_constants.h"
 
-#if (defined(OS_POSIX) && !defined(OS_MAC)) || defined(OS_FUCHSIA)
+#if (BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)) || BUILDFLAG(IS_FUCHSIA)
 #include "base/posix/global_descriptors.h"
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 #include "content/public/browser/posix_file_descriptor_info.h"
 #endif
 
@@ -247,7 +247,7 @@ struct Referrer;
 struct ServiceWorkerVersionBaseInfo;
 struct SocketPermissionRequest;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 class TtsEnvironmentAndroid;
 #endif
 
@@ -794,13 +794,17 @@ class CONTENT_EXPORT ContentBrowserClient {
   // "1812:e, 00001800-0000-1000-8000-00805f9b34fb:w, ignored:1, alsoignored."
   virtual std::string GetWebBluetoothBlocklist();
 
-  // Returns whether the interest group API is allowed anywhere in
-  // |browser_context|. Returns false if the interest group API is not allowed
-  // by default on any origin.
+  // The possible operations performable by parties related to the Interest
+  // Group API.
+  enum class InterestGroupApiOperation { kJoin, kLeave, kUpdate, kSell, kBuy };
+
+  // Returns whether |api_origin| on |top_frame_origin| can perform
+  // |operation| within the interest group API.
   virtual bool IsInterestGroupAPIAllowed(
-      content::BrowserContext* browser_context,
+      content::RenderFrameHost* render_frame_host,
+      InterestGroupApiOperation operation,
       const url::Origin& top_frame_origin,
-      const GURL& api_url);
+      const url::Origin& api_origin);
 
   enum class ConversionMeasurementOperation {
     kImpression,
@@ -827,7 +831,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       const url::Origin* conversion_origin,
       const url::Origin* reporting_origin);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // Notification that a trust anchor was used by the given user.
   virtual void OnTrustAnchorUsed(BrowserContext* browser_context) {}
 #endif
@@ -862,7 +866,7 @@ class CONTENT_EXPORT ContentBrowserClient {
   // allow.
   virtual device::GeolocationManager* GetGeolocationManager();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Allows an embedder to decide whether to use the GmsCoreLocationProvider.
   virtual bool ShouldUseGmsCoreGeolocationProvider();
 #endif
@@ -1226,14 +1230,14 @@ class CONTENT_EXPORT ContentBrowserClient {
 
   // Populates |mappings| with all files that need to be mapped before launching
   // a child process.
-#if (defined(OS_POSIX) && !defined(OS_MAC)) || defined(OS_FUCHSIA)
+#if (BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)) || BUILDFLAG(IS_FUCHSIA)
   virtual void GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
       int child_process_id,
       content::PosixFileDescriptorInfo* mappings) {}
-#endif  // defined(OS_POSIX) && !defined(OS_MAC) || defined(OS_FUCHSIA)
+#endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) || BUILDFLAG(IS_FUCHSIA)
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Defines flags that can be passed to PreSpawnChild.
   enum ChildSpawnFlags {
     NONE = 0,
@@ -1652,7 +1656,7 @@ class CONTENT_EXPORT ContentBrowserClient {
   // convention is to put new constants under a subdict at the key "clientInfo".
   virtual base::DictionaryValue GetNetLogConstants();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Only used by Android WebView.
   // Returns:
   //   true  - The check was successfully performed without throwing a
@@ -1696,7 +1700,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       mojo::PendingReceiver<blink::mojom::ManagedConfigurationService>
           receiver);
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
   // Allows the embedder to provide an implementation of the Serial API.
   virtual SerialDelegate* GetSerialDelegate();
 #endif
@@ -1732,7 +1736,7 @@ class CONTENT_EXPORT ContentBrowserClient {
   // BrowserMainLoop, BrowserMainLoop itself is responsible for that.
   virtual bool CreateThreadPool(base::StringPiece name);
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
   // Returns an embedder-provided subclass of WebAuthenticationDelegate. This
   // allows the embedder to customize the implementation of the Web
   // Authentication API.
@@ -1865,26 +1869,6 @@ class CONTENT_EXPORT ContentBrowserClient {
   // This is called on the UI thread.
   virtual bool ShouldSandboxNetworkService();
 
-  // Asks the embedder for the PreviewsState which says which previews should
-  // be enabled for the given navigation. The PreviewsState is a bitmask of
-  // potentially several Previews optimizations. |initial_state| is used to
-  // keep sub-frame navigation state consistent with main frame state.
-  // |current_navigation_url| is the URL that is currently being navigated to,
-  // and can differ from GetURL() in |navigation_handle| on redirects.
-  virtual blink::PreviewsState DetermineAllowedPreviews(
-      blink::PreviewsState initial_state,
-      content::NavigationHandle* navigation_handle,
-      const GURL& current_navigation_url);
-
-  // Asks the embedder for the preview state that should be committed to the
-  // renderer. |initial_state| was pre-determined by |DetermineAllowedPreviews|.
-  // |navigation_handle| is the corresponding navigation object.
-  // |response_headers| are the response headers related to this navigation.
-  virtual blink::PreviewsState DetermineCommittedPreviews(
-      blink::PreviewsState initial_state,
-      content::NavigationHandle* navigation_handle,
-      const net::HttpResponseHeaders* response_headers);
-
   // Browser-side API to log blink UseCounters for events that don't occur in
   // the renderer.
   virtual void LogWebFeatureForCurrentPage(
@@ -1931,7 +1915,7 @@ class CONTENT_EXPORT ContentBrowserClient {
   virtual ui::AXMode GetAXModeForBrowserContext(
       BrowserContext* browser_context);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Defines the heuristics we can use to enable wide color gamut (WCG).
   enum class WideColorGamutHeuristic {
     kUseDisplay,  // Use WCG if display supports it.
@@ -2119,14 +2103,14 @@ class CONTENT_EXPORT ContentBrowserClient {
   // unsuccessfully.
   virtual void OnKeepaliveRequestFinished();
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // Sets up the embedder sandbox parameters for the given sandbox type. Returns
   // true if parameters were successfully set up or false if no additional
   // parameters were set up.
   virtual bool SetupEmbedderSandboxParameters(
       sandbox::mojom::Sandbox sandbox_type,
       sandbox::SeatbeltExecClient* client);
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
   virtual void GetHyphenationDictionary(
       base::OnceCallback<void(const base::FilePath&)>);
@@ -2193,6 +2177,14 @@ class CONTENT_EXPORT ContentBrowserClient {
 
   // Returns true if First-Party Sets is enabled.
   virtual bool IsFirstPartySetsEnabled();
+
+  // Gets information required for an alternative error page from web app's
+  // manifest for |url|, including theme color, background color and app short
+  // name. Information is returned in a struct. Default implementation returns
+  // nullptr.
+  virtual mojom::AlternativeErrorPageOverrideInfoPtr
+  GetAlternativeErrorPageOverrideInfo(const GURL& url,
+                                      BrowserContext* browser_context);
 };
 
 }  // namespace content

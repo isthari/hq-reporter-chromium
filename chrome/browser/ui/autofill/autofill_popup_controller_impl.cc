@@ -40,7 +40,7 @@
 #include "ui/gfx/text_utils.h"
 #include "ui/views/accessibility/view_accessibility.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/autofill/manual_filling_controller_impl.h"
 
 using FillingSource = ManualFillingController::FillingSource;
@@ -50,7 +50,7 @@ using base::WeakPtr;
 
 namespace autofill {
 
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
 // static
 WeakPtr<AutofillPopupControllerImpl> AutofillPopupControllerImpl::GetOrCreate(
     WeakPtr<AutofillPopupControllerImpl> previous,
@@ -126,7 +126,7 @@ void AutofillPopupControllerImpl::Show(
   }
 
   if (just_created) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     ManualFillingController::GetOrCreate(web_contents_)
         ->UpdateSourceAvailability(FillingSource::AUTOFILL,
                                    !suggestions.empty());
@@ -264,6 +264,10 @@ void AutofillPopupControllerImpl::ViewDestroyed() {
 
 bool AutofillPopupControllerImpl::HandleKeyPressEvent(
     const content::NativeWebKeyboardEvent& event) {
+  bool has_shift_modifier =
+      (event.GetModifiers() & blink::WebInputEvent::kShiftKey);
+  bool has_non_shift_modifier =
+      (event.GetModifiers() & ~blink::WebInputEvent::kShiftKey);
   switch (event.windows_key_code) {
     case ui::VKEY_UP:
       SelectPreviousLine();
@@ -287,14 +291,15 @@ bool AutofillPopupControllerImpl::HandleKeyPressEvent(
       Hide(PopupHidingReason::kUserAborted);
       return true;
     case ui::VKEY_DELETE:
-      return (event.GetModifiers() &
-              content::NativeWebKeyboardEvent::kShiftKey) &&
-             RemoveSelectedLine();
+      return has_shift_modifier && RemoveSelectedLine();
     case ui::VKEY_TAB:
-      // A tab press should cause the selected line to be accepted, but still
-      // return false so the tab key press propagates and changes the cursor
-      // location.
-      AcceptSelectedLine();
+      // We want TAB or Shift+TAB press to cause the selected line to be
+      // accepted, but still return false so the tab key press propagates and
+      // change the cursor location.
+      // We don't want to handle Mod+TAB for other modifiers because this may
+      // have other purposes (e.g., change the tab).
+      if (!has_non_shift_modifier)
+        AcceptSelectedLine();
       return false;
     case ui::VKEY_RETURN:
       return AcceptSelectedLine();
@@ -304,7 +309,7 @@ bool AutofillPopupControllerImpl::HandleKeyPressEvent(
 }
 
 void AutofillPopupControllerImpl::OnSuggestionsChanged() {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Assume that suggestions are (still) available. If this is wrong, the method
   // |HideViewAndDie| will be called soon after and will hide all suggestions.
   ManualFillingController::GetOrCreate(web_contents_)
@@ -327,7 +332,7 @@ void AutofillPopupControllerImpl::AcceptSuggestion(int index) {
   }
 
   const Suggestion& suggestion = suggestions_[index];
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   auto mf_controller = ManualFillingController::GetOrCreate(web_contents_);
   // Accepting a suggestion should hide all suggestions. To prevent them from
   // coming up in Multi-Window mode, mark the source as unavailable.
@@ -574,7 +579,7 @@ void AutofillPopupControllerImpl::HideViewAndDie() {
   // prevents recursive calls triggered by `view_->Hide()` (crbug.com/1267047).
   weak_ptr_factory_.InvalidateWeakPtrs();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Mark the popup-like filling sources as unavailable.
   // Note: We don't invoke ManualFillingController::Hide() here, as we might
   // switch between text input fields.

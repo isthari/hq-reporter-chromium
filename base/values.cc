@@ -22,7 +22,6 @@
 #include "base/check_op.h"
 #include "base/containers/checked_iterators.h"
 #include "base/cxx17_backports.h"
-#include "base/ignore_result.h"
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
@@ -337,15 +336,15 @@ const Value::BlobStorage& Value::GetBlob() const {
   return absl::get<BlobStorage>(data_);
 }
 
-Value::ListView Value::GetList() {
+Value::ListView Value::GetListDeprecated() {
   return list();
 }
 
-Value::ConstListView Value::GetList() const {
+Value::ConstListView Value::GetListDeprecated() const {
   return list();
 }
 
-Value::ListStorage Value::TakeList() && {
+Value::ListStorage Value::TakeListDeprecated() && {
   return std::exchange(list(), {});
 }
 
@@ -766,7 +765,7 @@ Value::const_dict_iterator_proxy Value::DictItems() const {
   return const_dict_iterator_proxy(&dict());
 }
 
-Value::DictStorage Value::TakeDict() && {
+Value::DictStorage Value::TakeDictDeprecated() && {
   DictStorage storage;
   storage.reserve(dict().size());
   for (auto& pair : dict()) {
@@ -1078,7 +1077,7 @@ std::unique_ptr<DictionaryValue> DictionaryValue::From(
     std::unique_ptr<Value> value) {
   DictionaryValue* out;
   if (value && value->GetAsDictionary(&out)) {
-    ignore_result(value.release());
+    std::ignore = value.release();
     return WrapUnique(out);
   }
   return nullptr;
@@ -1337,7 +1336,7 @@ std::unique_ptr<DictionaryValue> DictionaryValue::CreateDeepCopy() const {
 std::unique_ptr<ListValue> ListValue::From(std::unique_ptr<Value> value) {
   ListValue* out;
   if (value && value->GetAsList(&out)) {
-    ignore_result(value.release());
+    std::ignore = value.release();
     return WrapUnique(out);
   }
   return nullptr;
@@ -1387,10 +1386,6 @@ void ListValue::Append(std::unique_ptr<Value> in_value) {
 void ListValue::Swap(ListValue* other) {
   CHECK(other->is_list());
   list().swap(other->list());
-}
-
-std::unique_ptr<ListValue> ListValue::CreateDeepCopy() const {
-  return std::make_unique<ListValue>(list());
 }
 
 ValueSerializer::~ValueSerializer() = default;

@@ -311,7 +311,7 @@
         </cr-menu-item>
       </cr-menu>
 
-      <cr-menu id="tasks-menu" class="chrome-menu files-menu"
+      <cr-menu id="tasks-menu" class="chrome-menu files-menu has-icon-start"
                aria-label="$i18n{OPEN_WITH_BUTTON_LABEL}"
                menu-item-selector="cr-menu-item, hr">
       </cr-menu>
@@ -344,10 +344,10 @@
           <div class="content"></div>
         </div>
         <div class="progress"><div class="value"></div></div>
-        <cr-button class="import" tabindex="0">
+        <cr-button class="import action-button" tabindex="0">
           <span>$i18n{CLOUD_IMPORT_COMMAND}</span>
         </cr-button>
-        <cr-button class="cancel" tabindex="0">
+        <cr-button class="cancel cancel-button" tabindex="0">
           <span>$i18n{CLOUD_IMPORT_CANCEL_COMMAND}</span>
         </cr-button>
       </div>
@@ -514,33 +514,6 @@
           <div class="main-panel">
             <div class="filelist-panel">
               <div id="banners"></div>
-              <div class="drive-welcome header"></div>
-              <div id="photos-welcome" class="photos-welcome-hidden" hidden></div>
-              <div class="holding-space-welcome" hidden style="height: 0; opacity: 0;"></div>
-              <div class="volume-warning banner-cloud-bg" id="volume-space-warning" hidden></div>
-              <div class="volume-warning banner-cloud-bg" id="drive-auth-failed-warning" hidden>
-                <div class="drive-icon"></div>
-                <div class="drive-text" id="drive-auth-failed-warning-text"></div>
-              </div>
-              <div class="volume-warning" id="offline-info-banner" hidden>
-                <div class="info-icon"></div>
-                <div id="offline-info-banner-text" class="body2-primary">
-                  $i18n{OFFLINE_BANNER_MESSAGE}
-                </div>
-                <div class="button-group">
-                  <cr-button id="offline-learn-more" class="banner-close text-button"
-                             aria-labelledby="offline-info-banner-text"
-                             aria-describedby="offline-learn-more"
-                             aria-disabled="false" role="button" tabindex="0">
-                    $i18n{DRIVE_LEARN_MORE}
-                  </cr-button>
-                </div>
-              </div>
-              <div class="downloads-warning" hidden></div>
-              <div id="trash-deleted-forever" class="trash-warning" hidden>
-                  $i18n{TRASH_DELETED_FOREVER}
-              </div>
-              <files-message id='files-message' hidden></files-message>
               <div id="file-type-filter-container" hidden></div>
               <div id="list-container" role="main">
                 <div id="more-actions-info" hidden>$i18n{SEE_MENU_FOR_ACTIONS}</div>
@@ -556,7 +529,6 @@
               </div>
             </div>
           </div>
-          <div id="unmounted-panel"></div>
           <div id="format-panel">
             <div class="error"></div>
             <button id="format-button" command="#format"></button>

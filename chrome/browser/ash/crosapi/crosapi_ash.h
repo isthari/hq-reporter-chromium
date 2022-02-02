@@ -60,10 +60,12 @@ class PrefsAsh;
 class RemotingAsh;
 class ResourceManagerAsh;
 class ScreenManagerAsh;
+class SearchProviderAsh;
 class SelectFileAsh;
 class StructuredMetricsServiceAsh;
 class SystemDisplayAsh;
 class TaskManagerAsh;
+class TimeZoneServiceAsh;
 class TtsAsh;
 class WebPageInfoFactoryAsh;
 class UrlHandlerAsh;
@@ -171,6 +173,8 @@ class CrosapiAsh : public mojom::Crosapi {
       mojo::PendingReceiver<mojom::ResourceManager> receiver) override;
   void BindScreenManager(
       mojo::PendingReceiver<mojom::ScreenManager> receiver) override;
+  void BindSearchControllerRegistry(
+      mojo::PendingReceiver<mojom::SearchControllerRegistry> receiver) override;
   void BindSelectFile(
       mojo::PendingReceiver<mojom::SelectFile> receiver) override;
   void BindSensorHalClient(
@@ -199,6 +203,8 @@ class CrosapiAsh : public mojom::Crosapi {
       mojo::PendingReceiver<mojom::TaskManager> receiver) override;
   void BindTestController(
       mojo::PendingReceiver<mojom::TestController> receiver) override;
+  void BindTimeZoneService(
+      mojo::PendingReceiver<mojom::TimeZoneService> receiver) override;
   void BindTts(mojo::PendingReceiver<mojom::Tts> receiver) override;
   void BindUrlHandler(
       mojo::PendingReceiver<mojom::UrlHandler> receiver) override;
@@ -234,6 +240,10 @@ class CrosapiAsh : public mojom::Crosapi {
 
   KioskSessionServiceAsh* kiosk_session_service() {
     return kiosk_session_service_ash_.get();
+  }
+
+  SearchProviderAsh* search_provider_ash() {
+    return search_provider_ash_.get();
   }
 
   WebPageInfoFactoryAsh* web_page_info_factory_ash() {
@@ -307,6 +317,7 @@ class CrosapiAsh : public mojom::Crosapi {
   std::unique_ptr<RemotingAsh> remoting_ash_;
   std::unique_ptr<ResourceManagerAsh> resource_manager_ash_;
   std::unique_ptr<ScreenManagerAsh> screen_manager_ash_;
+  std::unique_ptr<SearchProviderAsh> search_provider_ash_;
   std::unique_ptr<SelectFileAsh> select_file_ash_;
   std::unique_ptr<media::StableVideoDecoderFactoryService>
       stable_video_decoder_factory_ash_;
@@ -314,6 +325,7 @@ class CrosapiAsh : public mojom::Crosapi {
   std::unique_ptr<SystemDisplayAsh> system_display_ash_;
   std::unique_ptr<WebPageInfoFactoryAsh> web_page_info_factory_ash_;
   std::unique_ptr<TaskManagerAsh> task_manager_ash_;
+  std::unique_ptr<TimeZoneServiceAsh> time_zone_service_ash_;
   std::unique_ptr<TtsAsh> tts_ash_;
   std::unique_ptr<UrlHandlerAsh> url_handler_ash_;
   std::unique_ptr<VideoCaptureDeviceFactoryAsh>

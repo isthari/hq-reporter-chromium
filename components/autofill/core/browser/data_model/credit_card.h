@@ -9,7 +9,6 @@
 #include <string>
 #include <utility>
 
-#include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/strings/string_piece_forward.h"
 #include "build/build_config.h"
@@ -72,10 +71,14 @@ class CreditCard : public AutofillDataModel {
     // State unspecified. This is the default value of this enum. Should not be
     // ever used with cards.
     UNSPECIFIED = 0,
-    // Card is not enrolled and does not have related virtual card.
+    // Deprecated. Card is not enrolled and does not have related virtual card.
     UNENROLLED = 1,
     // Card is enrolled and has related virtual cards.
     ENROLLED = 2,
+    // Card is not enrolled and is not eligible for enrollment.
+    UNENROLLED_AND_NOT_ELIGIBLE = 3,
+    // Card is not enrolled but is eligible for enrollment.
+    UNENROLLED_AND_ELIGIBLE = 4,
   };
 
   CreditCard(const std::string& guid, const std::string& origin);
@@ -180,8 +183,8 @@ class CreditCard : public AutofillDataModel {
   // two wouldn't result in unverified data overwriting verified data,
   // overwrites |this| card's data with the data in |imported_card|. Returns
   // true if the card numbers match, false otherwise.
-  bool UpdateFromImportedCard(const CreditCard& imported_card,
-                              const std::string& app_locale) WARN_UNUSED_RESULT;
+  [[nodiscard]] bool UpdateFromImportedCard(const CreditCard& imported_card,
+                                            const std::string& app_locale);
 
   // Comparison for Sync.  Returns 0 if the card is the same as |this|, or < 0,
   // or > 0 if it is different.  The implied ordering can be used for culling
@@ -299,10 +302,10 @@ class CreditCard : public AutofillDataModel {
       std::u16string customized_nickname = std::u16string(),
       int obfuscation_length = 4) const;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Label for the card to be displayed in the manual filling view on Android.
   std::u16string CardIdentifierStringForManualFilling() const;
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
   // A label for this card formatted as 'Nickname - ****2345, expires on MM/YY'
   // if nickname experiment is turned on and nickname is available; otherwise,

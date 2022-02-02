@@ -12,6 +12,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_socket_options.h"
@@ -107,37 +108,84 @@ void NavigatorSocket::EnsureServiceConnected(LocalDOMWindow& window) {
 // static
 mojom::blink::DirectSocketOptionsPtr NavigatorSocket::CreateSocketOptions(
     const SocketOptions* options,
-    NavigatorSocket::ProtocolType socket_type) {
+    NavigatorSocket::ProtocolType socket_type,
+    ExceptionState& exception_state) {
   auto socket_options = mojom::blink::DirectSocketOptions::New();
 
-  if (options->hasLocalAddress())
+  const bool has_full_local_address =
+      options->hasLocalAddress() && options->hasLocalPort();
+
+  if (const bool has_partial_local_address =
+          options->hasLocalAddress() || options->hasLocalPort();
+      has_partial_local_address && !has_full_local_address) {
+    exception_state.ThrowTypeError("Incomplete local address specified.");
+    return {};
+  }
+
+  const bool has_full_remote_address =
+      options->hasRemoteAddress() && options->hasRemotePort();
+
+  if (const bool has_partial_remote_address =
+          options->hasRemoteAddress() || options->hasRemotePort();
+      has_partial_remote_address && !has_full_remote_address) {
+    exception_state.ThrowTypeError("Incomplete remote address specified.");
+    return {};
+  }
+
+  // Socket-specific options & checks.
+  switch (socket_type) {
+    case NavigatorSocket::ProtocolType::kTcp: {
+      if (!has_full_remote_address) {
+        exception_state.ThrowTypeError(
+            "Complete remote address is always required for TCP.");
+        return {};
+      }
+      const TCPSocketOptions* tcp_options =
+          static_cast<const TCPSocketOptions*>(options);
+      if (tcp_options->hasNoDelay()) {
+        socket_options->no_delay = tcp_options->noDelay();
+      }
+      if (tcp_options->hasKeepAlive()) {
+        socket_options->keep_alive_options =
+            network::mojom::blink::TCPKeepAliveOptions::New(
+                /*enable=*/tcp_options->keepAlive(),
+                /*delay=*/base::Milliseconds(
+                    tcp_options->getKeepAliveDelayOr(0))
+                    .InSeconds());
+      }
+      break;
+    }
+    case NavigatorSocket::ProtocolType::kUdp: {
+      if (!has_full_remote_address && !has_full_local_address) {
+        exception_state.ThrowTypeError(
+            "Neither complete remote address nor "
+            "complete local address specified.");
+        return {};
+      }
+      if (has_full_remote_address && has_full_local_address) {
+        exception_state.ThrowTypeError(
+            "Both remote address and local address specified -- please choose "
+            "only one.");
+        return {};
+      }
+    }
+  }
+
+  if (has_full_local_address) {
     socket_options->local_hostname = options->localAddress();
-  if (options->hasLocalPort())
     socket_options->local_port = options->localPort();
+  }
 
-  if (options->hasRemoteAddress())
+  if (has_full_remote_address) {
     socket_options->remote_hostname = options->remoteAddress();
-  if (options->hasRemotePort())
     socket_options->remote_port = options->remotePort();
+  }
 
-  if (options->hasSendBufferSize())
+  if (options->hasSendBufferSize()) {
     socket_options->send_buffer_size = options->sendBufferSize();
-  if (options->hasReceiveBufferSize())
+  }
+  if (options->hasReceiveBufferSize()) {
     socket_options->receive_buffer_size = options->receiveBufferSize();
-
-  if (socket_type == NavigatorSocket::ProtocolType::kTcp) {
-    const TCPSocketOptions* tcp_options =
-        static_cast<const TCPSocketOptions*>(options);
-    if (tcp_options->hasNoDelay()) {
-      socket_options->no_delay = tcp_options->noDelay();
-    }
-    if (tcp_options->hasKeepAlive()) {
-      socket_options->keep_alive_options =
-          network::mojom::blink::TCPKeepAliveOptions::New(
-              /*enable=*/tcp_options->keepAlive(),
-              /*delay=*/base::Milliseconds(tcp_options->getKeepAliveDelayOr(0))
-                  .InSeconds());
-    }
   }
 
   return socket_options;
@@ -149,14 +197,21 @@ ScriptPromise NavigatorSocket::openTCPSocket(ScriptState* script_state,
   if (!OpenSocketPermitted(script_state, options, exception_state))
     return ScriptPromise();
 
+  mojom::blink::DirectSocketOptionsPtr open_tcp_socket_options =
+      CreateSocketOptions(options, NavigatorSocket::ProtocolType::kTcp,
+                          exception_state);
+  if (!open_tcp_socket_options) {
+    return ScriptPromise();
+  }
+
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   TCPSocket* pending = MakeGarbageCollected<TCPSocket>(*resolver);
   pending_tcp_.insert(pending);
   ScriptPromise promise = resolver->Promise();
 
   service_remote_->OpenTcpSocket(
-      CreateSocketOptions(options, NavigatorSocket::ProtocolType::kTcp),
-      pending->GetTCPSocketReceiver(), pending->GetTCPSocketObserver(),
+      std::move(open_tcp_socket_options), pending->GetTCPSocketReceiver(),
+      pending->GetTCPSocketObserver(),
       WTF::Bind(&NavigatorSocket::OnTcpOpen, WrapPersistent(this),
                 WrapPersistent(pending)));
   return promise;
@@ -168,6 +223,13 @@ ScriptPromise NavigatorSocket::openUDPSocket(ScriptState* script_state,
   if (!OpenSocketPermitted(script_state, options, exception_state))
     return ScriptPromise();
 
+  mojom::blink::DirectSocketOptionsPtr open_udp_socket_options =
+      CreateSocketOptions(options, NavigatorSocket::ProtocolType::kUdp,
+                          exception_state);
+  if (!open_udp_socket_options) {
+    return ScriptPromise();
+  }
+
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   UDPSocket* pending = MakeGarbageCollected<UDPSocket>(
       ExecutionContext::From(script_state), *resolver);
@@ -175,8 +237,8 @@ ScriptPromise NavigatorSocket::openUDPSocket(ScriptState* script_state,
   ScriptPromise promise = resolver->Promise();
 
   service_remote_->OpenUdpSocket(
-      CreateSocketOptions(options, NavigatorSocket::ProtocolType::kUdp),
-      pending->GetUDPSocketReceiver(), pending->GetUDPSocketListener(),
+      std::move(open_udp_socket_options), pending->GetUDPSocketReceiver(),
+      pending->GetUDPSocketListener(),
       WTF::Bind(&NavigatorSocket::OnUdpOpen, WrapPersistent(this),
                 WrapPersistent(pending)));
   return promise;
@@ -195,6 +257,15 @@ bool NavigatorSocket::OpenSocketPermitted(ScriptState* script_state,
     return false;
   }
 
+  if (!ExecutionContext::From(script_state)
+           ->IsFeatureEnabled(
+               mojom::blink::PermissionsPolicyFeature::kDirectSockets)) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "Permissions-Policy: direct-sockets are disabled.");
+    return false;
+  }
+
   // TODO(crbug.com/1119600): Do not consume (or check) transient activation
   // for reconnection attempts.
   if (!LocalFrame::ConsumeTransientUserActivation(window->GetFrame())) {
@@ -204,12 +275,6 @@ bool NavigatorSocket::OpenSocketPermitted(ScriptState* script_state,
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotAllowedError,
         "Must be handling a user gesture to open a socket.");
-    return false;
-  }
-
-  DCHECK(options);
-  if (!options->hasRemotePort()) {
-    exception_state.ThrowTypeError("remotePort was not specified.");
     return false;
   }
 

@@ -20,15 +20,16 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ActivityState;
 import org.chromium.base.Callback;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.jank_tracker.JankScenario;
 import org.chromium.base.jank_tracker.JankTracker;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
+import org.chromium.chrome.browser.omnibox.action.OmniboxPedalType;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController.OnSuggestionsReceivedListener;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionsMetrics.RefineActionUsage;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.BasicSuggestionProcessor.BookmarkState;
@@ -85,6 +86,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
     private final @NonNull Callback<Tab> mBringTabToFrontCallback;
     private final @NonNull Supplier<TabWindowManager> mTabWindowManagerSupplier;
     private final @NonNull JankTracker mJankTracker;
+    private final @NonNull OmniboxPedalDelegate mOmniboxPedalDelegate;
 
     private @NonNull AutocompleteResult mAutocompleteResult = AutocompleteResult.EMPTY_RESULT;
     private @Nullable Runnable mCurrentAutocompleteRequest;
@@ -94,7 +96,6 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
     private boolean mNativeInitialized;
     private AutocompleteController mAutocomplete;
     private long mUrlFocusTime;
-    private boolean mEnableAdaptiveSuggestionsCount;
     private boolean mShouldCacheSuggestions;
 
     @IntDef({SuggestionVisibilityState.DISALLOWED, SuggestionVisibilityState.PENDING_ALLOW,
@@ -130,6 +131,8 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
     // Set at the end of the Omnibox interaction to indicate whether the user selected an item
     // from the list (true) or left the Omnibox and suggestions list with no action taken (false).
     private boolean mOmniboxFocusResultedInNavigation;
+    // Facilitate detection of Autocomplete actions being scheduled from an Autocomplete action.
+    private boolean mIsExecutingAutocompleteAction;
 
     /**
      * The text shown in the URL bar (user text + inline autocomplete) after the most recent set of
@@ -151,7 +154,8 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
             @NonNull Callback<Tab> bringTabToFrontCallback,
             @NonNull Supplier<TabWindowManager> tabWindowManagerSupplier,
             @NonNull BookmarkState bookmarkState, @NonNull JankTracker jankTracker,
-            @NonNull ExploreIconProvider exploreIconProvider) {
+            @NonNull ExploreIconProvider exploreIconProvider,
+            @NonNull OmniboxPedalDelegate omniboxPedalDelegate) {
         mContext = context;
         mDelegate = delegate;
         mUrlBarEditingTextProvider = textProvider;
@@ -167,6 +171,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
                 activityTabSupplier, bookmarkState, exploreIconProvider);
         mDropdownViewInfoListBuilder.setShareDelegateSupplier(shareDelegateSupplier);
         mDropdownViewInfoListManager = new DropdownItemViewInfoListManager(mSuggestionModels);
+        mOmniboxPedalDelegate = omniboxPedalDelegate;
     }
 
     /**
@@ -277,11 +282,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
      */
     void onNativeInitialized() {
         mNativeInitialized = true;
-
-        mEnableAdaptiveSuggestionsCount =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.OMNIBOX_ADAPTIVE_SUGGESTIONS_COUNT);
         mDropdownViewInfoListBuilder.onNativeInitialized();
-
         runPendingAutocompleteRequests();
     }
 
@@ -451,6 +452,11 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
             mBringTabToFrontCallback.onResult(tab);
         }
         recordMetrics(position, WindowOpenDisposition.SWITCH_TO_TAB, suggestion);
+    }
+
+    @Override
+    public void onPedalClicked(@OmniboxPedalType int omniboxPedalType) {
+        mOmniboxPedalDelegate.executeAction(omniboxPedalType);
     }
 
     @Override
@@ -892,8 +898,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
 
     @Override
     public void onSuggestionDropdownScroll() {
-        if (mEnableAdaptiveSuggestionsCount
-                && mDropdownViewInfoListBuilder.hasFullyConcealedElements()) {
+        if (mDropdownViewInfoListBuilder.hasFullyConcealedElements()) {
             mDelegate.setKeyboardVisibility(false, false);
         }
     }
@@ -930,9 +935,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
 
     @Override
     public void onSuggestionDropdownOverscrolledToTop() {
-        if (mEnableAdaptiveSuggestionsCount) {
-            mDelegate.setKeyboardVisibility(true, false);
-        }
+        mDelegate.setKeyboardVisibility(true, false);
     }
 
     /**
@@ -964,15 +967,16 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener,
      *         Use SCHEDULE_FOR_IMMEDIATE_EXECUTION to post action at front of the message queue.
      */
     private void postAutocompleteRequest(@NonNull Runnable action, long delayMillis) {
+        assert !mIsExecutingAutocompleteAction : "Can't schedule conflicting autocomplete action";
+        assert ThreadUtils.runningOnUiThread() : "Detected input from a non-UI thread. Test error?";
+
         cancelAutocompleteRequests();
         mCurrentAutocompleteRequest = new Runnable() {
             @Override
             public void run() {
+                mIsExecutingAutocompleteAction = true;
                 action.run();
-                // Catch any AutocompleteRequests that post subsequent AutocompleteRequest.
-                // Note: we have to explicitly instantiate a Runnable class, otherwise
-                // 'this' will resolve into a parent class and Runnable.this won't work.
-                assert mCurrentAutocompleteRequest == this;
+                mIsExecutingAutocompleteAction = false;
                 // Release completed Runnable.
                 mCurrentAutocompleteRequest = null;
             }

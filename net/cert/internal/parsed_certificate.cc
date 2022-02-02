@@ -51,8 +51,7 @@ DEFINE_CERT_ERROR_ID(kFailedParsingAuthorityKeyIdentifier,
 DEFINE_CERT_ERROR_ID(kFailedParsingSubjectKeyIdentifier,
                      "Failed parsing subject key identifier");
 
-WARN_UNUSED_RESULT bool GetSequenceValue(const der::Input& tlv,
-                                         der::Input* value) {
+[[nodiscard]] bool GetSequenceValue(const der::Input& tlv, der::Input* value) {
   der::Parser parser(tlv);
   return parser.ReadTag(der::kSequence, value) && !parser.HasMore();
 }
@@ -220,7 +219,7 @@ scoped_refptr<ParsedCertificate> ParsedCertificate::Create(
     // Policies.
     if (result->GetExtension(CertificatePoliciesOid(), &extension)) {
       result->has_policy_oids_ = true;
-      if (!ParseCertificatePoliciesExtension(
+      if (!ParseCertificatePoliciesExtensionOids(
               extension.value, false /*fail_parsing_unknown_qualifier_oids*/,
               &result->policy_oids_, errors)) {
         errors->AddError(kFailedParsingPolicies);

@@ -17,6 +17,7 @@
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_types.h"
 #include "chrome/updater/updater_scope.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class FilePath;
@@ -172,16 +173,6 @@ std::wstring GetServiceName(bool is_internal_service);
 // For instance: "ChromiumUpdater InternalService 92.0.0.1".
 std::wstring GetServiceDisplayName(bool is_internal_service);
 
-// Returns the versioned task name in the following format:
-// "{ProductName}Task{System/User}{UpdaterVersion}".
-// For instance: "ChromiumUpdaterTaskSystem92.0.0.1".
-std::wstring GetTaskName(UpdaterScope scope);
-
-// Returns the versioned task display name in the following format:
-// "{ProductName} Task {System/User} {UpdaterVersion}".
-// For instance: "ChromiumUpdater Task System 92.0.0.1".
-std::wstring GetTaskDisplayName(UpdaterScope scope);
-
 // Returns `KEY_WOW64_32KEY | access`. All registry access under the Updater key
 // should use `Wow6432(access)` as the `REGSAM`.
 REGSAM Wow6432(REGSAM access);
@@ -193,6 +184,8 @@ REGSAM Wow6432(REGSAM access);
 HRESULT RunElevated(const base::FilePath& file_path,
                     const std::wstring& parameters,
                     DWORD* exit_code);
+
+absl::optional<base::FilePath> GetGoogleUpdateExePath(UpdaterScope scope);
 
 }  // namespace updater
 

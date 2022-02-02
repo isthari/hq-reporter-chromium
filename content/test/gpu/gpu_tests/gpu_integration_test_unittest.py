@@ -5,29 +5,24 @@
 # It's reasonable for unittests to be messing with protected members.
 # pylint: disable=protected-access
 
-from __future__ import print_function
 
 import json
 import os
-import sys
-import unittest
 import tempfile
-
-if sys.version_info[0] == 2:
-  import mock
-else:
-  import unittest.mock as mock
-
-import six
+import unittest
+import unittest.mock as mock
 
 import gpu_project_config
 import run_gpu_integration_test
 
+from chrome_telemetry_build import chromium_config
+
 from gpu_tests import context_lost_integration_test
 from gpu_tests import gpu_helper
 from gpu_tests import gpu_integration_test
-from gpu_tests import path_util
 from gpu_tests import webgl_conformance_integration_test
+
+import gpu_path_util
 
 from py_utils import tempfile_ext
 
@@ -36,9 +31,6 @@ from telemetry.internal.platform import system_info
 from telemetry.testing import browser_test_runner
 from telemetry.testing import fakes
 from telemetry.testing import run_browser_tests
-
-path_util.AddDirToPathIfNeeded(path_util.GetChromiumSrcDir(), 'tools', 'perf')
-from chrome_telemetry_build import chromium_config
 
 # Unittest test cases are defined as public methods, so ignore complaints about
 # having too many.
@@ -93,7 +85,7 @@ def _GenerateNvidiaExampleTagsForTestClassAndArgs(test_class, args):
   tags = None
   with mock.patch.object(
       test_class, 'ExpectationsFiles', return_value=['exp.txt']):
-    _ = [_ for _ in test_class.GenerateGpuTests(args)]
+    _ = list(test_class.GenerateGpuTests(args))
     platform = fakes.FakePlatform('win', 'win10')
     browser = fakes.FakeBrowser(platform, 'release')
     browser._returned_system_info = _GetSystemInfo(
@@ -102,7 +94,7 @@ def _GenerateNvidiaExampleTagsForTestClassAndArgs(test_class, args):
   return tags
 
 
-class _IntegrationTestArgs(object):
+class _IntegrationTestArgs():
   """Struct-like object for defining an integration test."""
 
   def __init__(self, test_name):
@@ -121,10 +113,8 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
   def _RunGpuIntegrationTests(self, test_name, extra_args=None):
     extra_args = extra_args or []
     unittest_config = chromium_config.ChromiumConfig(
-        top_level_dir=path_util.GetGpuTestDir(),
-        benchmark_dirs=[
-            os.path.join(path_util.GetGpuTestDir(), 'unittest_data')
-        ])
+        top_level_dir=gpu_path_util.GPU_DIR,
+        benchmark_dirs=[os.path.join(gpu_path_util.GPU_DIR, 'unittest_data')])
     with binary_manager.TemporarilyReplaceBinaryManager(None), \
          mock.patch.object(gpu_project_config, 'CONFIG', unittest_config):
       # TODO(crbug.com/1103792): Using NamedTemporaryFile() as a generator is
@@ -304,7 +294,7 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
     # The number of browser starts include the one call to StartBrowser at the
     # beginning of the run of the test suite and for each RestartBrowser call
     # which happens after every failure
-    self.assertEquals(self._test_state['num_browser_starts'], 6)
+    self.assertEqual(self._test_state['num_browser_starts'], 6)
 
   def testIntegrationTesttWithBrowserFailure(self):
     test_args = _IntegrationTestArgs(
@@ -314,8 +304,8 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
     ]
 
     self._RunIntegrationTest(test_args)
-    self.assertEquals(self._test_state['num_browser_crashes'], 2)
-    self.assertEquals(self._test_state['num_browser_starts'], 3)
+    self.assertEqual(self._test_state['num_browser_crashes'], 2)
+    self.assertEqual(self._test_state['num_browser_starts'], 3)
 
   def testIntegrationTestWithBrowserCrashUponStart(self):
     test_args = _IntegrationTestArgs(
@@ -325,8 +315,8 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
     ]
 
     self._RunIntegrationTest(test_args)
-    self.assertEquals(self._test_state['num_browser_crashes'], 2)
-    self.assertEquals(self._test_state['num_browser_starts'], 3)
+    self.assertEqual(self._test_state['num_browser_crashes'], 2)
+    self.assertEqual(self._test_state['num_browser_starts'], 3)
 
   def testRetryLimit(self):
     test_args = _IntegrationTestArgs('test_retry_limit')
@@ -337,7 +327,7 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
 
     self._RunIntegrationTest(test_args)
     # The number of attempted runs is 1 + the retry limit.
-    self.assertEquals(self._test_state['num_test_runs'], 3)
+    self.assertEqual(self._test_state['num_test_runs'], 3)
 
   def _RunTestsWithExpectationsFiles(self):
     test_args = _IntegrationTestArgs('run_tests_with_expectations_files')
@@ -406,7 +396,7 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
     test_args.additional_args = ['--repeat=3']
 
     self._RunIntegrationTest(test_args)
-    self.assertEquals(self._test_state['num_test_runs'], 3)
+    self.assertEqual(self._test_state['num_test_runs'], 3)
 
   def testAlsoRunDisabledTests(self):
     test_args = _IntegrationTestArgs('test_also_run_disabled_tests')
@@ -425,8 +415,8 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
     ]
 
     self._RunIntegrationTest(test_args)
-    self.assertEquals(self._test_state['num_flaky_test_runs'], 4)
-    self.assertEquals(self._test_state['num_test_runs'], 6)
+    self.assertEqual(self._test_state['num_flaky_test_runs'], 4)
+    self.assertEqual(self._test_state['num_test_runs'], 6)
 
   def testStartBrowser_Retries(self):
     class TestException(Exception):
@@ -459,10 +449,8 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
       test_args: A _IntegrationTestArgs instance to use.
     """
     config = chromium_config.ChromiumConfig(
-        top_level_dir=path_util.GetGpuTestDir(),
-        benchmark_dirs=[
-            os.path.join(path_util.GetGpuTestDir(), 'unittest_data')
-        ])
+        top_level_dir=gpu_path_util.GPU_DIR,
+        benchmark_dirs=[os.path.join(gpu_path_util.GPU_DIR, 'unittest_data')])
 
     with binary_manager.TemporarilyReplaceBinaryManager(None), \
          tempfile_ext.NamedTemporaryDirectory() as temp_dir:
@@ -489,9 +477,9 @@ class GpuIntegrationTestUnittest(unittest.TestCase):
         self._test_state = json.load(f)
       actual_successes, actual_failures, actual_skips = (_ExtractTestResults(
           self._test_result))
-      self.assertEquals(set(actual_failures), set(test_args.failures))
-      self.assertEquals(set(actual_successes), set(test_args.successes))
-      self.assertEquals(set(actual_skips), set(test_args.skips))
+      self.assertEqual(set(actual_failures), set(test_args.failures))
+      self.assertEqual(set(actual_successes), set(test_args.successes))
+      self.assertEqual(set(actual_skips), set(test_args.skips))
 
 
 def _ExtractTestResults(test_result):
@@ -502,8 +490,7 @@ def _ExtractTestResults(test_result):
 
   def _IsLeafNode(node):
     test_dict = node[1]
-    return ('expected' in test_dict
-            and isinstance(test_dict['expected'], six.string_types))
+    return 'expected' in test_dict and isinstance(test_dict['expected'], str)
 
   node_queues = []
   for t in test_result['tests']:

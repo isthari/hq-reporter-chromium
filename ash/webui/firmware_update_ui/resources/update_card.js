@@ -6,6 +6,7 @@ import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-lite.js';
+import '/file_path.mojom-lite.js';
 import './firmware_shared_css.js';
 import './firmware_shared_fonts.js';
 import './mojom/firmware_update.mojom-lite.js';
@@ -44,6 +45,10 @@ export class UpdateCardElement extends UpdateCardElementBase {
       update: {
         type: Object,
       },
+
+      disabled: {
+        type: Boolean,
+      },
     };
   }
 
@@ -58,7 +63,7 @@ export class UpdateCardElement extends UpdateCardElementBase {
   /** @protected */
   onUpdateButtonClicked_() {
     this.dispatchEvent(new CustomEvent(
-        'open-update-dialog',
+        'open-confirmation-dialog',
         {bubbles: true, composed: true, detail: {update: this.update}}));
   }
 
@@ -80,14 +85,6 @@ export class UpdateCardElement extends UpdateCardElementBase {
    */
   computeDeviceName_() {
     return mojoString16ToString(this.update.deviceName);
-  }
-
-  /**
-   * @protected
-   * @return {string}
-   */
-  computeDeviceDescription_() {
-    return mojoString16ToString(this.update.deviceDescription);
   }
 }
 

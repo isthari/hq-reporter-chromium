@@ -16,6 +16,8 @@ namespace storage {
 class FileSystemURL;
 }  // namespace storage
 
+class Profile;
+
 namespace policy {
 
 class DlpRulesManager;
@@ -29,7 +31,8 @@ class DlpFilesController {
       base::OnceCallback<void(std::vector<storage::FileSystemURL>)>;
 
   // `dlp_rules_manager` must outlive this class.
-  explicit DlpFilesController(DlpRulesManager* dlp_rules_manager);
+  explicit DlpFilesController(Profile* profile,
+                              DlpRulesManager* dlp_rules_manager);
 
   DlpFilesController(const DlpFilesController& other) = delete;
   DlpFilesController& operator=(const DlpFilesController& other) = delete;
@@ -38,7 +41,7 @@ class DlpFilesController {
 
   // Returns a list of files disallowed to be transferred in |result_callback|.
   void GetDisallowedTransfers(
-      const std::vector<storage::FileSystemURL>& transferred_files,
+      std::vector<storage::FileSystemURL> transferred_files,
       storage::FileSystemURL destination,
       GetDisallowedTransfersCallback result_callback);
 
@@ -51,6 +54,8 @@ class DlpFilesController {
       storage::FileSystemURL destination,
       GetDisallowedTransfersCallback result_callback,
       const dlp::GetFilesSourcesResponse response);
+
+  Profile* profile_;  // Unowned.
 
   DlpRulesManager* dlp_rules_manager_;  // Unowned.
 

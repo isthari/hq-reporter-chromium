@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/views/chrome_views_test_base.h"
+#include "components/media_router/browser/presentation/start_presentation_context.h"
 #include "media/audio/audio_device_description.h"
 #include "media/base/media_switches.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -140,10 +141,10 @@ class MockCastDialogController : public CastDialogController {
                void(const std::string& sink_id,
                     media_router::MediaCastMode cast_mode));
   MOCK_METHOD1(StopCasting, void(const std::string& route_id));
-  MOCK_METHOD1(
-      ChooseLocalFile,
-      void(base::OnceCallback<void(const ui::SelectedFileInfo*)> callback));
   MOCK_METHOD1(ClearIssue, void(const media_router::Issue::Id& issue_id));
+  MOCK_METHOD0(GetInitiator, content::WebContents*());
+  MOCK_METHOD0(TakeStartPresentationContext,
+               std::unique_ptr<media_router::StartPresentationContext>());
 };
 
 }  // anonymous namespace

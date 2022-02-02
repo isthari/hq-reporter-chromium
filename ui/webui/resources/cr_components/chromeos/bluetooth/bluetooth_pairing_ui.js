@@ -221,6 +221,12 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
 
     /** @private {?ConfirmCodeCallback} */
     this.confirmCodeCallback_ = null;
+
+    /** @private {?function()} */
+    this.onBluetoothDiscoveryStartedCallbackForTest_ = null;
+
+    /** @private {?function()} */
+    this.handlePairDeviceResultCallbackForTest_ = null;
   }
 
   ready() {
@@ -232,6 +238,14 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
     // page.
     if (this.pairingDeviceAddress) {
       this.selectedPageId_ = BluetoothPairingSubpageId.SPINNER_PAGE;
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+
+    if (this.bluetoothDiscoveryDelegateReceiver_) {
+      this.bluetoothDiscoveryDelegateReceiver_.$.close();
     }
   }
 
@@ -275,6 +289,13 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
   /** @override */
   onBluetoothDiscoveryStarted(handler) {
     this.devicePairingHandler_ = handler;
+
+    // Inform tests that onBluetoothDiscoveryStarted() has been called. This is
+    // to ensure tests don't progress until |devicePairingHandler_| has been
+    // set.
+    if (this.onBluetoothDiscoveryStartedCallbackForTest_) {
+      this.onBluetoothDiscoveryStartedCallbackForTest_();
+    }
   }
 
   /** @override */
@@ -283,6 +304,29 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
     // selection page.
     this.bluetoothDiscoveryDelegateReceiver_.$.close();
     this.selectedPageId_ = BluetoothPairingSubpageId.DEVICE_SELECTION_PAGE;
+    this.devicePairingHandler_ = null;
+  }
+
+  /**
+   * Returns a promise that will be resolved the next time
+   * onBluetoothDiscoveryStarted() is called.
+   * @return {Promise}
+   */
+  waitForOnBluetoothDiscoveryStartedForTest() {
+    return new Promise((resolve) => {
+      this.onBluetoothDiscoveryStartedCallbackForTest_ = resolve;
+    });
+  }
+
+  /**
+   * Returns a promise that will be resolved the next time
+   * handlePairDeviceResult_() is called.
+   * @return {Promise}
+   */
+  waitForHandlePairDeviceResultForTest() {
+    return new Promise((resolve) => {
+      this.handlePairDeviceResultCallbackForTest_ = resolve;
+    });
   }
 
   /**
@@ -334,7 +378,8 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
    * @private
    */
   pairDevice_(device) {
-    assert(this.devicePairingHandler_);
+    assert(
+        this.devicePairingHandler_, 'devicePairingHandler_ has not been set.');
 
     this.pairingDelegateReceiver_ =
         new chromeos.bluetoothConfig.mojom.DevicePairingDelegateReceiver(this);
@@ -399,6 +444,13 @@ export class SettingsBluetoothPairingUiElement extends PolymerElement {
     if (this.queuedDevicePendingPairing_) {
       this.pairDevice_(this.queuedDevicePendingPairing_);
       this.queuedDevicePendingPairing_ = null;
+    }
+
+    // Inform tests that handlePairDeviceResult_() has been called. This is
+    // to ensure tests don't progress until the correct state has been
+    // set.
+    if (this.handlePairDeviceResultCallbackForTest_) {
+      this.handlePairDeviceResultCallbackForTest_();
     }
   }
 

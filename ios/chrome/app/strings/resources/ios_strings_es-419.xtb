@@ -82,6 +82,7 @@ Tu motor de búsqueda es <ph name="DSE_NAME" />. Consulta las instrucciones para
 <translation id="1605658421715042784">Copiar imagen</translation>
 <translation id="1608337082864370066">Buscar el texto copiado</translation>
 <translation id="1612730193129642006">Mostrar la cuadrícula de pestañas</translation>
+<translation id="1620510694547887537">Cámara</translation>
 <translation id="1644574205037202324">Historial</translation>
 <translation id="1650222530560417226">Presiona el botón "Iniciar registro" para recopilar de todas las pestañas futuros errores y registros de la Consola de JavaScript. Se recopilarán los registros (y almacenarán solo en memoria) hasta que se cierre esta página o se presione el botón "Detener registro".</translation>
 <translation id="1657011748321897393">Error al compartir por falta de conexión a la red</translation>
@@ -141,6 +142,7 @@ Tu motor de búsqueda es <ph name="DSE_NAME" />. Consulta las instrucciones para
 <translation id="2271351792809375263">Utiliza en otras apps del dispositivo las contraseñas guardadas en Chrome</translation>
 <translation id="2273327106802955778">Menú Más</translation>
 <translation id="2286505070150039482">Texto resaltado</translation>
+<translation id="2299218006564889602">Las contraseñas se encriptan en tu dispositivo antes de guardarse en el Administrador de contraseñas de Google.</translation>
 <translation id="2302742851632557585">Cambiar la contraseña en el sitio web</translation>
 <translation id="2316709634732130529">Usar la contraseña sugerida</translation>
 <translation id="2320166752086256636">Ocultar el teclado</translation>
@@ -245,6 +247,7 @@ Consulta las instrucciones de tu motor de búsqueda para borrar el historial de 
 <translation id="3184767182050912705">Desbloquear mediante <ph name="BIOMETRIC_AUTHENITCATION_TYPE" /></translation>
 <translation id="3207960819495026254">Agregada a favoritos</translation>
 <translation id="3224641773458703735">Para exportar las contraseñas, primero debes establecer una en tu dispositivo.</translation>
+<translation id="3227137524299004712">Micrófono</translation>
 <translation id="3230318355092723906">Cuando la sincronización está desactivada, puedes seguir viendo todos tus favoritos, el historial, las contraseñas y otros parámetros de configuración en este dispositivo. Si realizas cambios, no se sincronizarán con tu cuenta.</translation>
 <translation id="3240426699337459095">Vínculo copiado</translation>
 <translation id="3244271242291266297">MM</translation>
@@ -421,7 +424,6 @@ Para cambiar esta configuración, <ph name="BEGIN_LINK" />restablece la sincroni
 <translation id="4901778704868714008">Guardar…</translation>
 <translation id="4904877109095351937">Marcar como leídas</translation>
 <translation id="4908869848243824489">Descubre de Google</translation>
-<translation id="4930268273022498155">Borra los datos existentes. Para recuperarlos, cambia de nuevo a <ph name="USER_EMAIL1" />.</translation>
 <translation id="4930714375720679147">Activar</translation>
 <translation id="4941089862236492464">Se produjo un error al compartir tu elemento.</translation>
 <translation id="4944543191714094452">Buscar en la página…</translation>
@@ -501,7 +503,9 @@ Handoff también debe estar habilitado en la sección General de la configuraci�
 <translation id="575902488528307720">Buscar imagen</translation>
 <translation id="5781453543752460388">Agregar a fotos</translation>
 <translation id="5782227691023083829">Traduciendo...</translation>
+<translation id="5802829331520313983">Configuración…</translation>
 <translation id="5803566855766646066">¿Confirmas que quieres descartar esta tarjeta nueva?</translation>
+<translation id="5804241973901381774">Permisos</translation>
 <translation id="5812974770859303494">Agregar a…</translation>
 <translation id="5816228676161003208">Te permite realizar búsquedas más rápidas con tu voz.</translation>
 <translation id="581659025233126501">Activar la sincronización</translation>
@@ -517,6 +521,7 @@ Handoff también debe estar habilitado en la sección General de la configuraci�
 <translation id="5896576662943111387">Diseñado para iOS</translation>
 <translation id="5897956970858271241">Visitar el vínculo copiado</translation>
 <translation id="5899314093904173337">Para habilitar el uso compartido con personas cercanas, permíteles que escaneen este código QR con la cámara o una app de lectura de código QR</translation>
+<translation id="5902639236448164449">Administra los permisos de sitios de <ph name="URL" />. Estos permisos se restablecerán cuando cierres la pestaña.</translation>
 <translation id="5911030830365207728">Google Traductor</translation>
 <translation id="5913600720976431809">Opciones para traducir la página</translation>
 <translation id="5938160824633642847">El dispositivo está casi lleno. Libera espacio y vuelve a intentarlo.</translation>
@@ -543,6 +548,7 @@ Handoff también debe estar habilitado en la sección General de la configuraci�
 <translation id="6066301408025741299">Toca para cancelar.</translation>
 <translation id="60829778314739003">Aceptar y continuar</translation>
 <translation id="6084848228346514841">Seleccionar pestañas</translation>
+<translation id="6103540626693881831">Encriptación integrada en el dispositivo</translation>
 <translation id="6108923351542677676">Configuración en curso…</translation>
 <translation id="6119050551270742952">Pág. incógnito</translation>
 <translation id="6122191549521593678">En línea</translation>
@@ -560,12 +566,12 @@ Handoff también debe estar habilitado en la sección General de la configuraci�
 <translation id="6219688215832490856">Nunca traducir</translation>
 <translation id="6223816392543092032">Accede a tus favoritos, historial, contraseñas y otras opciones de configuración en todos los dispositivos.</translation>
 <translation id="6232329973559504466">Búsqueda en el modo Incógnito</translation>
+<translation id="6232736989810857397">Esto te permite crear fácilmente eventos de calendario con Google Lens.</translation>
 <translation id="6254066287920239840">Abre vínculos en la app en lugar de hacerlo en el navegador.</translation>
 <translation id="6255097610484507482">Modificar información de la tarjeta de crédito</translation>
 <translation id="6284652193729350524">Ofrecer traducción al <ph name="LANGUAGE" /></translation>
 <translation id="6293101329759844770">Si quieres activar la Navegación segura, abre <ph name="BEGIN_LINK" />Servicios de Google<ph name="END_LINK" /> y, luego, presiona Navegación segura.</translation>
 <translation id="6321526113093607004">Agregar a Favoritos</translation>
-<translation id="6324528485781869530">Cambiar cta. de sincronización</translation>
 <translation id="6324669097367352121">Config. acceso</translation>
 <translation id="6337234675334993532">Encriptación</translation>
 <translation id="633809752005859102">Se produjo un error. Trabajaremos para solucionarlo.</translation>
@@ -609,6 +615,7 @@ Intenta usar una contraseña única para cada sitio.</translation>
 <translation id="6524918542306337007">El modo Incógnito no está disponible</translation>
 <translation id="6537746030088321027">ejemplo.com</translation>
 <translation id="6561262006871132942">Acercar</translation>
+<translation id="6583087784430677195">Para desactivar esta función, abre <ph name="BEGIN_LINK" />Configuración<ph name="END_LINK" /> y ve a Autocompletar contraseñas.</translation>
 <translation id="6585618849026997638">Agrega un favorito para poder regresar a una página que consideres importante</translation>
 <translation id="6603393121510733479">Tu organización desactivó la navegación privada.
 <ph name="BEGIN_LINK" />Más información<ph name="END_LINK" /></translation>
@@ -760,6 +767,7 @@ También pueden usar cookies para ver la actividad de navegación en diferentes 
 <translation id="797413074872316787">Para sincronizar diferentes dispositivos y personalizar tu experiencia, activa la sincronización.</translation>
 <translation id="7978018860671536736">3. Presiona Autorrelleno de contraseñas.</translation>
 <translation id="7982789257301363584">Red</translation>
+<translation id="7987685713885608670">Para más seguridad, encripta las contraseñas en tu dispositivo antes de que se guarden en el Administrador de contraseñas de Google.</translation>
 <translation id="7993619969781047893">Es posible que las características de algunos sitios no funcionen de forma correcta</translation>
 <translation id="800361585186029508">Abre las URL ingresadas en Google Chrome.</translation>
 <translation id="802154636333426148">Error en la descarga</translation>

@@ -82,6 +82,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="1346748346194534595">Direita</translation>
 <translation id="1351937230027495976">Reduzir menu</translation>
 <translation id="1364382257761975320">Para desbloquear o Chromebook, utilize a sua impressão digital</translation>
+<translation id="1364618750746929654">Não é possível gerar a transcrição</translation>
 <translation id="1383597849754832576">Não é possível transferir os ficheiros de voz. Tente novamente mais tarde.</translation>
 <translation id="1383876407941801731">Pesquisar</translation>
 <translation id="1391102559483454063">Ativada</translation>
@@ -298,6 +299,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3000461861112256445">Áudio mono</translation>
 <translation id="3009178788565917040">Saída</translation>
 <translation id="3009958530611748826">Selecione uma pasta onde guardar</translation>
+<translation id="301282384882049174">Partilhado pelo seu administrador</translation>
 <translation id="3017687597151988916">Área de seleção definida para a janela</translation>
 <translation id="3033545621352269033">Ativada</translation>
 <translation id="3036649622769666520">Abrir ficheiros</translation>
@@ -409,7 +411,6 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3640092422335864171">Guarde o dispositivo <ph name="NAME" /></translation>
 <translation id="3649505501900178324">Atualização vencida</translation>
 <translation id="366222428570480733">Utilizador gerido por <ph name="USER_EMAIL_ADDRESS" /></translation>
-<translation id="3665889125180354336">Gravar microfone</translation>
 <translation id="3680908746918359504">Limpar todos os marcadores</translation>
 <translation id="36813544980941320">As redes Wi-Fi serão partilhadas entre o seu telemóvel e o dispositivo <ph name="DEVICE_NAME" />.</translation>
 <translation id="3694122362646626770">Sites</translation>
@@ -578,6 +579,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="4733161265940833579"><ph name="BATTERY_PERCENTAGE" />% (esquerdo)</translation>
 <translation id="4734965478015604180">Horizontal</translation>
 <translation id="4735498845456076464">O atalho de teclado <ph name="LAUNCHER_KEY_NAME" /> + número foi alterado. Para utilizar teclas de função, prima a tecla <ph name="LAUNCHER_KEY_NAME" /> + uma tecla na linha superior.</translation>
+<translation id="473775607612524610">Atualizar</translation>
 <translation id="4759238208242260848">Transferências</translation>
 <translation id="4774338217796918551">Volte amanhã à(s) <ph name="COME_BACK_TIME" />.</translation>
 <translation id="4776917500594043016">Palavra-passe para <ph name="USER_EMAIL_ADDRESS" /></translation>
@@ -679,6 +681,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="54609108002486618">Geridos</translation>
 <translation id="5465662442746197494">Precisa de ajuda?</translation>
 <translation id="547979256943495781">Prateleira à direita</translation>
+<translation id="5491186829646618080">Atualizações de firmware disponíveis</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">O seu administrador removeu todos os perfis do eSIM. Contacte o administrador para obter mais informações.</translation>
 <translation id="5523434445161341166">A funcionalidade <ph name="FEATURE_NAME" /> está a estabelecer ligação.</translation>
@@ -971,6 +974,7 @@ Nova instalação</translation>
 <translation id="7514365320538308">Transferir</translation>
 <translation id="7526573455193969409">A rede pode ser monitorizada</translation>
 <translation id="7536035074519304529">Endereço IP: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">A retroiluminação do teclado está ativada</translation>
 <translation id="7548434653388805669">Hora de dormir</translation>
 <translation id="7551643184018910560">Fixar na prateleira</translation>
 <translation id="7561982940498449837">Fechar menu</translation>
@@ -1055,6 +1059,7 @@ Nova instalação</translation>
 <translation id="8036504271468642248">Frase anterior</translation>
 <translation id="8042893070933512245">Abrir menu de definições de acessibilidade</translation>
 <translation id="8042925093898452104">Fechar informações de detalhes</translation>
+<translation id="8044457332620420407">A retroiluminação do teclado está desativada</translation>
 <translation id="8048123526339889627">Definições de Bluetooth</translation>
 <translation id="8051716679295756675">O modelo denominado <ph name="DESK_TEMPLATE_NAME" /> já existe</translation>
 <translation id="8052898407431791827">Copiado para a área de transferência</translation>
@@ -1175,6 +1180,7 @@ Nova instalação</translation>
 <translation id="8876661425082386199">Verifique a sua ligação</translation>
 <translation id="8877788021141246043">Definir um lembrete</translation>
 <translation id="8878886163241303700">Ecrã alargado</translation>
+<translation id="888982883502837004">Estão disponíveis atualizações de firmware para o seu dispositivo. Clique para verificar e atualizar.</translation>
 <translation id="8896630965521842259"><ph name="DESK_TEMPLATE_NAME" /> será eliminado permanentemente</translation>
 <translation id="890616557918890486">Alterar origem</translation>
 <translation id="8909138438987180327">A bateria está a <ph name="PERCENTAGE" /> por cento.</translation>

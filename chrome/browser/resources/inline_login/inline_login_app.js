@@ -13,15 +13,19 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {isRTL} from 'chrome://resources/js/util.m.js';
 import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
 
 // <if expr="chromeos">
+import './arc_account_picker_app.js';
 import './gaia_action_buttons.js';
 import './welcome_page_app.js';
 import './strings.m.js';
+
+import {getAccountAdditionOptionsFromJSON} from './inline_login_util.js';
 // </if>
 
 import {AuthCompletedCredentials, Authenticator, AuthParams} from '../gaia_auth_host/authenticator.m.js';
-import {InlineLoginBrowserProxy, InlineLoginBrowserProxyImpl} from './inline_login_browser_proxy.js';
+import {Account, InlineLoginBrowserProxy, InlineLoginBrowserProxyImpl} from './inline_login_browser_proxy.js';
 
 /**
  * @fileoverview Inline login WebUI in various signin flows for ChromeOS and
@@ -32,6 +36,7 @@ import {InlineLoginBrowserProxy, InlineLoginBrowserProxyImpl} from './inline_log
 const View = {
   addAccount: 'addAccount',
   welcome: 'welcome',
+  arcAccountPicker: 'arcAccountPicker',
 };
 
 Polymer({
@@ -39,7 +44,7 @@ Polymer({
 
   _template: html`{__html_template__}`,
 
-  behaviors: [WebUIListenerBehavior],
+  behaviors: [WebUIListenerBehavior, I18nBehavior],
 
   properties: {
     /** Mirroring the enum so that it can be used from HTML bindings. */
@@ -107,6 +112,16 @@ Polymer({
     isAvailableInArc_: {
       type: Boolean,
       value: false,
+    },
+
+    /**
+     * Accounts which are not available in ARC and are shown on the ARC picker
+     * screen.
+     * @type {!Array<!Account>}
+     */
+    arcPickerAccounts_: {
+      type: Array,
+      value: [],
     },
     // </if>
 
@@ -266,7 +281,7 @@ Polymer({
     if (data.email) {
       this.isReauthentication_ = true;
     }
-    this.switchView_(this.getDefaultView_());
+    this.switchToDefaultView_();
   },
 
   /**
@@ -291,6 +306,14 @@ Polymer({
   },
 
   /**
+   * Navigates to the welcome screen.
+   * @private
+   */
+  goToWelcomeScreen_() {
+    this.switchView_(View.welcome);
+  },
+
+  /**
    * Navigates back in the web view if possible. Otherwise closes the dialog.
    * @private
    */
@@ -312,6 +335,16 @@ Polymer({
    */
   getBackButtonIcon_() {
     return isRTL() ? 'cr:chevron-right' : 'cr:chevron-left';
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getNextButtonLabel_() {
+    return this.isArcAccountRestrictionsEnabled_ ?
+        this.i18n('nextButtonLabel') :
+        this.i18n('ok');
   },
 
   /**
@@ -340,11 +373,57 @@ Polymer({
   },
 
   /**
+   * Navigates to the default view.
+   * @private
+   */
+  switchToDefaultView_() {
+    const view = this.getDefaultView_();
+
+    // <if expr="chromeos_ash">
+    if (this.isArcAccountRestrictionsEnabled_ &&
+        view === View.arcAccountPicker) {
+      this.browserProxy_.getAccountsNotAvailableInArc().then(result => {
+        // If there are no accounts to show in the picker - go directly to
+        // the welcome screen.
+        if (result.length === 0) {
+          this.switchView_(View.welcome);
+          return;
+        }
+        this.set('arcPickerAccounts_', result);
+        this.switchView_(view);
+      });
+      return;
+    }
+    // </if>
+
+    this.switchView_(view);
+  },
+
+  /**
    * @return {View}
    * @private
    */
   getDefaultView_() {
-    return this.isWelcomePageEnabled_() ? View.welcome : View.addAccount;
+    // TODO(https://crbug.com/1155041): simplify this when the file will be
+    // split into CrOS and non-CrOS parts.
+    if (!isChromeOS) {
+      // On non-ChromeOS always show 'Add account'.
+      return View.addAccount;
+    }
+
+    // <if expr="chromeos_ash">
+    if (this.isReauthentication_) {
+      return View.addAccount;
+    }
+    if (this.isArcAccountRestrictionsEnabled_) {
+      const options = getAccountAdditionOptionsFromJSON(
+          InlineLoginBrowserProxyImpl.getInstance().getDialogArguments());
+      if (!!options && options.showArcAvailabilityPicker) {
+        return View.arcAccountPicker;
+      }
+    }
+    return this.shouldSkipWelcomePage_ ? View.addAccount : View.welcome;
+    // </if>
   },
 
   /**

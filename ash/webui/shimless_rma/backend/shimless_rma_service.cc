@@ -437,6 +437,7 @@ void ShimlessRmaService::SetComponentList(
         state_proto_.mutable_components_repair()->add_components();
     proto_component->set_component(component.component());
     proto_component->set_repair_status(component.repair_status());
+    proto_component->set_identifier(component.identifier());
   }
   TransitionNextStateGeneric(std::move(callback));
 }
@@ -604,9 +605,9 @@ void ShimlessRmaService::GetOriginalDramPartNumber(
 
 void ShimlessRmaService::SetDeviceInformation(
     const std::string& serial_number,
-    uint8_t region_index,
-    uint8_t sku_index,
-    uint8_t white_label_index,
+    int32_t region_index,
+    int32_t sku_index,
+    int32_t white_label_index,
     const std::string& dram_part_number,
     SetDeviceInformationCallback callback) {
   if (state_proto_.state_case() != rmad::RmadState::kUpdateDeviceInfo) {
@@ -744,6 +745,8 @@ void ShimlessRmaService::ProvisioningComplete(
                             rmad::RmadErrorCode::RMAD_ERROR_REQUEST_INVALID);
     return;
   }
+  state_proto_.mutable_provision_device()->set_choice(
+      rmad::ProvisionDeviceState::RMAD_PROVISION_CHOICE_CONTINUE);
   TransitionNextStateGeneric(std::move(callback));
 }
 
@@ -1100,8 +1103,8 @@ void ShimlessRmaService::OnAbortRmaResponse(
               : "Rebooting after user cancelled RMA.");
     } else {
       VLOG(1) << "Restarting Chrome to bypass RMA after cancel request.";
-      // TODO(gavindodd): Append ::ash::switches::kNoShimlessRma when autolaunch
-      // is implemented.
+      // TODO(gavindodd): Append switches::kNoShimlessRma when autolaunch is
+      // implemented.
       shimless_rma_delegate_->RestartChrome();
     }
   }

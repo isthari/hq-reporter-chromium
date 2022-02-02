@@ -524,7 +524,6 @@
     "type": "additional_compile_target",
   },
   "chromedriver_py_tests": {
-    "python3": False,
     "args": [
       "../../testing/scripts/run_chromedriver_tests.py",
       "../../chrome/test/chromedriver/test/run_py_tests.py",
@@ -587,7 +586,6 @@
     "type": "generated_script",
   },
   "chromedriver_replay_unittests": {
-    "python3": False,
     "label": "//chrome/test/chromedriver:chromedriver_replay_unittests",
     "script": "//chrome/test/chromedriver/log_replay/client_replay_unittest.py",
     "type": "script",
@@ -1126,10 +1124,6 @@
     "label": "//ipc:ipc_tests",
     "type": "console_test_launcher",
   },
-  "jingle_unittests": {
-    "label": "//jingle:jingle_unittests",
-    "type": "console_test_launcher",
-  },
   "junit_unit_tests": {
     "label": "//testing/android/junit:junit_unit_tests",
     "type": "junit_test",
@@ -1293,6 +1287,24 @@
     "label": "//mojo/public/tools:mojo_python_unittests",
     "script": "//testing/scripts/run_isolated_script_test.py",
     "type": "script",
+  },
+  "mojo_rust": {
+    "label": "//mojo/public/rust:mojo_rust",
+    # Since we can't build rust tests on Android now, add this for build
+    # coverage.
+    "type": "additional_compile_target",
+  },
+  "mojo_rust_unittests": {
+    "label": "//mojo/public/rust:mojo_rust_unittests",
+    # We don't yet support running Rust test binaries. For now, at least build
+    # the target. TODO(https://crbug.com/1260120): make this a test.
+    "type": "additional_compile_target",
+  },
+  "mojo_rust_extra_tests": {
+    "label": "//mojo/public/rust:mojo_rust",
+    # We don't yet support running Rust test binaries. For now, at least build
+    # the target. TODO(https://crbug.com/1260120): make this a test.
+    "type": "additional_compile_target",
   },
   "mojo_test_apk": {
     "label": "//mojo/public/java/system:mojo_test_apk",
@@ -1729,6 +1741,16 @@
     "script": "//testing/scripts/run_gpu_integration_test_as_googletest.py",
     "type": "script",
   },
+  "telemetry_gpu_integration_test_fuchsia": {
+    "args": [
+      "../../content/test/gpu/run_gpu_integration_test_fuchsia.py",
+      "--logs-dir",
+      "${ISOLATED_OUTDIR}",
+    ],
+    "label": "//chrome/test:telemetry_gpu_integration_test_fuchsia",
+    "script": "//testing/scripts/run_gpu_integration_test_as_googletest.py",
+    "type": "script",
+  },
   "telemetry_gpu_integration_test_scripts_only": {
     "label": "//chrome/test:telemetry_gpu_integration_test_scripts_only",
     "type": "additional_compile_target",
@@ -2128,10 +2150,6 @@
       '--test-launcher-jobs=1',
       '--enable-pixel-output-in-tests',
     ],
-  },
-  "x11_unittests": {
-    "label": "//ui/platform_window/x11:x11_unittests",
-    "type": "windowed_test_launcher",
   },
   "zlib_unittests": {
     "python3": False,

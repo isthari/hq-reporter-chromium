@@ -46,7 +46,7 @@
 #include "sandbox/policy/features.h"
 #include "sandbox/policy/sandbox_type.h"
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 #include "media/filters/decrypting_video_decoder.h"
 #endif
 
@@ -70,7 +70,6 @@ std::string EffectsToString(int effects) {
   } flags[] = {
       {media::AudioParameters::ECHO_CANCELLER, "ECHO_CANCELLER"},
       {media::AudioParameters::DUCKING, "DUCKING"},
-      {media::AudioParameters::KEYBOARD_MIC, "KEYBOARD_MIC"},
       {media::AudioParameters::HOTWORD, "HOTWORD"},
   };
 
@@ -103,6 +102,12 @@ std::string FormatToString(media::AudioParameters::Format format) {
       return "ac3";
     case media::AudioParameters::AUDIO_BITSTREAM_EAC3:
       return "eac3";
+    case media::AudioParameters::AUDIO_BITSTREAM_DTS:
+      return "dts";
+    case media::AudioParameters::AUDIO_BITSTREAM_DTS_HD:
+      return "dtshd";
+    case media::AudioParameters::AUDIO_BITSTREAM_IEC61937:
+      return "iec61937";
     case media::AudioParameters::AUDIO_FAKE:
       return "fake";
   }
@@ -404,19 +409,7 @@ static bool ConvertEventToUpdate(int render_process_id,
       break;
   }
 
-  // Convert PipelineStatus to human readable string
-  if (event.type == media::MediaLogRecord::Type::kMediaStatus) {
-    absl::optional<int> status = event.params.FindIntKey("pipeline_error");
-    if (!status || *status < static_cast<int>(media::PIPELINE_OK) ||
-        *status > static_cast<int>(media::PIPELINE_STATUS_MAX)) {
-      return false;
-    }
-    media::PipelineStatus error = static_cast<media::PipelineStatus>(*status);
-    dict.SetStringPath("params.pipeline_error",
-                       media::PipelineStatusToString(error));
-  } else {
-    dict.SetKey("params", std::move(cloned_params));
-  }
+  dict.SetKey("params", std::move(cloned_params));
 
   *update = SerializeUpdate("media.onMediaEvent", &dict);
   return true;

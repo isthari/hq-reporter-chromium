@@ -111,12 +111,9 @@ std::vector<std::string> DumpAccessibilityEventsTest::Dump() {
   bool run_go_again = false;
   std::vector<std::string> result;
   do {
-    base::Value go_results;
-    std::vector<std::string> event_logs;
-
     // Dump the event logs, running them through any filters specified
     // in the HTML file.
-    std::tie(go_results, event_logs) = CaptureEvents(base::BindOnce(
+    auto [go_results, event_logs] = CaptureEvents(base::BindOnce(
         &ExecuteScriptAndGetValue, web_contents->GetMainFrame(), "go()"));
     run_go_again = go_results.is_bool() && go_results.GetBool();
     // Save a copy of the final accessibility tree (as a text dump); we'll
@@ -802,6 +799,12 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
                        AccessibilityEventsRemoveChild) {
   RunEventTest(FILE_PATH_LITERAL("remove-child.html"));
+}
+
+IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
+                       AccessibilityEventsReparentElementWithActiveDescendant) {
+  RunEventTest(
+      FILE_PATH_LITERAL("reparent-element-with-active-descendant.html"));
 }
 
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,

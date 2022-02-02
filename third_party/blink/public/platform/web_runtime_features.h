@@ -172,10 +172,6 @@ class WebRuntimeFeatures {
   BLINK_PLATFORM_EXPORT static void EnableWebAuth(bool);
   BLINK_PLATFORM_EXPORT static void EnableWebBluetooth(bool);
   BLINK_PLATFORM_EXPORT static void EnableWebBluetoothGetDevices(bool);
-  BLINK_PLATFORM_EXPORT static void EnableWebBluetoothManufacturerDataFilter(
-      bool);
-  BLINK_PLATFORM_EXPORT static void
-  EnableWebBluetoothRemoteCharacteristicNewWriteValue(bool);
   BLINK_PLATFORM_EXPORT static void EnableWebBluetoothWatchAdvertisements(bool);
   BLINK_PLATFORM_EXPORT static void EnableWebGLDeveloperExtensions(bool);
   BLINK_PLATFORM_EXPORT static void EnableWebGLDraftExtensions(bool);
@@ -207,8 +203,6 @@ class WebRuntimeFeatures {
   BLINK_PLATFORM_EXPORT static void EnableSharedArrayBufferOnDesktop(bool);
   BLINK_PLATFORM_EXPORT static void
   EnableSharedArrayBufferUnrestrictedAccessAllowed(bool);
-  BLINK_PLATFORM_EXPORT static void
-  EnableCrossOriginWebAssemblyModuleSharingAllowed(bool);
   BLINK_PLATFORM_EXPORT static void EnableDisplayCapturePermissionsPolicy(bool);
   BLINK_PLATFORM_EXPORT static void EnableVideoPlaybackQuality(bool);
   BLINK_PLATFORM_EXPORT static void EnableMediaControlsOverlayPlayButton(bool);

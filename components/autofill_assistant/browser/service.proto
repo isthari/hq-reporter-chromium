@@ -173,6 +173,53 @@ message SupportsScriptResponseProto {
   reserved 4, 5;
 }
 
+// A privacy sensitive way to look up Capabilities. Allows querying for
+// capabilities by hashing the requested domain urls and sending only some of
+// the leading bits, such that the recipient will be unable to reconstruct the
+// original URL.
+message GetCapabilitiesByHashPrefixRequestProto {
+  // Required. Number of bits in each hash prefix. Value must be in the range
+  // [15, 64].
+  optional uint32 hash_prefix_length = 1;
+  // Required. Hash prefixes for requested urls. The prefix will be taken as the
+  // first `hash_prefix_length` number of bits of this uint64. Other bits will
+  // be ignored. CityHash64 should be used to calculate the hashes. Encoding of
+  // the domain url prior to hashing should be UTF-8, it should include the
+  // http(s) header and exclude the last '/' character.
+  // Examples:
+  // - https://www.exampledomain.com
+  // - https://example.domain.com
+  // - https://domain.com
+  repeated uint64 hash_prefix = 2 [packed = true];
+  // The client context of the device for which you want to know script
+  // capabilities.
+  // NOTE: Currently, this will only contain the Chrome version number, locale
+  // and country for privacy reasons.
+  optional ClientContextProto client_context = 3;
+  // There is only a subset of parameters allowed to be sent from the client.
+  // INTENT parameter is required.
+  repeated ScriptParameterProto script_parameters = 4;
+}
+
+message GetCapabilitiesByHashPrefixResponseProto {
+  message MatchInfoProto {
+    // Domain url that matches one of the requested hash prefixes.
+    optional string url_match = 1;
+    // The list of script parameters for the client to use.
+    // Note: The list only contains additional or changed script parameters.
+    // This will specifically NOT include mandatory script parameters such as
+    // ENABLED or START_IMMEDIATELY, and will also not contain the INTENT.
+    // Clients are required to add those parameters themselves if needed to.
+    // They are omitted here to reduce the size of the response.
+    repeated ScriptParameterProto script_parameters_override = 2;
+  }
+  // Match information for the requested hash prefixes. No correlation should
+  // be assumed between the order of returned info and the order of requested
+  // prefixes. Clients are expected to match the returned urls to determine
+  // which responses they are interested in.
+  repeated MatchInfoProto match_info = 1;
+}
+
 // Overlay image to be drawn on top of full overlays.
 message OverlayImageProto {
   // TODO(b/170202574): Remove legacy |image_url|.
@@ -818,6 +865,12 @@ message ActionProto {
   // pass this back unchanged in the next request
   optional bytes server_payload = 4;
 
+  // The action to be executed.
+  //
+  // WARNING: proto messages in this oneof and all protos they depend on must
+  // meet the requirements listed on jspb_parse.h to be callable conveniently
+  // from RunJsFlow. In practice, this means don't add any new fields of type
+  // bytes, uint32, uint64, fixed32, fixed64, sfixed32 or sfixed64.
   oneof action_info {
     SelectOptionProto select_option = 7;
     NavigateProto navigate = 9;
@@ -912,14 +965,6 @@ message CollectUserDataResultProto {
   // keys specified in |TextInputProto|. The values themselves are stored in the
   // client and do not leave the device.
   repeated string set_text_input_memory_keys = 10;
-  // The start date of the date/time range, if requested.
-  optional DateProto date_range_start_date = 11;
-  // The index of the selected timeslot for the start of the date/time range.
-  optional int32 date_range_start_timeslot = 12;
-  // The end date of the date/time range, if requested.
-  optional DateProto date_range_end_date = 13;
-  // The index of the selected timeslot for the end of the date/time range.
-  optional int32 date_range_end_timeslot = 14;
   // The values obtained from the additional sections.
   repeated ModelProto.ModelValue additional_sections_values = 15;
   // Indicates whether the UI was shown to the user. This can be false if
@@ -928,7 +973,7 @@ message CollectUserDataResultProto {
   // Indicates that the chosen login option was missing the username.
   optional bool login_missing_username = 17;
 
-  reserved 7, 8, 18 to 20;
+  reserved 7, 8, 11 to 14, 18 to 20;
 }
 
 message ActionTimingStats {
@@ -2274,46 +2319,6 @@ message LoginDetailsProto {
   repeated LoginOptionProto login_options = 2;
 }
 
-message DateTimeRangeProto {
-  message TimeSlot {
-    // The label to display.
-    optional string label = 1;
-    // The comparison value to be used to compare this timeslot
-    // to others. Smaller values indicate earlier times. This will be used to
-    // prevent start > end and vice-versa.
-    optional int32 comparison_value = 2;
-  }
-
-  // The initial start date of the date/time range.
-  optional DateProto start_date = 15;
-  // The index of the initial start time slot to select.
-  optional int32 start_time_slot = 13;
-  // The initial end date of the date/time range.
-  optional DateProto end_date = 16;
-  // The index of the initial end time slot to select.
-  optional int32 end_time_slot = 14;
-  // The minimum allowed date of the date/time range.
-  optional DateProto min_date = 3;
-  // The maximum allowed date of the date/time range.
-  optional DateProto max_date = 4;
-  // The label for the start date (e.g., 'Pick up date').
-  optional string start_date_label = 8;
-  // The label for the start time (e.g., 'Pick up time').
-  optional string start_time_label = 9;
-  // The label for the end date (e.g., 'Drop off date').
-  optional string end_date_label = 10;
-  // The label for the end time (e.g., 'Drop off time').
-  optional string end_time_label = 11;
-  // The time slots to offer (e.g., 08:00 AM, 08:30 AM, ...)
-  repeated TimeSlot time_slots = 12;
-  // The error message to display if the date is not set.
-  optional string date_not_set_error = 17;
-  // The error message to display if the time is not set.
-  optional string time_not_set_error = 18;
-
-  reserved 1, 2, 5, 6, 7;
-}
-
 // A section showing a simple text message.
 message StaticTextSectionProto {
   // The text to display. Can contain markup tags like <b>.
@@ -2405,8 +2410,12 @@ message ProfileProto {
 message PaymentInstrumentProto {
   // The values for the card, where the key is one of autofill::ServerFieldType.
   map<int32, AutofillEntryProto> card_values = 2;
+  // The payments instrument id used to identify and unmask the credit card.
+  optional int64 instrument_id = 7;
   // The network of the card.
   optional string network = 5;
+  // The last 4 digits of the card.
+  optional string last_four_digits = 6;
   // The values for the billing address, where the key is one of
   // autofill::ServerFieldType.
   map<int32, AutofillEntryProto> address_values = 3;
@@ -2479,8 +2488,6 @@ message CollectUserDataProto {
   optional string credit_card_expired_text = 23;
   // The login details that should be gathered.
   optional LoginDetailsProto login_details = 16;
-  // The date/time range that should be gathered.
-  optional DateTimeRangeProto date_time_range = 17;
   // An optional list of additional sections, which is above all other sections.
   repeated UserFormSectionProto additional_prepended_sections = 18;
   // An optional list of additional sections, which is below all other sections.
@@ -2541,7 +2548,7 @@ message CollectUserDataProto {
   }
   optional UserDataProto user_data = 37;
 
-  reserved 7, 10, 14, 15, 26;
+  reserved 7, 10, 14, 15, 17, 26;
 }
 
 // Stop Autofill Assistant.

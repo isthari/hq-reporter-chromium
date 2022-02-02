@@ -84,6 +84,8 @@ using cssvalue::CSSGridLineNamesValue;
 namespace css_parsing_utils {
 namespace {
 
+const char kTwoDashes[] = "--";
+
 bool IsLeftOrRightKeyword(CSSValueID id) {
   return IdentMatches<CSSValueID::kLeft, CSSValueID::kRight>(id);
 }
@@ -657,30 +659,11 @@ class MathFunctionParser {
                      CSSPrimitiveValue::ValueRange value_range)
       : source_range_(range), range_(range) {
     const CSSParserToken& token = range.Peek();
-    switch (token.FunctionId()) {
-      case CSSValueID::kCalc:
-      case CSSValueID::kWebkitCalc:
-        calc_value_ = CSSMathFunctionValue::Create(
-            CSSMathExpressionNode::ParseCalc(ConsumeFunction(range_)),
-            value_range);
-        break;
-      case CSSValueID::kMin:
-        calc_value_ = CSSMathFunctionValue::Create(
-            CSSMathExpressionNode::ParseMin(ConsumeFunction(range_)),
-            value_range);
-        break;
-      case CSSValueID::kMax:
-        calc_value_ = CSSMathFunctionValue::Create(
-            CSSMathExpressionNode::ParseMax(ConsumeFunction(range_)),
-            value_range);
-        break;
-      case CSSValueID::kClamp:
-        calc_value_ = CSSMathFunctionValue::Create(
-            CSSMathExpressionNode::ParseClamp(ConsumeFunction(range_)),
-            value_range);
-        break;
-      default:
-        break;
+    if (token.GetType() == kFunctionToken) {
+      calc_value_ = CSSMathFunctionValue::Create(
+          CSSMathExpressionNode::ParseMathFunction(token.FunctionId(),
+                                                   ConsumeFunction(range_)),
+          value_range);
     }
     if (calc_value_ && calc_value_->HasComparisons())
       context.Count(WebFeature::kCSSComparisonFunctions);
@@ -1173,6 +1156,18 @@ CSSCustomIdentValue* ConsumeCustomIdent(CSSParserTokenRange& range,
   }
   return ConsumeCustomIdentWithToken(range.ConsumeIncludingWhitespace(),
                                      context);
+}
+
+CSSCustomIdentValue* ConsumeDashedIdent(CSSParserTokenRange& range,
+                                        const CSSParserContext& context) {
+  CSSCustomIdentValue* custom_ident = ConsumeCustomIdent(range, context);
+  if (!custom_ident)
+    return nullptr;
+
+  if (!custom_ident->Value().StartsWith(kTwoDashes))
+    return nullptr;
+
+  return custom_ident;
 }
 
 CSSStringValue* ConsumeString(CSSParserTokenRange& range) {
@@ -3990,33 +3985,29 @@ CSSIdentifierValue* ConsumeFontVariantCSS21(CSSParserTokenRange& range) {
 
 Vector<String> ParseGridTemplateAreasColumnNames(const String& grid_row_names) {
   DCHECK(!grid_row_names.IsEmpty());
-  Vector<String> column_names;
+
   // Using StringImpl to avoid checks and indirection in every call to
   // String::operator[].
   StringImpl& text = *grid_row_names.Impl();
-
   StringBuilder area_name;
+  Vector<String> column_names;
   for (unsigned i = 0; i < text.length(); ++i) {
     if (IsCSSSpace(text[i])) {
-      if (!area_name.IsEmpty()) {
+      if (!area_name.IsEmpty())
         column_names.push_back(area_name.ReleaseString());
-      }
       continue;
     }
     if (text[i] == '.') {
       if (area_name == ".")
         continue;
-      if (!area_name.IsEmpty()) {
+      if (!area_name.IsEmpty())
         column_names.push_back(area_name.ReleaseString());
-      }
     } else {
       if (!IsNameCodePoint(text[i]))
         return Vector<String>();
-      if (area_name == ".") {
+      if (area_name == ".")
         column_names.push_back(area_name.ReleaseString());
-      }
     }
-
     area_name.Append(text[i]);
   }
 
@@ -4286,8 +4277,9 @@ bool ConsumeGridTemplateRowsAndAreasAndColumns(
     if (range.Peek().GetType() != kStringToken ||
         !ParseGridTemplateAreasRow(
             range.ConsumeIncludingWhitespace().Value().ToString(),
-            grid_area_map, row_count, column_count))
+            grid_area_map, row_count, column_count)) {
       return false;
+    }
     ++row_count;
 
     // Handle template-rows's track-size.
@@ -4478,8 +4470,9 @@ bool ParseGridTemplateAreasRow(const String& grid_row_names,
 
     wtf_size_t look_ahead_column = current_column + 1;
     while (look_ahead_column < column_count &&
-           column_names[look_ahead_column] == grid_area_name)
+           column_names[look_ahead_column] == grid_area_name) {
       look_ahead_column++;
+    }
 
     NamedGridAreaMap::iterator grid_area_it =
         grid_area_map.find(grid_area_name);

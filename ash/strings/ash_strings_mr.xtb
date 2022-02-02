@@ -82,6 +82,7 @@
 <translation id="1346748346194534595">उजवे</translation>
 <translation id="1351937230027495976">मेनू कोलॅप्स करा</translation>
 <translation id="1364382257761975320">तुमचे Chromebook अनलॉक करण्यासाठी, तुमचे फिंगरप्रिंट वापरा</translation>
+<translation id="1364618750746929654">ट्रान्स्क्रिप्शन जनरेट करता आले नाही</translation>
 <translation id="1383597849754832576">स्पीच फाइल डाउनलोड करू शकत नाही. नंतर पुन्हा प्रयत्न करा.</translation>
 <translation id="1383876407941801731">शोधा</translation>
 <translation id="1391102559483454063">सुरू</translation>
@@ -409,7 +410,6 @@
 <translation id="3640092422335864171"><ph name="NAME" /> सेव्ह करा</translation>
 <translation id="3649505501900178324">अपडेटची मुदत संपली आहे</translation>
 <translation id="366222428570480733"><ph name="USER_EMAIL_ADDRESS" /> व्यवस्थापित वापरकर्ता</translation>
-<translation id="3665889125180354336">मायक्रोफोन वापरून रेकॉर्ड करा</translation>
 <translation id="3680908746918359504">सर्व मार्कर साफ करा</translation>
 <translation id="36813544980941320">तुमचा फोन आणि <ph name="DEVICE_NAME" /> यांच्या दरम्यान वाय-फाय नेटवर्क शेअर केली जातील</translation>
 <translation id="3694122362646626770">वेबसाइट</translation>
@@ -578,6 +578,7 @@
 <translation id="4733161265940833579"><ph name="BATTERY_PERCENTAGE" />% (शिल्लक)</translation>
 <translation id="4734965478015604180">आडवा</translation>
 <translation id="4735498845456076464"><ph name="LAUNCHER_KEY_NAME" /> + नंबर कीबोर्ड शॉर्टकट बदलला आहे. फंक्शन की वापरण्यासाठी, <ph name="LAUNCHER_KEY_NAME" /> की + सर्वात वरच्या पंक्तीमधील की दाबा.</translation>
+<translation id="473775607612524610">अपडेट करा</translation>
 <translation id="4759238208242260848">डाउनलोड</translation>
 <translation id="4774338217796918551"><ph name="COME_BACK_TIME" /> वाजता परत या.</translation>
 <translation id="4776917500594043016"><ph name="USER_EMAIL_ADDRESS" /> साठी पासवर्ड</translation>
@@ -679,6 +680,7 @@
 <translation id="54609108002486618">व्यवस्‍थापित</translation>
 <translation id="5465662442746197494">मदत हवी आहे?</translation>
 <translation id="547979256943495781">शेल्फ उजवीकडे आहे</translation>
+<translation id="5491186829646618080">फर्मवेअर अपडेट उपलब्ध आहेत</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">तुमच्या अ‍ॅडमिनिस्ट्रेटरने सर्व eSIM प्रोफाइल काढून टाकल्या आहेत. अधिक माहितीसाठी तुमच्या अ‍ॅडमिनिस्ट्रेटरशी संपर्क साधा.</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> कनेक्ट करत आहे.</translation>
@@ -971,6 +973,7 @@
 <translation id="7514365320538308">डाउनलोड करा</translation>
 <translation id="7526573455193969409">नेटवर्कचे परीक्षण केले जाऊ शकते</translation>
 <translation id="7536035074519304529">IP पत्ता: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">कीबोर्ड बॅकलाइट सुरू आहे</translation>
 <translation id="7548434653388805669">झोपण्याची वेळ</translation>
 <translation id="7551643184018910560">शेल्फवर पिन करा</translation>
 <translation id="7561982940498449837">मेनू बंद करा</translation>
@@ -1055,6 +1058,7 @@
 <translation id="8036504271468642248">मागील वाक्य</translation>
 <translation id="8042893070933512245">अ‍ॅक्सेसिबिलिटी सेटिंग्ज मेनू उघडा</translation>
 <translation id="8042925093898452104">तपशीलवार माहिती बंद करा</translation>
+<translation id="8044457332620420407">कीबोर्ड बॅकलाइट बंद आहे</translation>
 <translation id="8048123526339889627">ब्लूटूथ सेटिंग्ज</translation>
 <translation id="8051716679295756675"><ph name="DESK_TEMPLATE_NAME" /> नावाचे टेंप्लेट आधीपासून अस्तित्वात आहे</translation>
 <translation id="8052898407431791827">क्लिपबोर्डवर कॉपी केले</translation>
@@ -1175,6 +1179,7 @@
 <translation id="8876661425082386199">तुमचे कनेक्शन तपासा</translation>
 <translation id="8877788021141246043">रिमाइंडर सेट करा</translation>
 <translation id="8878886163241303700">स्क्रीन विस्तृत करत आहे</translation>
+<translation id="888982883502837004">तुमच्या डिव्हाइससाठी फर्मवेअरसंबंधित अपडेट उपलब्ध आहेत. पुनरावलोकन आणि अपडेट करण्यासाठी क्लिक करा.</translation>
 <translation id="8896630965521842259"><ph name="DESK_TEMPLATE_NAME" /> कायमचे हटवले जाईल</translation>
 <translation id="890616557918890486">स्रोत बदला</translation>
 <translation id="8909138438987180327">बॅटरी <ph name="PERCENTAGE" /> टक्के आहे.</translation>

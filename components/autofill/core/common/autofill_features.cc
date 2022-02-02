@@ -4,10 +4,10 @@
 
 #include "components/autofill/core/common/autofill_features.h"
 
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 
-namespace autofill {
-namespace features {
+namespace autofill::features {
 
 // Controls whether to flatten and fill cross-iframe forms.
 // TODO(crbug.com/1187842) Remove once launched.
@@ -19,7 +19,7 @@ const base::Feature kAutofillAcrossIframes{"AutofillAcrossIframes",
 // When enabled, a save prompt will be shown to user upon form submission before
 // storing any detected address profile.
 const base::Feature kAutofillAddressProfileSavePrompt{
-    "AutofillAddressProfileSavePrompt", base::FEATURE_DISABLED_BY_DEFAULT};
+    "AutofillAddressProfileSavePrompt", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // This parameter controls if save profile prompts are automatically blocked for
 // a given domain after N (default is 3) subsequent declines.
@@ -164,13 +164,6 @@ const base::Feature kAutofillEnableLabelPrecedenceForTurkishAddresses{
     "AutofillEnableLabelPrecedenceForTurkishAddresses",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-// When enabled and user is signed in, a footer indicating user's e-mail address
-// and profile picture will appear at the bottom of corresponding password
-// InfoBars.
-const base::Feature kAutofillEnablePasswordInfoBarAccountIndicationFooter{
-    "AutofillEnablePasswordInfoBarAccountIndicationFooter",
-    base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Enables the parsing of a sequence of fields that follows the pattern of Name,
 // Surname.
 // TODO(crbug.com/1277480): Remove once launched.
@@ -234,6 +227,22 @@ const base::Feature kAutofillFixFillableFieldTypes{
 const base::Feature kAutofillIgnoreAutocompleteForImport{
     "AutofillIgnoreAutocompleteForImport", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// When enabled, the Autofill popup ignores second clicks for a certain period
+// (kAutofillIgnoreEarlyClicksOnPopupDuration) after the Autofill popup was
+// shown. This is to prevent double clicks accidentally accepting suggestions.
+// TODO(crbug/1279268): Remove once launched.
+const base::Feature kAutofillIgnoreEarlyClicksOnPopup{
+    "AutofillIgnoreEarlyClicksOnPopup", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// The duration for which clicks on the just-shown Autofill popup should be
+// ignored if AutofillIgnoreEarlyClicksOnPopup is enabled.
+// TODO(crbug/1279268): Remove once launched. Consider also removing
+// AutofillPopupItemView::mouse_observed_outside_of_item_.
+const base::FeatureParam<base::TimeDelta>
+    kAutofillIgnoreEarlyClicksOnPopupDuration{
+        &kAutofillIgnoreEarlyClicksOnPopup, "duration",
+        base::Milliseconds(500)};
+
 // When enabled, only changed values are highlighted in preview mode.
 // TODO(crbug/1248585): Remove when launched.
 const base::Feature kAutofillHighlightOnlyChangedValuesInPreviewMode{
@@ -289,7 +298,7 @@ extern const base::Feature kAutofillPreventOverridingPrefilledValues{
 // Uses the pattern provider to retrieve parsing patterns for the heuristic
 // field type detection.
 // TODO(crbug/1121990): Remove once launched.
-extern const base::Feature kAutofillParsingPatternProvider{
+const base::Feature kAutofillParsingPatternProvider{
     "AutofillParsingPatternProvider", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Controls if language-specific patterns are used for the heuristic field type
@@ -319,18 +328,10 @@ const base::Feature kAutofillProbableFormSubmissionInBrowser{
     "AutofillProbableFormSubmissionInBrowser",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kAutofillProfileClientValidation{
-    "AutofillProfileClientValidation", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // TODO(crbug.com/1101280): Remove once feature is tested.
 const base::Feature kAutofillProfileImportFromUnfocusableFields{
     "AutofillProfileImportFromUnfocusableFields",
     base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Controls whether Autofill uses server-side validation to ensure that fields
-// with invalid data are not suggested.
-const base::Feature kAutofillProfileServerValidation{
-    "AutofillProfileServerValidation", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Controls whether or not overall prediction are retrieved from the cache.
 const base::Feature kAutofillRetrieveOverallPredictionsFromCache{
@@ -432,7 +433,7 @@ const base::FeatureParam<bool> kAutofillAblationStudyEnabledForPaymentsParam{
 const base::FeatureParam<int> kAutofillAblationStudyAblationWeightPerMilleParam{
     &kAutofillEnableAblationStudy, "ablation_weight_per_mille", 10};
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 // Controls whether the Autofill manual fallback for Addresses and Payments is
 // present on Android.
 const base::Feature kAutofillManualFallbackAndroid{
@@ -448,17 +449,17 @@ const base::Feature kAutofillTouchToFillForCreditCardsAndroid{
     "AutofillTouchToFillForCreditCardsAndroid",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 const base::Feature kAutofillUseMobileLabelDisambiguation{
     "AutofillUseMobileLabelDisambiguation", base::FEATURE_DISABLED_BY_DEFAULT};
 const char kAutofillUseMobileLabelDisambiguationParameterName[] = "variant";
 const char kAutofillUseMobileLabelDisambiguationParameterShowAll[] = "show-all";
 const char kAutofillUseMobileLabelDisambiguationParameterShowOne[] = "show-one";
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
 // Controls whether the creation of new address profiles is enabled in settings
 // on IOS.
 // TODO(crbug/1167105): Remove once it's launched.
@@ -467,14 +468,13 @@ const base::Feature kAutofillEnableNewAddressProfileCreationInSettingsOnIOS{
     base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 bool IsAutofillManualFallbackEnabled() {
   return base::FeatureList::IsEnabled(
              autofill::features::kAutofillKeyboardAccessory) &&
          base::FeatureList::IsEnabled(
              autofill::features::kAutofillManualFallbackAndroid);
 }
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
-}  // namespace features
-}  // namespace autofill
+}  // namespace autofill::features

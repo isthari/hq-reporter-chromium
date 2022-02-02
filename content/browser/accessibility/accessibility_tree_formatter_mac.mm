@@ -11,10 +11,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
-#include "content/browser/accessibility/accessibility_tree_formatter_utils_mac.h"
+#include "content/browser/accessibility/browser_accessibility_cocoa.h"
 #include "content/browser/accessibility/browser_accessibility_mac.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/public/browser/ax_inspect_factory.h"
+#include "ui/accessibility/platform/inspect/ax_inspect_scenario.h"
 #include "ui/accessibility/platform/inspect/ax_inspect_utils.h"
 #include "ui/accessibility/platform/inspect/ax_inspect_utils_mac.h"
 #include "ui/accessibility/platform/inspect/ax_property_node.h"
@@ -29,8 +30,6 @@
 using base::StringPrintf;
 using base::SysNSStringToUTF8;
 using base::SysNSStringToUTF16;
-using content::a11y::AttributeInvoker;
-using content::a11y::OptionalNSObject;
 using std::string;
 using ui::AXPositionOf;
 using ui::AXPropertyFilter;
@@ -41,11 +40,13 @@ using ui::AXNSPointToBaseValue;
 using ui::AXTreeIndexerMac;
 using ui::AXAttributeNamesOf;
 using ui::AXAttributeValueOf;
+using ui::AXCallStatementInvoker;
 using ui::AXSizeOf;
 using ui::AXFormatValue;
 using ui::AXMakeConst;
 using ui::AXMakeOrderedKey;
 using ui::AXMakeSetKey;
+using ui::AXOptionalNSObject;
 
 namespace content {
 
@@ -117,6 +118,21 @@ base::Value AccessibilityTreeFormatterMac::BuildTree(const id root) const {
 }
 
 std::string AccessibilityTreeFormatterMac::EvaluateScript(
+    const AXTreeSelector& selector,
+    const ui::AXInspectScenario& scenario) const {
+  AXUIElementRef root = nil;
+  std::tie(root, std::ignore) = ui::FindAXUIElement(selector);
+  if (!root)
+    return "";
+
+  std::string result =
+      EvaluateScript(static_cast<id>(root), scenario.script_instructions, 0,
+                     scenario.script_instructions.size());
+
+  return result;
+}
+
+std::string AccessibilityTreeFormatterMac::EvaluateScript(
     ui::AXPlatformNodeDelegate* root,
     const std::vector<ui::AXScriptInstruction>& instructions,
     size_t start_index,
@@ -124,10 +140,18 @@ std::string AccessibilityTreeFormatterMac::EvaluateScript(
   BrowserAccessibilityCocoa* platform_root = ToBrowserAccessibilityCocoa(
       BrowserAccessibility::FromAXPlatformNodeDelegate(root));
 
+  return EvaluateScript(platform_root, instructions, start_index, end_index);
+}
+
+std::string AccessibilityTreeFormatterMac::EvaluateScript(
+    id platform_root,
+    const std::vector<ui::AXScriptInstruction>& instructions,
+    size_t start_index,
+    size_t end_index) const {
   base::Value scripts(base::Value::Type::LIST);
   AXTreeIndexerMac indexer(platform_root);
   std::map<std::string, id> storage;
-  AttributeInvoker invoker(&indexer, &storage);
+  AXCallStatementInvoker invoker(&indexer, &storage);
   for (size_t index = start_index; index < end_index; index++) {
     if (instructions[index].IsComment()) {
       scripts.Append(instructions[index].AsComment());
@@ -136,7 +160,7 @@ std::string AccessibilityTreeFormatterMac::EvaluateScript(
 
     DCHECK(instructions[index].IsScript());
     const AXPropertyNode& property_node = instructions[index].AsScript();
-    OptionalNSObject value = invoker.Invoke(property_node);
+    AXOptionalNSObject value = invoker.Invoke(property_node);
     if (value.IsUnsupported()) {
       continue;
     }
@@ -234,8 +258,8 @@ void AccessibilityTreeFormatterMac::AddProperties(
   std::string line_index = indexer->IndexBy(node);
   for (const AXPropertyNode& property_node :
        PropertyFilterNodesFor(line_index)) {
-    AttributeInvoker invoker(node, indexer);
-    OptionalNSObject value = invoker.Invoke(property_node);
+    AXCallStatementInvoker invoker(node, indexer);
+    AXOptionalNSObject value = invoker.Invoke(property_node);
     if (value.IsNotApplicable() || value.IsUnsupported()) {
       continue;
     }

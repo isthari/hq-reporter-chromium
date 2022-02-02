@@ -170,12 +170,15 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   bool CanTakeSnapshot() const;
   void TakeSnapshot(const gfx::RectF& rect, SnapshotCallback callback);
   void CreateFullPagePdf(base::OnceCallback<void(NSData*)> callback);
+  void CloseMediaPresentations();
   void CloseWebState();
   bool SetSessionStateData(NSData* data);
   NSData* SessionStateData() const;
   PermissionState GetStateForPermission(Permission permission) const
       API_AVAILABLE(ios(15.0));
   void SetStateForPermission(PermissionState state, Permission permission)
+      API_AVAILABLE(ios(15.0));
+  NSDictionary<NSNumber*, NSNumber*>* GetStatesForAllPermissions() const
       API_AVAILABLE(ios(15.0));
   void OnStateChangedForPermission(Permission permission)
       API_AVAILABLE(ios(15.0));

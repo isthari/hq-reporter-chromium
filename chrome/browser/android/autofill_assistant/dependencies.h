@@ -9,7 +9,9 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/strings/string_piece.h"
 #include "chrome/browser/android/autofill_assistant/assistant_field_trial_util.h"
+#include "components/autofill_assistant/content/browser/annotate_dom_model_service.h"
 #include "components/variations/service/variations_service.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 
 namespace autofill_assistant {
@@ -18,15 +20,22 @@ namespace autofill_assistant {
 // and dependencies to the starter.
 class Dependencies {
  public:
-  static std::unique_ptr<Dependencies> CreateFromJavaObject(
-      base::android::ScopedJavaGlobalRef<jobject> java_object);
+  static std::unique_ptr<Dependencies> CreateFromJavaDependencies(
+      base::android::ScopedJavaGlobalRef<jobject> jdependencies);
 
-  base::android::ScopedJavaGlobalRef<jobject> GetJavaObject() const;
+  static std::unique_ptr<Dependencies> CreateFromJavaStaticDependencies(
+      base::android::ScopedJavaGlobalRef<jobject> jstatic_dependencies);
 
-  static base::android::ScopedJavaGlobalRef<jobject> GetInfoPageUtil(
-      const base::android::ScopedJavaGlobalRef<jobject>& java_object);
+  base::android::ScopedJavaGlobalRef<jobject> GetJavaStaticDependencies() const;
+  // Might not be null during initiation in starter_android.
+  base::android::ScopedJavaGlobalRef<jobject> GetJavaDependencies() const;
 
-  base::android::ScopedJavaGlobalRef<jobject> GetAccessTokenUtil() const;
+  void SetJavaDependencies(base::android::ScopedJavaGlobalRef<jobject>);
+
+  static base::android::ScopedJavaGlobalRef<jobject> CreateInfoPageUtil(
+      const base::android::ScopedJavaGlobalRef<jobject>& jstatic_dependencies);
+
+  base::android::ScopedJavaGlobalRef<jobject> CreateAccessTokenUtil() const;
 
   virtual ~Dependencies();
 
@@ -38,12 +47,18 @@ class Dependencies {
   virtual std::string GetChromeSignedInEmailAddress(
       content::WebContents* web_contents) const = 0;
 
+  virtual AnnotateDomModelService* GetAnnotateDomModelService(
+      content::BrowserContext* browser_context) const = 0;
+
  protected:
-  Dependencies(JNIEnv* env,
-               const base::android::JavaParamRef<jobject>& java_object);
+  Dependencies(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jstatic_dependencies);
 
  private:
-  const base::android::ScopedJavaGlobalRef<jobject> java_object_;
+  const base::android::ScopedJavaGlobalRef<jobject> jstatic_dependencies_;
+  // Might be null during initiation in starter_android.
+  base::android::ScopedJavaGlobalRef<jobject> jdependencies_;
 };
 
 }  // namespace autofill_assistant

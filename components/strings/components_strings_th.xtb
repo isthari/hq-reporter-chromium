@@ -20,7 +20,6 @@
 <translation id="1038842779957582377">ไม่ทราบชื่อ</translation>
 <translation id="1041998700806130099">ข้อความแผ่นงาน</translation>
 <translation id="1048785276086539861">เมื่อคุณแก้ไขคำอธิบายประกอบ เอกสารนี้จะกลับไปเป็นมุมมองแบบหน้าเดียว</translation>
-<translation id="1049743911850919806">โหมดไม่ระบุตัวตน</translation>
 <translation id="1050038467049342496">ปิดแอปอื่นๆ</translation>
 <translation id="1055184225775184556">&amp;เลิกทำการเพิ่ม</translation>
 <translation id="1056898198331236512">คำเตือน</translation>
@@ -111,7 +110,6 @@
 <translation id="1307966114820526988">ฟีเจอร์ที่เลิกใช้งานแล้ว</translation>
 <translation id="1308113895091915999">มีข้อเสนอพิเศษ</translation>
 <translation id="1312803275555673949">ดูหลักฐานสนับสนุน</translation>
-<translation id="131405271941274527"><ph name="URL" /> ต้องการส่งและรับข้อมูลเมื่อคุณแตะโทรศัพท์กับอุปกรณ์ NFC</translation>
 <translation id="1314311879718644478">ดูเนื้อหา Augmented Reality</translation>
 <translation id="1314509827145471431">เย็บเล่มด้านขวา</translation>
 <translation id="1318023360584041678">บันทึกไว้ในกลุ่มแท็บ</translation>
@@ -209,9 +207,11 @@
 <translation id="1559572115229829303">&lt;p&gt;ไม่สามารถสร้างการเชื่อมต่อส่วนตัวไปที่ <ph name="BEGIN_BOLD" /><ph name="DOMAIN" /><ph name="END_BOLD" /> เนื่องจากวันที่และเวลา (<ph name="DATE_AND_TIME" />) ในอุปกรณ์ไม่ถูกต้อง&lt;/p&gt;
 
       &lt;p&gt;โปรดปรับวันที่และเวลาจากหัวข้อ&lt;strong&gt;ทั่วไป&lt;/strong&gt;ในแอป&lt;strong&gt;การตั้งค่า&lt;/strong&gt;&lt;/p&gt;</translation>
+<translation id="156703335097561114">ข้อมูลการเชื่อมต่อเครือข่าย เช่น ที่อยู่ การกำหนดค่าอินเทอร์เฟซ และคุณภาพการเชื่อมต่อ</translation>
 <translation id="1567040042588613346">นโยบายนี้ทำงานตามที่ควรจะเป็นแต่มีการตั้งค่าเดียวกันไว้ที่อื่นและถูกแทนที่โดยนโยบายนี้</translation>
 <translation id="1569487616857761740">ป้อนวันที่หมดอายุ</translation>
 <translation id="1581080074034554886">CVC</translation>
+<translation id="1581767074483369314">ลงทะเบียนใช้บัตรเสมือน</translation>
 <translation id="1583294866416602487">Plex</translation>
 <translation id="1583429793053364125">มีสิ่งผิดปกติเกิดขึ้นในขณะที่แสดงหน้าเว็บนี้</translation>
 <translation id="1586541204584340881">ส่วนขยายที่คุณติดตั้ง</translation>
@@ -373,6 +373,7 @@
 <translation id="2101225219012730419">รุ่น:</translation>
 <translation id="2102134110707549001">แนะนำรหัสผ่านที่รัดกุม…</translation>
 <translation id="2102495993840063010">แอป Android</translation>
+<translation id="2106249949168291652">บันทึกแล้ว เพิ่มความปลอดภัยด้วยบัตรเสมือนไหม</translation>
 <translation id="2107021941795971877">การรองรับการพิมพ์</translation>
 <translation id="2108755909498034140">รีสตาร์ทคอมพิวเตอร์</translation>
 <translation id="2111166930115883695">กดแป้นเว้นวรรคเพื่อเล่น</translation>
@@ -476,6 +477,7 @@
 <translation id="2465655957518002998">เลือกวิธีนำส่งสินค้า</translation>
 <translation id="2465688316154986572">เย็บด้วยลวดเย็บกระดาษ</translation>
 <translation id="2465914000209955735">จัดการไฟล์ที่คุณดาวน์โหลดใน Chrome</translation>
+<translation id="2466004615675155314">แสดงข้อมูลจากเว็บ</translation>
 <translation id="2467694685043708798"><ph name="BEGIN_LINK" />เรียกใช้การวินิจฉัยเครือข่าย<ph name="END_LINK" /></translation>
 <translation id="2469153820345007638">ลำดับ 1 ถึง N</translation>
 <translation id="2470767536994572628">เมื่อคุณแก้ไขคำอธิบายประกอบ เอกสารนี้จะกลับไปเป็นมุมมองแบบหน้าเดียวและกลับไปใช้การหมุนแบบเดิม</translation>
@@ -522,10 +524,12 @@
 <translation id="2609632851001447353">รูปแบบต่างๆ</translation>
 <translation id="2610561535971892504">คลิกเพื่อคัดลอก</translation>
 <translation id="2618023639789766142">C10 (ซองจดหมาย)</translation>
+<translation id="2623663032199728144">สามารถขอใช้ข้อมูลเกี่ยวกับหน้าจอได้</translation>
 <translation id="2625385379895617796">นาฬิกาเร็วเกินไป</translation>
 <translation id="262745152991669301">สามารถขอเชื่อมต่อกับอุปกรณ์ USB ได้</translation>
 <translation id="2629325967560697240"><ph name="BEGIN_ENHANCED_PROTECTION_LINK" />เปิดการปกป้องที่ปรับปรุงแล้ว<ph name="END_ENHANCED_PROTECTION_LINK" />เพื่อให้ Chrome รักษาความปลอดภัยในระดับสูงสุด</translation>
 <translation id="2634124572758952069">ไม่พบที่อยู่ IP ของเซิร์ฟเวอร์ <ph name="HOST_NAME" /></translation>
+<translation id="2638001509205834345">เพิ่มความปลอดภัยให้บัตรไหม</translation>
 <translation id="2639739919103226564">สถานะ:</translation>
 <translation id="264810637653812429">ไม่พบอุปกรณ์ที่เข้ากันได้</translation>
 <translation id="2649204054376361687"><ph name="CITY" />, <ph name="COUNTRY" /></translation>
@@ -641,6 +645,7 @@
 <translation id="3037605927509011580">แย่จัง!</translation>
 <translation id="3041612393474885105">ข้อมูลในใบรับรอง</translation>
 <translation id="3044034790304486808">หาข้อมูลต่อ</translation>
+<translation id="305162504811187366">ประวัติการใช้ Chrome Remote Desktop รวมถึงการประทับเวลา โฮสต์ และรหัสเซสชันไคลเอ็นต์</translation>
 <translation id="3060227939791841287">C9 (ซองจดหมาย)</translation>
 <translation id="3061707000357573562">แพตช์บริการ</translation>
 <translation id="306573536155379004">เกมเริ่มแล้ว</translation>
@@ -657,6 +662,7 @@
 <translation id="3113284927548439113">กะที่ 3</translation>
 <translation id="3115874930288085374"><ph name="ENROLLMENT_DOMAIN" /> กำหนดให้คุณสำรองข้อมูลและส่งคืน <ph name="DEVICE_TYPE" /> เครื่องนี้</translation>
 <translation id="3116158981186517402">แยกออกเป็นชั้นๆ</translation>
+<translation id="311958134571892113">ลิงก์กับ</translation>
 <translation id="3120730422813725195">Elo</translation>
 <translation id="31207688938192855"><ph name="BEGIN_LINK" />ลองเรียกใช้การวินิจฉัยการเชื่อมต่อ<ph name="END_LINK" /></translation>
 <translation id="3121994479408824897">ไปที่ <ph name="DOMAIN" /></translation>
@@ -681,6 +687,7 @@
 <translation id="3197136577151645743">สามารถขอทราบเวลาที่คุณใช้งานอุปกรณ์อยู่ได้</translation>
 <translation id="3202497928925179914"><ph name="MANAGE_SYNC_FOCUSED_FRIENDLY_MATCH_TEXT" /> กด Tab ตามด้วย Enter เพื่อจัดการข้อมูลที่คุณซิงค์ในการตั้งค่า Chrome</translation>
 <translation id="320323717674993345">ยกเลิกการชำระเงิน</translation>
+<translation id="3203366800380907218">จากเว็บ</translation>
 <translation id="3207960819495026254">บุ๊กมาร์กแล้ว</translation>
 <translation id="3209034400446768650">อาจมีการเรียกเก็บเงินในหน้านี้</translation>
 <translation id="3212581601480735796">มีการตรวจสอบกิจกรรมที่คุณทำใน <ph name="HOSTNAME" /></translation>
@@ -697,6 +704,7 @@
 <translation id="3234666976984236645">ตรวจหาเนื้อหาที่สำคัญบนไซต์นี้เสมอ</translation>
 <translation id="3240683217920639535"><ph name="MANAGE_CHROME_THEMES_FOCUSED_FRIENDLY_MATCH_TEXT" /> กด Tab ตามด้วย Enter เพื่อปรับแต่งรูปลักษณ์ของเบราว์เซอร์</translation>
 <translation id="3240791268468473923">ระบบได้เปิด Bottom Sheet ซึ่งแจ้งว่าไม่พบข้อมูลเข้าสู่ระบบที่ตรงกันสำหรับข้อมูลเข้าสู่ระบบการชำระเงินที่ปลอดภัย</translation>
+<translation id="324180406144491771">ลิงก์ “<ph name="HOST_NAME" />” ถูกบล็อก</translation>
 <translation id="3249845759089040423">ดึงดูด</translation>
 <translation id="3252266817569339921">ฝรั่งเศส</translation>
 <translation id="3257954757204451555">ดูผู้ที่อยู่เบื้องหลังข้อมูลนี้</translation>
@@ -727,12 +735,6 @@
 <translation id="3345782426586609320">ตา</translation>
 <translation id="3355823806454867987">เปลี่ยนการตั้งค่าพร็อกซี...</translation>
 <translation id="3360103848165129075">แผ่นงานของเครื่องจัดการการชำระเงิน</translation>
-<translation id="3361596688432910856">Chrome <ph name="BEGIN_EMPHASIS" />จะไม่บันทึก<ph name="END_EMPHASIS" />ข้อมูลต่อไปนี้:
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />ประวัติการท่องเว็บของคุณ
-          <ph name="LIST_ITEM" />คุกกี้และข้อมูลไซต์
-          <ph name="LIST_ITEM" />ข้อมูลที่กรอกในฟอร์ม
-        <ph name="END_LIST" /></translation>
 <translation id="3362968246557010467">เราคัดลอกนโยบายนี้มาโดยอัตโนมัติจากนโยบาย <ph name="OLD_POLICY" /> ที่เลิกใช้งานแล้ว คุณควรใช้นโยบายนี้แทน</translation>
 <translation id="3364869320075768271"><ph name="URL" /> ต้องการเข้าถึงอุปกรณ์และข้อมูล Virtual Reality ของคุณ</translation>
 <translation id="3366477098757335611">ดูบัตร</translation>
@@ -1207,12 +1209,7 @@
 <translation id="4819347708020428563">แก้ไขคำอธิบายประกอบในมุมมองเริ่มต้นใช่ไหม</translation>
 <translation id="4825496307559726072"><ph name="CREATE_GOOGLE_SHEET_FOCUSED_FRIENDLY_MATCH_TEXT" /> กด Tab ตามด้วย Enter เพื่อสร้างชีตใหม่ใน Google ชีตอย่างรวดเร็ว</translation>
 <translation id="4825507807291741242">ทรงพลัง</translation>
-<translation id="4827402517081186284">โหมดไม่ระบุตัวตนไม่ได้ซ่อนการใช้งานออนไลน์ของคุณ
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />เว็บไซต์รู้เมื่อคุณเข้าชม<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />นายจ้างหรือโรงเรียนติดตามกิจกรรมการท่องเว็บได้<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />ผู้ให้บริการอินเทอร์เน็ตอาจตรวจสอบการเข้าชมเว็บ<ph name="END_LIST_ITEM" />
-        <ph name="END_LIST" /></translation>
+<translation id="4829962028570902310">ถูกละเว้นเนื่องจากนโยบายจะต้องตั้งค่าโดยนโยบายผู้ใช้ระบบคลาวด์เท่านั้น</translation>
 <translation id="483241715238664915">เปิดคำเตือน</translation>
 <translation id="4838327282952368871">ชวนฝัน</translation>
 <translation id="4840250757394056958">ดูประวัติการเข้าชมใน Chrome</translation>
@@ -1229,7 +1226,6 @@
 <translation id="4877083676943085827">{COUNT,plural, =0{ไม่มี}=1{<ph name="EXAMPLE_DOMAIN_1" />}=2{<ph name="EXAMPLE_DOMAIN_1" />, <ph name="EXAMPLE_DOMAIN_2" />}other{<ph name="EXAMPLE_DOMAIN_1" />, <ph name="EXAMPLE_DOMAIN_2" /> <ph name="AND_MORE" />}}</translation>
 <translation id="4877422487531841831">การค้นหา <ph name="TEXT" /></translation>
 <translation id="4879491255372875719">อัตโนมัติ (ค่าเริ่มต้น)</translation>
-<translation id="4879725228911483934">เปิดและแสดงหน้าต่างบนหน้าจอของคุณ</translation>
 <translation id="4880827082731008257">ค้นประวัติการเข้าชม</translation>
 <translation id="4881695831933465202">เปิด</translation>
 <translation id="4885256590493466218">ชำระเงินด้วย <ph name="CARD_DETAIL" /> ที่จุดชำระเงิน</translation>
@@ -1317,6 +1313,7 @@
 <translation id="5138227688689900538">แสดงน้อยลง</translation>
 <translation id="5145883236150621069">มีรหัสข้อผิดพลาดในการตอบกลับนโยบาย</translation>
 <translation id="5146995429444047494">บล็อกการแจ้งเตือนของ <ph name="ORIGIN" /> ไว้</translation>
+<translation id="514704532284964975"><ph name="URL" /> ต้องการดูและเปลี่ยนแปลงข้อมูลในอุปกรณ์ NFC ที่คุณแตะจากโทรศัพท์</translation>
 <translation id="5148809049217731050">หงายหน้าขึ้น</translation>
 <translation id="515292512908731282">C4 (ซองจดหมาย)</translation>
 <translation id="5158275234811857234">หน้าปก</translation>
@@ -1362,7 +1359,6 @@
 <translation id="5283044957620376778">B1</translation>
 <translation id="5284295735376057059">คุณสมบัติของเอกสาร</translation>
 <translation id="528468243742722775">สิ้นสุด</translation>
-<translation id="5284909709419567258">ที่อยู่เครือข่าย</translation>
 <translation id="5285570108065881030">แสดงรหัสผ่านที่บันทึกไว้ทั้งหมด</translation>
 <translation id="5287240709317226393">แสดงคุกกี้</translation>
 <translation id="5287456746628258573">เว็บไซต์นี้ใช้การกำหนดค่าความปลอดภัยที่ล้าสมัย ซึ่งอาจทำให้ข้อมูลของคุณรั่วไหลเมื่อส่งไปยังเว็บไซต์นี้ (เช่น รหัสผ่านหรือหมายเลขบัตรเครดิต)</translation>
@@ -1618,7 +1614,6 @@
 <translation id="6169916984152623906">ขณะนี้คุณสามารถท่องเว็บแบบเป็นส่วนตัว และผู้อื่นที่ใช้อุปกรณ์เครื่องนี้จะไม่เห็นกิจกรรมของคุณ แต่จะมีการบันทึกการดาวน์โหลดและบุ๊กมาร์กไว้</translation>
 <translation id="6177128806592000436">การเชื่อมต่อกับเว็บไซต์นี้ไม่ปลอดภัย</translation>
 <translation id="6180316780098470077">ช่วงเว้นระหว่างการลองใหม่แต่ละครั้ง</translation>
-<translation id="619448280891863779">สามารถขอเปิดและวางหน้าต่างบนหน้าจอ</translation>
 <translation id="6196640612572343990">บล็อกคุกกี้ของบุคคลที่สาม</translation>
 <translation id="6203231073485539293">ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</translation>
 <translation id="6218753634732582820">ต้องการนำที่อยู่ออกจาก Chromium ใช่ไหม</translation>
@@ -1783,7 +1778,6 @@
 <translation id="6757797048963528358">อุปกรณ์ของคุณเข้าสู่โหมดสลีปแล้ว</translation>
 <translation id="6767985426384634228">อัปเดตที่อยู่ไหม</translation>
 <translation id="6768213884286397650">Hagaki (โปสการ์ด)</translation>
-<translation id="6774185088257932239"><ph name="BEGIN_LINK" />ดูข้อมูลเพิ่มเติม<ph name="END_LINK" />เกี่ยวกับโหมดไม่ระบุตัวตน</translation>
 <translation id="6775759552199460396">JIS B2</translation>
 <translation id="67862343314499040">ม่วงอมน้ำเงิน</translation>
 <translation id="6786747875388722282">ส่วนขยาย</translation>
@@ -1867,7 +1861,6 @@
 <translation id="706295145388601875">เพิ่มและจัดการที่อยู่ในการตั้งค่า Chrome</translation>
 <translation id="7064851114919012435">ข้อมูลติดต่อ</translation>
 <translation id="7068733155164172741">ป้อนรหัส <ph name="OTP_LENGTH" /> หลัก</translation>
-<translation id="7070090581017165256">เกี่ยวกับเว็บไซต์นี้</translation>
 <translation id="70705239631109039">การเชื่อมต่อไม่ปลอดภัยอย่างสมบูรณ์</translation>
 <translation id="7075452647191940183">คำขอมีขนาดใหญ่เกินไป</translation>
 <translation id="7079718277001814089">เว็บไซต์นี้มีมัลแวร์</translation>
@@ -2115,7 +2108,6 @@
 <translation id="7813600968533626083">นำคำแนะนำสำหรับแบบฟอร์มออกจาก Chrome ไหม</translation>
 <translation id="781440967107097262">แชร์คลิปบอร์ดไหม</translation>
 <translation id="7815407501681723534">พบ<ph name="SEARCH_RESULTS" /> <ph name="NUMBER_OF_RESULTS" /> รายการสำหรับ "<ph name="SEARCH_STRING" />"</translation>
-<translation id="782125616001965242">แสดงข้อมูลเกี่ยวกับเว็บไซต์นี้</translation>
 <translation id="782886543891417279">Wi-Fi ที่คุณใช้ (<ph name="WIFI_NAME" />) อาจต้องการให้คุณไปที่หน้าการเข้าสู่ระบบ</translation>
 <translation id="7836231406687464395">Postfix (ซองจดหมาย)</translation>
 <translation id="7844689747373518809">{COUNT,plural, =0{ไม่มี}=1{1 แอป (<ph name="EXAMPLE_APP_1" />)}=2{2 แอป (<ph name="EXAMPLE_APP_1" />, <ph name="EXAMPLE_APP_2" />)}other{# แอป (<ph name="EXAMPLE_APP_1" />, <ph name="EXAMPLE_APP_2" />, <ph name="AND_MORE" />)}}</translation>
@@ -2265,12 +2257,6 @@
 <translation id="8317207217658302555">อัปเดต ARCore ไหม</translation>
 <translation id="831997045666694187">ตอนเย็น</translation>
 <translation id="8321476692217554900">การแจ้งเตือน</translation>
-<translation id="8328484624016508118">หลังจากที่ปิดแท็บที่ไม่ระบุตัวตนทั้งหมด Chrome จะล้าง
-        <ph name="BEGIN_LIST" />
-          <ph name="LIST_ITEM" />กิจกรรมการท่องเว็บออกจากอุปกรณ์นี้<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />ประวัติการค้นหาออกจากอุปกรณ์นี้<ph name="END_LIST_ITEM" />
-          <ph name="LIST_ITEM" />ข้อมูลที่ป้อนในแบบฟอร์ม<ph name="END_LIST_ITEM" />
-        <ph name="END_LIST" /></translation>
 <translation id="8332188693563227489">การเข้าถึง <ph name="HOST_NAME" /> ถูกปฏิเสธ</translation>
 <translation id="833262891116910667">ไฮไลต์</translation>
 <translation id="8339163506404995330">ระบบจะไม่แปลหน้าเว็บภาษา<ph name="LANGUAGE" /></translation>
@@ -2352,8 +2338,10 @@
 <translation id="865032292777205197">เซ็นเซอร์ตรวจจับการเคลื่อนไหว</translation>
 <translation id="8663226718884576429">สรุปคำสั่งซื้อ <ph name="TOTAL_LABEL" /> รายละเอียดเพิ่มเติม</translation>
 <translation id="8666678546361132282">อังกฤษ</translation>
+<translation id="8669306706049782872">ใช้ข้อมูลเกี่ยวกับหน้าจอเพื่อเปิดและวางหน้าต่าง</translation>
 <translation id="867224526087042813">ลายเซ็น</translation>
 <translation id="8676424191133491403">ไม่หน่วงเวลา</translation>
+<translation id="8679903780129190080">ได้สิ ตกลง</translation>
 <translation id="8680536109547170164"><ph name="QUERY" />, คำตอบ, <ph name="ANSWER" /></translation>
 <translation id="8681531050781943054">ไม่สามารถโหลดหน้าเว็บที่ <ph name="PAGE" /> เนื่องจาก:</translation>
 <translation id="8685155993131031756">Prc-16K</translation>

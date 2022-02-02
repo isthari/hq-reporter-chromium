@@ -38,6 +38,7 @@ class AppManagementPageHandler
 
   // app_management::mojom::PageHandler:
   void GetApps(GetAppsCallback callback) override;
+  void GetApp(const std::string& app_id, GetAppCallback callback) override;
   void GetExtensionAppPermissionMessages(
       const std::string& app_id,
       GetExtensionAppPermissionMessagesCallback callback) override;
@@ -53,6 +54,8 @@ class AppManagementPageHandler
   void GetOverlappingPreferredApps(
       const std::string& app_id,
       GetOverlappingPreferredAppsCallback callback) override;
+  void SetWindowMode(const std::string& app_id,
+                     apps::mojom::WindowMode window_mode) override;
 
  private:
   app_management::mojom::AppPtr CreateUIAppPtr(const apps::AppUpdate& update);

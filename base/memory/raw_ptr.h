@@ -33,6 +33,16 @@
 #include "base/win/windows_types.h"
 #endif
 
+namespace cc {
+class Scheduler;
+}
+namespace base::internal {
+class DelayTimerBase;
+}
+namespace content::responsiveness {
+class Calculator;
+}
+
 namespace base {
 
 // NOTE: All methods should be `ALWAYS_INLINE NO_STACK_PROTECTOR`.
@@ -295,6 +305,83 @@ struct BackupRefPtrImpl {
 
 #endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
 
+// Implementation that allows us to detect BackupRefPtr problems in ASan builds.
+struct AsanBackupRefPtrImpl {
+  // Wraps a pointer.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* WrapRawPtr(T* ptr) {
+    AsanCheckIfValidInstantiation(ptr);
+    return ptr;
+  }
+
+  // Notifies the allocator when a wrapped pointer is being removed or replaced.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES void ReleaseWrappedPtr(T*) {}
+
+  // Unwraps the pointer, while asserting that memory hasn't been freed. The
+  // function is allowed to crash on nullptr.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* SafelyUnwrapPtrForDereference(
+      T* wrapped_ptr) {
+    AsanCheckIfValidDereference(wrapped_ptr);
+    return wrapped_ptr;
+  }
+
+  // Unwraps the pointer, while asserting that memory hasn't been freed. The
+  // function must handle nullptr gracefully.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* SafelyUnwrapPtrForExtraction(
+      T* wrapped_ptr) {
+    AsanCheckIfValidExtraction(wrapped_ptr);
+    return wrapped_ptr;
+  }
+
+  // Unwraps the pointer, without making an assertion on whether memory was
+  // freed or not.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* UnsafelyUnwrapPtrForComparison(
+      T* wrapped_ptr) {
+    return wrapped_ptr;
+  }
+
+  // Upcasts the wrapped pointer.
+  template <typename To, typename From>
+  static RAW_PTR_FUNC_ATTRIBUTES constexpr To* Upcast(From* wrapped_ptr) {
+    static_assert(std::is_convertible<From*, To*>::value,
+                  "From must be convertible to To.");
+    // Note, this cast may change the address if upcasting to base that lies in
+    // the middle of the derived object.
+    return wrapped_ptr;
+  }
+
+  // Advance the wrapped pointer by |delta| bytes.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* Advance(T* wrapped_ptr,
+                                            ptrdiff_t delta_elems) {
+    return wrapped_ptr + delta_elems;
+  }
+
+  // Returns a copy of a wrapped pointer, without making an assertion on whether
+  // memory was freed or not.
+  template <typename T>
+  static RAW_PTR_FUNC_ATTRIBUTES T* Duplicate(T* wrapped_ptr) {
+    return wrapped_ptr;
+  }
+
+  // This is for accounting only, used by unit tests.
+  static RAW_PTR_FUNC_ATTRIBUTES void IncrementSwapCountForTest() {}
+  static RAW_PTR_FUNC_ATTRIBUTES void
+  IncrementPointerToMemberOperatorCountForTest() {}
+
+ private:
+  static BASE_EXPORT NOINLINE void AsanCheckIfValidInstantiation(
+      void const volatile* ptr);
+  static BASE_EXPORT NOINLINE void AsanCheckIfValidDereference(
+      void const volatile* ptr);
+  static BASE_EXPORT NOINLINE void AsanCheckIfValidExtraction(
+      void const volatile* ptr);
+};
+
 }  // namespace internal
 
 namespace raw_ptr_traits {
@@ -315,6 +402,22 @@ struct IsSupportedType {
 // even need the raw_ptr protection, because they don't point on heap.
 template <typename T>
 struct IsSupportedType<T, std::enable_if_t<std::is_function<T>::value>> {
+  static constexpr bool value = false;
+};
+
+// This section excludes some types from raw_ptr<T> to avoid them from being
+// used inside base::Unretained in performance sensitive places. These were
+// identified from sampling profiler data. See crbug.com/1287151 for more info.
+template <>
+struct IsSupportedType<cc::Scheduler> {
+  static constexpr bool value = false;
+};
+template <>
+struct IsSupportedType<base::internal::DelayTimerBase> {
+  static constexpr bool value = false;
+};
+template <>
+struct IsSupportedType<content::responsiveness::Calculator> {
   static constexpr bool value = false;
 };
 
@@ -380,6 +483,8 @@ struct IsSupportedType<T,
 template <typename T,
 #if BUILDFLAG(USE_BACKUP_REF_PTR)
           typename Impl = internal::BackupRefPtrImpl>
+#elif BUILDFLAG(USE_ASAN_BACKUP_REF_PTR)
+          typename Impl = internal::AsanBackupRefPtrImpl>
 #else
           typename Impl = internal::RawPtrNoOpImpl>
 #endif
@@ -543,50 +648,11 @@ class TRIVIAL_ABI raw_ptr {
   }
   RAW_PTR_FUNC_ATTRIBUTES T* operator->() const { return GetForDereference(); }
 
-  // PendingMemberFunctionCall implements a temporary object returned by
-  // operator->*.  PendingMemberFunctionCall::operator() runs the member
-  // function taking arguments.
-  template <typename PMF,  // PMF = pointer to member function
-            typename ReturnType,
-            typename... ArgTypes>
-  class PendingMemberFunctionCall {
-   public:
-    explicit PendingMemberFunctionCall(T* receiver, PMF pmf)
-        : receiver_(receiver), pmf_(pmf) {}
-    // It's possible to support copy and move semantics, but we don't need them
-    // at this moment.
-    PendingMemberFunctionCall(const PendingMemberFunctionCall&) = delete;
-    PendingMemberFunctionCall& operator=(const PendingMemberFunctionCall&) =
-        delete;
-
-    ReturnType operator()(ArgTypes... args) const {
-      return (receiver_->*pmf_)(std::forward<ArgTypes>(args)...);
-    }
-
-   private:
-    T* receiver_;
-    PMF pmf_;
-  };
-
-  // Implements `(my_raw_ptr->*pmf)(arg1, arg2, ...)` as a workaround for
+  // Disables `(my_raw_ptr->*pmf)(...)` as a workaround for
+  // the ICE in GCC parsing the code, reported at
   // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=103455
-  template <typename ReceiverType, typename ReturnType, typename... ArgTypes>
-  RAW_PTR_FUNC_ATTRIBUTES auto operator->*(
-      ReturnType (ReceiverType::*pmf)(ArgTypes...) const) const -> const
-      PendingMemberFunctionCall<decltype(pmf), ReturnType, ArgTypes...> {
-    Impl::IncrementPointerToMemberOperatorCountForTest();
-    return PendingMemberFunctionCall<decltype(pmf), ReturnType, ArgTypes...>(
-        GetForDereference(), pmf);
-  }
-  template <typename ReceiverType, typename ReturnType, typename... ArgTypes>
-  RAW_PTR_FUNC_ATTRIBUTES auto operator->*(
-      ReturnType (ReceiverType::*pmf)(ArgTypes...)) const -> const
-      PendingMemberFunctionCall<decltype(pmf), ReturnType, ArgTypes...> {
-    Impl::IncrementPointerToMemberOperatorCountForTest();
-    return PendingMemberFunctionCall<decltype(pmf), ReturnType, ArgTypes...>(
-        GetForDereference(), pmf);
-  }
-  // Ref-qualified variants should be added on demand.
+  template <typename PMF>
+  void operator->*(PMF) const = delete;
 
   // Deliberately implicit, because raw_ptr is supposed to resemble raw ptr.
   // NOLINTNEXTLINE(runtime/explicit)

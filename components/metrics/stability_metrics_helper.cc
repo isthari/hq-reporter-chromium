@@ -21,15 +21,15 @@
 #include "extensions/buildflags/buildflags.h"
 #include "third_party/metrics_proto/system_profile.pb.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>  // Needed for STATUS_* codes
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "components/metrics/system_memory_stats_recorder.h"
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/android/application_status_listener.h"
 #endif
 
@@ -49,7 +49,7 @@ enum RendererType {
 // Converts an exit code into something that can be inserted into our
 // histograms (which expect non-negative numbers less than MAX_INT).
 int MapCrashExitCodeForHistogram(int exit_code) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Since |abs(STATUS_GUARD_PAGE_VIOLATION) == MAX_INT| it causes problems in
   // histograms.cc. Solve this by remapping it to a smaller value, which
   // hopefully doesn't conflict with other codes.
@@ -197,7 +197,7 @@ void StabilityMetricsHelper::BrowserUtilityProcessCrashed(
 void StabilityMetricsHelper::BrowserUtilityProcessLaunchFailed(
     const std::string& metrics_name,
     int launch_error_code
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     ,
     DWORD last_error
 #endif
@@ -207,7 +207,7 @@ void StabilityMetricsHelper::BrowserUtilityProcessLaunchFailed(
                            hash);
   base::UmaHistogramSparse("ChildProcess.LaunchFailed.UtilityProcessErrorCode",
                            launch_error_code);
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::UmaHistogramSparse("ChildProcess.LaunchFailed.WinLastError",
                            last_error);
 #endif
@@ -242,6 +242,11 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
         NOTREACHED();
 #endif
         IncrementPrefValue(prefs::kStabilityExtensionRendererCrashCount);
+#if BUILDFLAG(IS_WIN)
+        // TODO(crbug/1291000): Remove the scheduled Local State write if it
+        // doesn't help to resolve the extension renderer crash discrepancy.
+        local_state_->CommitPendingWrite();
+#endif
         RecordStabilityEvent(StabilityEventType::kExtensionCrash);
 
         base::UmaHistogramSparse("CrashExitCodes.Extension",
@@ -259,12 +264,12 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
       RecordChildKills(histogram_type);
       break;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     case base::TERMINATION_STATUS_OOM_PROTECTED:
       // TODO(wfh): Check if this should be a Kill or a Crash on Android.
       break;
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
       RecordChildKills(histogram_type);
       base::UmaHistogramExactLinear("BrowserRenderProcessHost.ChildKills.OOM",
@@ -289,7 +294,7 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
           "BrowserRenderProcessHost.ChildLaunchFailureCodes", exit_code);
       LogRendererLaunchFailed(was_extension_process);
       break;
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case base::TERMINATION_STATUS_INTEGRITY_FAILURE:
       base::UmaHistogramEnumeration(
           "BrowserRenderProcessHost.ChildCodeIntegrityFailures", histogram_type,
@@ -311,12 +316,6 @@ void StabilityMetricsHelper::LogRendererLaunched(bool was_extension_process) {
                    : prefs::kStabilityRendererLaunchCount;
   RecordStabilityEvent(metric);
   IncrementPrefValue(pref);
-
-  // TODO(crbug/1283745): Remove the scheduled write if it does not improve the
-  // renderer launch ratio on Android WebView.
-#if defined(OS_ANDROID)
-  local_state_->CommitPendingWrite();
-#endif
 }
 
 void StabilityMetricsHelper::LogRendererLaunchFailed(
@@ -337,7 +336,7 @@ void StabilityMetricsHelper::IncrementPrefValue(const char* path) {
 }
 
 void StabilityMetricsHelper::LogRendererHang() {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   base::android::ApplicationState app_state =
       base::android::ApplicationStatusListener::GetState();
   bool is_foreground =

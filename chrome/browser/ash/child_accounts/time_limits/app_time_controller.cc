@@ -174,9 +174,10 @@ bool IsAppOpenedInChrome(const AppId& app_id, Profile* profile) {
   if (!extension)
     return false;
 
-  extensions::LaunchContainer launch_container = extensions::GetLaunchContainer(
-      extensions::ExtensionPrefs::Get(profile), extension);
-  return launch_container == extensions::LaunchContainer::kLaunchContainerTab;
+  apps::mojom::LaunchContainer launch_container =
+      extensions::GetLaunchContainer(extensions::ExtensionPrefs::Get(profile),
+                                     extension);
+  return launch_container == apps::mojom::LaunchContainer::kLaunchContainerTab;
 }
 
 }  // namespace
@@ -402,9 +403,8 @@ void AppTimeController::TimeLimitsAllowlistPolicyUpdated(
     const std::string& pref_name) {
   DCHECK_EQ(pref_name, prefs::kPerAppTimeLimitsAllowlistPolicy);
 
-  const base::DictionaryValue* policy =
-      &base::Value::AsDictionaryValue(*pref_registrar_->prefs()->GetDictionary(
-          prefs::kPerAppTimeLimitsAllowlistPolicy));
+  const base::Value* policy = pref_registrar_->prefs()->GetDictionary(
+      prefs::kPerAppTimeLimitsAllowlistPolicy);
 
   // Figure out a way to avoid cloning
   AppTimeLimitsAllowlistPolicyWrapper wrapper(policy);

@@ -44,8 +44,6 @@
 
 namespace blink {
 
-class DoubleRect;
-
 class PLATFORM_EXPORT LayoutRect {
   DISALLOW_NEW();
 
@@ -62,8 +60,6 @@ class PLATFORM_EXPORT LayoutRect {
       : location_(LayoutPoint(x, y)), size_(LayoutSize(width, height)) {}
   constexpr LayoutRect(const gfx::PointF& location, const gfx::SizeF& size)
       : location_(location), size_(size) {}
-  constexpr LayoutRect(const DoublePoint& location, const DoubleSize& size)
-      : location_(location), size_(size) {}
   constexpr LayoutRect(const gfx::Point& location, const gfx::Size& size)
       : location_(location), size_(size) {}
   constexpr explicit LayoutRect(const gfx::Rect& rect)
@@ -72,7 +68,6 @@ class PLATFORM_EXPORT LayoutRect {
   // Don't do these implicitly since they are lossy.
   constexpr explicit LayoutRect(const gfx::RectF& r)
       : location_(r.origin()), size_(r.size()) {}
-  explicit LayoutRect(const DoubleRect&);
 
   constexpr explicit operator gfx::RectF() const {
     return gfx::RectF(X(), Y(), Width(), Height());
@@ -195,7 +190,7 @@ class PLATFORM_EXPORT LayoutRect {
                        location_.Y() + size_.Height());
   }
 
-  WARN_UNUSED_RESULT bool Intersects(const LayoutRect&) const;
+  [[nodiscard]] bool Intersects(const LayoutRect&) const;
   bool Contains(const LayoutRect&) const;
 
   // This checks to see if the rect contains x,y in the traditional sense.

@@ -68,32 +68,6 @@ namespace extensions {
 
 namespace {
 
-// |error_message| can optionally be passed in and will be set with an
-// appropriate message if the window cannot be found by id.
-Browser* GetBrowserInProfileWithId(Profile* profile,
-                                   const int window_id,
-                                   bool match_incognito_profile,
-                                   std::string* error_message) {
-  Profile* incognito_profile =
-      match_incognito_profile
-          ? profile->GetPrimaryOTRProfile(/*create_if_needed=*/false)
-          : nullptr;
-  for (auto* browser : *BrowserList::GetInstance()) {
-    if ((browser->profile() == profile ||
-         browser->profile() == incognito_profile) &&
-        ExtensionTabUtil::GetWindowId(browser) == window_id &&
-        browser->window()) {
-      return browser;
-    }
-  }
-
-  if (error_message)
-    *error_message = ErrorUtils::FormatErrorMessage(
-        tabs_constants::kWindowNotFoundError, base::NumberToString(window_id));
-
-  return nullptr;
-}
-
 Browser* CreateBrowser(Profile* profile, bool user_gesture) {
   if (Browser::GetCreationStatusForProfile(profile) !=
       Browser::CreationStatus::kOk) {
@@ -371,6 +345,32 @@ Browser* ExtensionTabUtil::GetBrowserFromWindowID(
   }
 }
 
+Browser* ExtensionTabUtil::GetBrowserInProfileWithId(
+    Profile* profile,
+    int window_id,
+    bool also_match_incognito_profile,
+    std::string* error_message) {
+  Profile* incognito_profile =
+      also_match_incognito_profile
+          ? profile->GetPrimaryOTRProfile(/*create_if_needed=*/false)
+          : nullptr;
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if ((browser->profile() == profile ||
+         browser->profile() == incognito_profile) &&
+        ExtensionTabUtil::GetWindowId(browser) == window_id &&
+        browser->window()) {
+      return browser;
+    }
+  }
+
+  if (error_message) {
+    *error_message = ErrorUtils::FormatErrorMessage(
+        tabs_constants::kWindowNotFoundError, base::NumberToString(window_id));
+  }
+
+  return nullptr;
+}
+
 int ExtensionTabUtil::GetWindowId(const Browser* browser) {
   return browser->session_id().id();
 }
@@ -574,6 +574,7 @@ std::unique_ptr<api::tabs::MutedInfo> ExtensionTabUtil::CreateMutedInfo(
   switch (chrome::GetTabAudioMutedReason(contents)) {
     case TabMutedReason::NONE:
       break;
+    case TabMutedReason::AUDIO_INDICATOR:
     case TabMutedReason::CONTENT_SETTING:
     case TabMutedReason::CONTENT_SETTING_CHROME:
       info->reason = api::tabs::MUTED_INFO_REASON_USER;

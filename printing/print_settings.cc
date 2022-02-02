@@ -7,7 +7,6 @@
 #include "base/atomic_sequence_num.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "printing/units.h"
 
 #if defined(USE_CUPS) && (BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS))
@@ -412,16 +411,14 @@ void PrintSettings::SetPrinterPrintableArea(
     case mojom::MarginType::kCustomMargins: {
       margins.header = 0;
       margins.footer = 0;
-      margins.top = ConvertUnitDouble(requested_custom_margins_in_points_.top,
-                                      kPointsPerInch, units_per_inch);
-      margins.bottom =
-          ConvertUnitDouble(requested_custom_margins_in_points_.bottom,
-                            kPointsPerInch, units_per_inch);
-      margins.left = ConvertUnitDouble(requested_custom_margins_in_points_.left,
-                                       kPointsPerInch, units_per_inch);
-      margins.right =
-          ConvertUnitDouble(requested_custom_margins_in_points_.right,
-                            kPointsPerInch, units_per_inch);
+      margins.top = ConvertUnit(requested_custom_margins_in_points_.top,
+                                kPointsPerInch, units_per_inch);
+      margins.bottom = ConvertUnit(requested_custom_margins_in_points_.bottom,
+                                   kPointsPerInch, units_per_inch);
+      margins.left = ConvertUnit(requested_custom_margins_in_points_.left,
+                                 kPointsPerInch, units_per_inch);
+      margins.right = ConvertUnit(requested_custom_margins_in_points_.right,
+                                  kPointsPerInch, units_per_inch);
       break;
     }
     default: {

@@ -306,7 +306,7 @@ void EasyUnlockTpmKeyManager::SetKeyInLocalState(const AccountId& account_id,
   base::Base64Encode(value, &encoded);
   DictionaryPrefUpdate update(local_state_,
                               prefs::kEasyUnlockLocalStateTpmKeys);
-  update->SetKey(account_id.GetUserEmail(), base::Value(encoded));
+  update->SetStringKey(account_id.GetUserEmail(), encoded);
 }
 
 void EasyUnlockTpmKeyManager::OnUserTPMInitialized(

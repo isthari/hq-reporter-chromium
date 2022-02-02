@@ -38,7 +38,6 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/http/http_response_headers.h"
-#include "third_party/blink/public/common/loader/previews_state.h"
 
 namespace offline_pages {
 
@@ -240,12 +239,11 @@ void BackgroundLoaderOffliner::MarkLoadStartTime() {
   load_start_time_ = base::TimeTicks::Now();
 }
 
-void BackgroundLoaderOffliner::DocumentAvailableInMainFrame(
-    content::RenderFrameHost* render_frame_host) {
+void BackgroundLoaderOffliner::PrimaryMainDocumentElementAvailable() {
   is_low_bar_met_ = true;
 
   // Add this signal to signal_data_.
-  AddLoadingSignal("DocumentAvailableInMainFrame");
+  AddLoadingSignal("PrimaryMainDocumentElementAvailable");
 }
 
 void BackgroundLoaderOffliner::DocumentOnLoadCompletedInPrimaryMainFrame() {

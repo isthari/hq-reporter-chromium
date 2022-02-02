@@ -83,7 +83,7 @@ syncer::SyncDataList ToSyncerSyncDataList(
   return result;
 }
 
-static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 21),
+static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 22),
               "Please consider whether your new disable reason should be"
               " syncable, and if so update this bitmask accordingly!");
 const int kKnownSyncableDisableReasons =
@@ -184,7 +184,7 @@ ExtensionSyncService::MergeDataAndStartSyncing(
   std::unique_ptr<ExtensionSet> all_extensions =
       registry->GenerateInstalledExtensionsSet();
   for (const auto& extension : *all_extensions) {
-    if (extension->from_desprecated_bookmark()) {
+    if (extension->from_deprecated_bookmark()) {
       // Deleting deprecated bookmark apps.
       const std::string& id = extension->id();
       std::u16string error;

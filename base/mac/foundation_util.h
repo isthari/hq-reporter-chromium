@@ -27,7 +27,7 @@ class NSString;
 class UIFont;
 #endif  // __OBJC__
 
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
 #include <CoreText/CoreText.h>
 #else
 #include <ApplicationServices/ApplicationServices.h>
@@ -218,7 +218,7 @@ CF_TO_NS_CAST_DECL(CFWriteStream, NSOutputStream)
 CF_TO_NS_MUTABLE_CAST_DECL(String)
 CF_TO_NS_CAST_DECL(CFURL, NSURL)
 
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
 CF_TO_NS_CAST_DECL(CTFont, UIFont)
 #else
 CF_TO_NS_CAST_DECL(CTFont, NSFont)
@@ -373,8 +373,8 @@ BASE_EXPORT base::ScopedCFTypeRef<CFURLRef> FilePathToCFURL(
 // Converts |range| to an NSRange, returning the new range in |range_out|.
 // Returns true if conversion was successful, false if the values of |range|
 // could not be converted to NSUIntegers.
-BASE_EXPORT bool CFRangeToNSRange(CFRange range,
-                                  NSRange* range_out) WARN_UNUSED_RESULT;
+[[nodiscard]] BASE_EXPORT bool CFRangeToNSRange(CFRange range,
+                                                NSRange* range_out);
 #endif  // defined(__OBJC__)
 
 }  // namespace base::mac
@@ -395,7 +395,7 @@ BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, id);
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, NSRange);
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, SEL);
 
-#if !defined(OS_IOS)
+#if !BUILDFLAG(IS_IOS)
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, NSPoint);
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, NSRect);
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& o, NSSize);

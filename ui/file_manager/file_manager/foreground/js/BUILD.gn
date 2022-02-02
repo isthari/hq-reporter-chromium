@@ -203,6 +203,7 @@ js_library("banner_controller") {
     "ui/banners:local_disk_low_space_banner",
     "ui/banners:shared_with_crostini_pluginvm_banner",
     "ui/banners:trash_banner",
+    "//ui/file_manager/file_manager/common/js:api",
     "//ui/file_manager/file_manager/common/js:async_util",
     "//ui/file_manager/file_manager/common/js:volume_manager_types",
     "//ui/file_manager/file_manager/common/js:xfm",
@@ -365,7 +366,6 @@ js_library("crostini_controller") {
     "//ui/file_manager/file_manager/common/js:util",
     "//ui/file_manager/file_manager/common/js:volume_manager_types",
     "//ui/file_manager/file_manager/externs/background:crostini",
-    "//ui/file_manager/file_manager/foreground/elements:files_message",
     "//ui/file_manager/file_manager/foreground/elements:files_toast",
     "//ui/webui/resources/js:assert.m",
   ]
@@ -483,7 +483,6 @@ js_library("deferred_elements.m") {
   visibility += [ "//ui/file_manager:*" ]
   deps = [
     "//ui/file_manager/file_manager/foreground/elements:files_format_dialog",
-    "//ui/file_manager/file_manager/foreground/elements:files_message",
     "//ui/file_manager/file_manager/foreground/elements:files_password_dialog",
     "//ui/file_manager/file_manager/foreground/elements:files_ripple",
     "//ui/file_manager/file_manager/foreground/elements:files_spinner",
@@ -563,7 +562,6 @@ js_library("file_manager") {
     "metadata:metadata_model",
     "metadata:thumbnail_model",
     "ui:a11y_announce",
-    "ui:banners",
     "ui:commandbutton",
     "ui:directory_tree",
     "ui:file_grid",
@@ -590,7 +588,6 @@ js_library("file_manager") {
     "//ui/file_manager/file_manager/externs/background:media_import_handler",
     "//ui/file_manager/file_manager/externs/background:media_scanner",
     "//ui/file_manager/file_manager/externs/background:progress_center",
-    "//ui/file_manager/file_manager/foreground/elements:files_message",
     "//ui/webui/resources/js:assert.m",
     "//ui/webui/resources/js:load_time_data.m",
     "//ui/webui/resources/js:util.m",
@@ -843,6 +840,7 @@ js_library("gear_menu_controller") {
     "ui:gear_menu",
     "ui:multi_menu_button",
     "ui:providers_menu",
+    "//ui/file_manager/file_manager/common/js:api",
     "//ui/file_manager/file_manager/common/js:util",
     "//ui/file_manager/file_manager/common/js:volume_manager_types",
     "//ui/file_manager/file_manager/externs:directory_change_event",

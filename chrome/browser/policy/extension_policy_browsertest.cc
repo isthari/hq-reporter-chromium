@@ -41,10 +41,10 @@
 #include "chrome/browser/web_applications/externally_installed_web_app_prefs.h"
 #include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/browser/web_applications/test/web_app_test_observers.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -81,7 +81,7 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "third_party/blink/public/common/switches.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "base/win/win_util.h"
 #endif
 
@@ -448,7 +448,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionWildcardRemovedPolicy) {
 }
 
 // Flaky on windows; http://crbug.com/307994.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_ExtensionInstallBlocklistWildcard \
   DISABLED_ExtensionInstallBlocklistWildcard
 #else
@@ -1160,7 +1160,7 @@ class ExtensionPinningTest : public extensions::ExtensionBrowserTest {
   // the |id|.
   void SetExtensionSettingsPolicy(const std::string& update_url_suffix,
                                   const std::string& id) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     // Unless enterprise managed, policy handler only allows extensions from the
     // Chrome Webstore to be force installed. Mark enterprise managed for
     // windows.
@@ -1550,7 +1550,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
 // Verifies that corrupted non-webstore policy-based extension is automatically
 // repaired (reinstalled) even if hashes file is damaged too.
 // crbug.com/1131634: flaky on win
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_CorruptedNonWebstoreExtensionWithDamagedHashesRepaired \
   DISABLED_CorruptedNonWebstoreExtensionWithDamagedHashesRepaired
 #else
@@ -1856,7 +1856,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
       embedded_test_server()->GetURL("/extensions/good_v1_update_manifest.xml");
 
 // Mark as enterprise managed.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::win::ScopedDomainStateForTesting scoped_domain(true);
 #endif
 
@@ -1929,7 +1929,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionAllowedTypes) {
 // installation prompt without further user interaction when the source is
 // allowlisted by policy.
 // Flaky on windows; http://crbug.com/295729 .
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_ExtensionInstallSources DISABLED_ExtensionInstallSources
 #else
 #define MAYBE_ExtensionInstallSources ExtensionInstallSources
@@ -2140,7 +2140,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
   ExtensionRequestInterceptor interceptor;
 
 // Mark as enterprise managed.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::win::ScopedDomainStateForTesting scoped_domain(true);
 #endif
   extensions::ExtensionRegistry* registry = extension_registry();
@@ -2410,7 +2410,7 @@ class ExtensionPolicyTest2Contexts : public PolicyTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     command_line->AppendSwitch(
-        chromeos::switches::kIgnoreUserProfileMappingForTests);
+        ash::switches::kIgnoreUserProfileMappingForTests);
 #endif
     PolicyTest::SetUpCommandLine(command_line);
   }

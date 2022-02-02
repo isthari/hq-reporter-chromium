@@ -317,8 +317,8 @@ class DefaultProfileExtensionBrowserTest : public ExtensionBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    command_line->AppendSwitch(chromeos::switches::kLoginManager);
-    command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
+    command_line->AppendSwitch(ash::switches::kLoginManager);
+    command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
 #endif
   }
 };
@@ -338,7 +338,7 @@ IN_PROC_BROWSER_TEST_F(DefaultProfileExtensionBrowserTest, NoExtensionHosts) {
   Profile* otr = original->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_EQ(profile(), otr);
-  EXPECT_TRUE(chromeos::ProfileHelper::IsSigninProfile(original));
+  EXPECT_TRUE(ash::ProfileHelper::IsSigninProfile(original));
 #endif
 
   ProcessManager* pm = ProcessManager::Get(original);
@@ -681,7 +681,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
 // Verify correct keepalive count behavior on network request events.
 // Regression test for http://crbug.com/535716.
 // Disabled on Linux for flakiness: http://crbug.com/1030435.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_KeepaliveOnNetworkRequest DISABLED_KeepaliveOnNetworkRequest
 #else
 #define MAYBE_KeepaliveOnNetworkRequest KeepaliveOnNetworkRequest

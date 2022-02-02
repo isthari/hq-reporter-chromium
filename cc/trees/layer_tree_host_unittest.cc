@@ -879,7 +879,7 @@ class LayerTreeHostTestPushPropertiesTo : public LayerTreeHostTest {
   void VerifyBeforeValues(Layer* layer) {
     EXPECT_EQ(gfx::Size(10, 10).ToString(), layer->bounds().ToString());
     EXPECT_FALSE(layer->hide_layer_and_subtree());
-    EXPECT_FALSE(layer->DrawsContent());
+    EXPECT_FALSE(layer->draws_content());
   }
 
   void SetBeforeValues(Layer* layer) {
@@ -902,7 +902,7 @@ class LayerTreeHostTestPushPropertiesTo : public LayerTreeHostTest {
         EXPECT_EQ(tree.EffectiveOpacity(node), 0.f);
         break;
       case DRAWS_CONTENT:
-        EXPECT_TRUE(layer->DrawsContent());
+        EXPECT_TRUE(layer->draws_content());
         break;
     }
   }
@@ -1154,6 +1154,10 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
 
+  void WillCommit(const CommitState&) override {
+    child_element_id_ = child_->element_id();
+  }
+
   void DidCommit() override {
     switch (layer_tree_host()->SourceFrameNumber()) {
       case 1:
@@ -1184,13 +1188,13 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
                           ->property_trees()
                           ->scroll_tree.size());
         EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_transform_node_index.end());
         EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_effect_node_index.end());
         EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_scroll_node_index.end());
         break;
       case 1:
@@ -1203,15 +1207,15 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
         EXPECT_EQ(3U, child_impl_->layer_tree_impl()
                           ->property_trees()
                           ->scroll_tree.size());
+        EXPECT_EQ(2,
+                  property_trees
+                      ->element_id_to_transform_node_index[child_element_id_]);
         EXPECT_EQ(
-            2, property_trees
-                   ->element_id_to_transform_node_index[child_->element_id()]);
-        EXPECT_EQ(2,
-                  property_trees
-                      ->element_id_to_effect_node_index[child_->element_id()]);
-        EXPECT_EQ(2,
-                  property_trees
-                      ->element_id_to_scroll_node_index[child_->element_id()]);
+            2,
+            property_trees->element_id_to_effect_node_index[child_element_id_]);
+        EXPECT_EQ(
+            2,
+            property_trees->element_id_to_scroll_node_index[child_element_id_]);
         break;
       case 2:
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
@@ -1221,13 +1225,13 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
                           ->property_trees()
                           ->effect_tree.size());
         EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_transform_node_index.end());
         EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_effect_node_index.end());
         EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
-                        child_->element_id()) ==
+                        child_element_id_) ==
                     property_trees->element_id_to_scroll_node_index.end());
         break;
     }
@@ -1237,6 +1241,7 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
  private:
   scoped_refptr<Layer> root_;
   scoped_refptr<Layer> child_;
+  ElementId child_element_id_;
 };
 
 // Validates that, for a layer with a compositor element id set on it, mappings
@@ -2263,9 +2268,6 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
 
     root_->SetBounds(gfx::Size(50, 50));
 
-    // Make sure child is registered for animation.
-    child_->SetElementId(ElementId(2));
-
     // Make sure child and grand_child have transform nodes.
     gfx::Transform rotation;
     rotation.RotateAboutZAxis(45.0);
@@ -2276,6 +2278,7 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
     child_->AddChild(grand_child_);
     layer_tree_host()->SetRootLayer(root_);
     LayerTreeHostTest::SetupTree();
+    child_element_id_ = child_->element_id();
   }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
@@ -2285,7 +2288,7 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
       gfx::Transform scale;
       scale.Scale(2.0, 2.0);
       layer_tree_host()->SetElementTransformMutated(
-          child_->element_id(), ElementListType::ACTIVE, scale);
+          child_element_id_, ElementListType::ACTIVE, scale);
     }
   }
 
@@ -2315,7 +2318,7 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
     if (impl->active_tree()->source_frame_number() == 0) {
       gfx::Transform scale;
       scale.Scale(2.0, 2.0);
-      impl->active_tree()->SetTransformMutated(child_->element_id(), scale);
+      impl->active_tree()->SetTransformMutated(child_element_id_, scale);
     }
   }
 
@@ -2323,6 +2326,7 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
   scoped_refptr<Layer> root_;
   scoped_refptr<Layer> child_;
   scoped_refptr<Layer> grand_child_;
+  ElementId child_element_id_;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestTransformTreeDamageIsUpdated);
@@ -2969,7 +2973,7 @@ class LayerTreeHostTestViewportRectChangeBlockedMainThread
 };
 
 // TODO(crbug.com/1223226): Disabled on Chrome OS due to flakiness.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 SINGLE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestViewportRectChangeBlockedMainThread);
 #endif
@@ -3195,9 +3199,11 @@ MULTI_THREAD_BLOCKNOTIFY_TEST_F(
 class LayerTreeHostTestUndrawnLayersDamageLater : public LayerTreeHostTest {
  public:
   void SetupTree() override {
+    root_layer_bounds_ = gfx::Size(50, 50);
+    child_layer_bounds_ = gfx::Size(25, 25);
     root_layer_ = FakePictureLayer::Create(&client_);
     root_layer_->SetIsDrawable(true);
-    root_layer_->SetBounds(gfx::Size(50, 50));
+    root_layer_->SetBounds(root_layer_bounds_);
     layer_tree_host()->SetRootLayer(root_layer_);
 
     // The initially transparent layer has a larger child layer, which is
@@ -3208,7 +3214,7 @@ class LayerTreeHostTestUndrawnLayersDamageLater : public LayerTreeHostTest {
     root_layer_->AddChild(parent_layer_);
 
     child_layer_ = FakePictureLayer::Create(&client_);
-    child_layer_->SetBounds(gfx::Size(25, 25));
+    child_layer_->SetBounds(child_layer_bounds_);
     parent_layer_->AddChild(child_layer_);
     client_.set_bounds(root_layer_->bounds());
 
@@ -3233,12 +3239,12 @@ class LayerTreeHostTestUndrawnLayersDamageLater : public LayerTreeHostTest {
     // box.
     switch (host_impl->active_tree()->source_frame_number()) {
       case 0:
-        EXPECT_EQ(gfx::Rect(root_layer_->bounds()), root_damage_rect);
+        EXPECT_EQ(gfx::Rect(root_layer_bounds_), root_damage_rect);
         break;
       case 1:
       case 2:
       case 3:
-        EXPECT_EQ(gfx::Rect(child_layer_->bounds()), root_damage_rect);
+        EXPECT_EQ(gfx::Rect(child_layer_bounds_), root_damage_rect);
         break;
       default:
         NOTREACHED();
@@ -3274,6 +3280,8 @@ class LayerTreeHostTestUndrawnLayersDamageLater : public LayerTreeHostTest {
   scoped_refptr<FakePictureLayer> root_layer_;
   scoped_refptr<FakePictureLayer> parent_layer_;
   scoped_refptr<FakePictureLayer> child_layer_;
+  gfx::Size root_layer_bounds_;
+  gfx::Size child_layer_bounds_;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestUndrawnLayersDamageLater);
@@ -3287,15 +3295,17 @@ class LayerTreeHostTestDamageWithScale : public LayerTreeHostTest {
   void SetupTree() override {
     client_.set_fill_with_nonsolid_color(true);
 
+    root_layer_bounds_ = gfx::Size(50, 50);
+    child_layer_bounds_ = gfx::Size(25, 25);
     std::unique_ptr<FakeRecordingSource> recording(new FakeRecordingSource);
     root_layer_ = FakePictureLayer::CreateWithRecordingSource(
         &client_, std::move(recording));
-    root_layer_->SetBounds(gfx::Size(50, 50));
+    root_layer_->SetBounds(root_layer_bounds_);
 
     recording = std::make_unique<FakeRecordingSource>();
     child_layer_ = FakePictureLayer::CreateWithRecordingSource(
         &client_, std::move(recording));
-    child_layer_->SetBounds(gfx::Size(25, 25));
+    child_layer_->SetBounds(child_layer_bounds_);
     child_layer_->SetIsDrawable(true);
     child_layer_->SetContentsOpaque(true);
     root_layer_->AddChild(child_layer_);
@@ -3333,7 +3343,7 @@ class LayerTreeHostTestDamageWithScale : public LayerTreeHostTest {
     // box.
     switch (host_impl->active_tree()->source_frame_number()) {
       case 0:
-        EXPECT_EQ(gfx::Rect(root_layer_->bounds()), root_damage_rect);
+        EXPECT_EQ(gfx::Rect(root_layer_bounds_), root_damage_rect);
         break;
       case 1: {
         FakePictureLayerImpl* child_layer_impl =
@@ -3349,7 +3359,7 @@ class LayerTreeHostTestDamageWithScale : public LayerTreeHostTest {
                   root_damage_rect);
         EXPECT_TRUE(
             child_layer_impl->GetEnclosingVisibleRectInTargetSpace().Contains(
-                gfx::Rect(child_layer_->bounds())));
+                gfx::Rect(child_layer_bounds_)));
         break;
       }
       default:
@@ -3378,6 +3388,8 @@ class LayerTreeHostTestDamageWithScale : public LayerTreeHostTest {
   FakeContentLayerClient client_;
   scoped_refptr<Layer> root_layer_;
   scoped_refptr<Layer> child_layer_;
+  gfx::Size root_layer_bounds_;
+  gfx::Size child_layer_bounds_;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestDamageWithScale);
@@ -5083,7 +5095,7 @@ class LayerTreeHostTestPropertyChangesDuringUpdateArePushed
         // avoid causing a second commit to be scheduled. If a property change
         // is made during this, however, it needs to be pushed in the upcoming
         // commit.
-        auto ignore = scrollbar_layer_->IgnoreSetNeedsCommit();
+        auto ignore = scrollbar_layer_->IgnoreSetNeedsCommitForTest();
 
         scrollbar_layer_->SetBounds(gfx::Size(30, 30));
 
@@ -6096,7 +6108,7 @@ class LayerTreeHostTestElasticOverscroll : public LayerTreeHostTest {
 
   void VerifyOverscroll(const gfx::Vector2dF& stretch_amount,
                         const gfx::Transform& transform) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     gfx::Vector2dF scale = transform.Scale2d();
     // On android, overscroll stretches the content. We don't assert the amount
     // of stretch but there should be some stretch for overscroll and no stretch
@@ -6109,11 +6121,11 @@ class LayerTreeHostTestElasticOverscroll : public LayerTreeHostTest {
       EXPECT_EQ(1.f, scale.y());
     else
       EXPECT_GT(scale.y(), 1.f);
-#else   // defined(OS_ANDROID)
+#else   // BUILDFLAG(IS_ANDROID)
     gfx::Transform expected_draw_transform;
     expected_draw_transform.Translate(-stretch_amount);
     EXPECT_EQ(expected_draw_transform, transform);
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
   }
 
   void DrawLayersOnThread(LayerTreeHostImpl* host_impl) override {
@@ -6945,11 +6957,9 @@ class LayerTreeHostTestGpuRasterizationEnabledWithMSAA : public LayerTreeTest {
     viz::TestGLES2Interface* gl = context_provider->UnboundTestContextGL();
     gl->set_gpu_rasterization(true);
     gl->set_support_multisample_compatibility(false);
-    gl->SetMaxSamples(4);
     viz::TestGLES2Interface* worker = worker_provider->UnboundTestContextGL();
     worker->set_gpu_rasterization(true);
     worker->set_support_multisample_compatibility(false);
-    worker->SetMaxSamples(4);
   }
 
   void InitializeSettings(LayerTreeSettings* settings) override {
@@ -7591,7 +7601,7 @@ class LayerTreeHostTestCrispUpAfterPinchEndsWithOneCopy
     viz::TestGLES2Interface* gl =
         display_context_provider->UnboundTestContextGL();
     gl->set_support_sync_query(true);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     gl->set_support_texture_rectangle(true);
 #endif
     display_context_provider->BindToCurrentThread();
@@ -10151,5 +10161,16 @@ class LayerTreeHostTestClearCaches : public LayerTreeHostTest {
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestClearCaches);
+
+class LayerTreeHostTestNoCommitDeadlock : public LayerTreeHostTest {
+  void BeginTest() override { PostSetNeedsCommitToMainThread(); }
+  void WillCommit(const CommitState& commit_state) override {
+    // Test passes if this doesn't deadlock.
+    layer_tree_host()->root_layer()->update_rect();
+  }
+  void DidCommit() override { EndTest(); }
+};
+
+SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestNoCommitDeadlock);
 }  // namespace
 }  // namespace cc

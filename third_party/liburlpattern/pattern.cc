@@ -158,6 +158,18 @@ std::string Pattern::GeneratePatternString() const {
       }
     }
 
+    // 3. preceded by a fixed text part that ends with an implicit prefix
+    //    character (like `/`).  This occurs when the original pattern used
+    //    an escape or grouping to prevent the implicit prefix; e.g.
+    //    `\\/*` or `/{*}`.  In these cases we use a grouping to prevent the
+    //    implicit prefix in the generated string.
+    const Part* last_part = i > 0 ? &part_list_[i - 1] : nullptr;
+    if (!needs_grouping && part.prefix.empty() && last_part &&
+        last_part->type == PartType::kFixed) {
+      needs_grouping = options_.prefix_list.find(last_part->value.back()) !=
+                       std::string::npos;
+    }
+
     // This is a full featured part.  We must generate a string that looks
     // like:
     //
@@ -189,7 +201,6 @@ std::string Pattern::GeneratePatternString() const {
         result += ")";
       }
     } else if (part.type == PartType::kFullWildcard) {
-      const Part* last_part = i > 0 ? &part_list_[i - 1] : nullptr;
       // We can only use the `*` wildcard card if we meet a number
       // of conditions.  We must use an explicit `(.*)` group if:
       //
@@ -198,8 +209,11 @@ std::string Pattern::GeneratePatternString() const {
       //    `(foo)(.*)`.  In that case we cannot emit the `*` shorthand without
       //    it being mistakenly interpreted as the modifier for the previous
       //    group.
+      // 3. The current group is not enclosed in a `{ }` grouping.
+      // 4. The current group does not have an implicit prefix like `/`.
       if (!custom_name && (!last_part || last_part->type == PartType::kFixed ||
-                           last_part->modifier != Modifier::kNone)) {
+                           last_part->modifier != Modifier::kNone ||
+                           needs_grouping || !part.prefix.empty())) {
         result += "*";
       } else {
         result += "(";
