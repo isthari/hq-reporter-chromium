@@ -432,7 +432,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
 }
 
 // Crashes under ThreadSanitizer, http://crbug.com/356758.
-#if defined(OS_WIN) || defined(OS_ANDROID) || defined(THREAD_SANITIZER)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || defined(THREAD_SANITIZER)
 #define MAYBE_GetSizeForNewRenderView DISABLED_GetSizeForNewRenderView
 #else
 #define MAYBE_GetSizeForNewRenderView DISABLED_GetSizeForNewRenderView
@@ -480,7 +480,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   // rwhv size. The behavior is correct on OSX, but incorrect on other
   // platforms.
   gfx::Size exp_wcv_size(300, 300);
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   exp_wcv_size.Enlarge(size_insets.width(), size_insets.height());
 #endif
 
@@ -504,7 +504,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
 // Once again, the behavior is correct on OSX. The embedder explicitly sets
 // the size to (100,100) during navigation. Both the wcv and the rwhv should
 // take on that size.
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   new_size.Enlarge(size_insets.width(), size_insets.height());
 #endif
   gfx::Size actual_size = shell()
@@ -1080,7 +1080,7 @@ struct FirstVisuallyNonEmptyPaintObserver : public WebContentsObserver {
 };
 
 // See: http://crbug.com/395664
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_FirstVisuallyNonEmptyPaint DISABLED_FirstVisuallyNonEmptyPaint
 #else
 // http://crbug.com/398471
@@ -3479,10 +3479,17 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
     new_shell = new_shell_observer.GetShell();
     new_contents = new_shell->web_contents();
     // Delaying popup holds the initial load of |url|.
-    EXPECT_TRUE(WaitForLoadStop(new_contents));
-    EXPECT_TRUE(new_contents->GetController()
-                    .GetLastCommittedEntry()
-                    ->IsInitialEntry());
+    if (blink::features::IsInitialNavigationEntryEnabled()) {
+      EXPECT_TRUE(WaitForLoadStop(new_contents));
+      EXPECT_TRUE(new_contents->GetController()
+                      .GetLastCommittedEntry()
+                      ->IsInitialEntry());
+    } else {
+      // If we don't have the initial NavigationEntry, WaitForLoadStop() will
+      // return false because there's no NavigationEntry.
+      EXPECT_FALSE(WaitForLoadStop(new_contents));
+      EXPECT_FALSE(new_contents->GetController().GetLastCommittedEntry());
+    }
     EXPECT_NE(url, new_contents->GetLastCommittedURL());
   }
 
@@ -4372,9 +4379,8 @@ class LoadingObserver : public WebContentsObserver {
     run_loop_.Quit();
   }
 
-  void DocumentAvailableInMainFrame(
-      RenderFrameHost* render_frame_host) override {
-    events_.push_back("DocumentAvailableInMainFrame");
+  void PrimaryMainDocumentElementAvailable() override {
+    events_.push_back("PrimaryMainDocumentElementAvailable");
   }
 
   void DocumentOnLoadCompletedInPrimaryMainFrame() override {
@@ -4422,13 +4428,13 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   EXPECT_TRUE(NavigateToURL(shell(), url));
   loading_observer.Wait();
 
-  EXPECT_THAT(
-      loading_observer.GetEvents(),
-      testing::ElementsAre("DidStartLoading", "DidStartNavigation",
-                           "DidFinishNavigation",
-                           "DocumentAvailableInMainFrame", "DOMContentLoaded",
-                           "DocumentOnLoadCompletedInPrimaryMainFrame",
-                           "DidFinishLoad", "DidStopLoading"));
+  EXPECT_THAT(loading_observer.GetEvents(),
+              testing::ElementsAre("DidStartLoading", "DidStartNavigation",
+                                   "DidFinishNavigation",
+                                   "PrimaryMainDocumentElementAvailable",
+                                   "DOMContentLoaded",
+                                   "DocumentOnLoadCompletedInPrimaryMainFrame",
+                                   "DidFinishLoad", "DidStopLoading"));
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
@@ -4496,13 +4502,13 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
 
   loading_observer.Wait();
 
-  EXPECT_THAT(
-      loading_observer.GetEvents(),
-      testing::ElementsAre("DidStartLoading", "DidStartNavigation",
-                           "DidFinishNavigation",
-                           "DocumentAvailableInMainFrame", "DOMContentLoaded",
-                           "DocumentOnLoadCompletedInPrimaryMainFrame",
-                           "DidFinishLoad", "DidStopLoading"));
+  EXPECT_THAT(loading_observer.GetEvents(),
+              testing::ElementsAre("DidStartLoading", "DidStartNavigation",
+                                   "DidFinishNavigation",
+                                   "PrimaryMainDocumentElementAvailable",
+                                   "DOMContentLoaded",
+                                   "DocumentOnLoadCompletedInPrimaryMainFrame",
+                                   "DidFinishLoad", "DidStopLoading"));
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
@@ -4523,13 +4529,13 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   response.Done();
 
   loading_observer.Wait();
-  EXPECT_THAT(
-      loading_observer.GetEvents(),
-      testing::ElementsAre("DidStartLoading", "DidStartNavigation",
-                           "DidFinishNavigation",
-                           "DocumentAvailableInMainFrame", "DOMContentLoaded",
-                           "DocumentOnLoadCompletedInPrimaryMainFrame",
-                           "DidFinishLoad", "DidStopLoading"));
+  EXPECT_THAT(loading_observer.GetEvents(),
+              testing::ElementsAre("DidStartLoading", "DidStartNavigation",
+                                   "DidFinishNavigation",
+                                   "PrimaryMainDocumentElementAvailable",
+                                   "DOMContentLoaded",
+                                   "DocumentOnLoadCompletedInPrimaryMainFrame",
+                                   "DidFinishLoad", "DidStopLoading"));
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
@@ -4887,6 +4893,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, RenderIdleTime) {
   EXPECT_TRUE(browser_td >= renderer_td);
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 class WebContentsImplBrowserTestWindowControlsOverlay
     : public WebContentsImplBrowserTest {
  public:
@@ -5052,7 +5059,6 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
   EXPECT_EQ(bounding_client_rect.height(), EvalJs(web_contents, "rect.height"));
 }
 
-#if !defined(OS_ANDROID)
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
                        ValidatePageScaleChangesInfoAndFiresEvent) {
   auto* web_contents = shell()->web_contents();
@@ -5097,13 +5103,12 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
   EXPECT_EQ(scaled_rect.height(), EvalJs(web_contents, "rect.height"));
   ValidateWindowsControlOverlayState(web_contents, scaled_rect, 60);
 }
-#endif
 
 class WebContentsImplBrowserTestWindowControlsOverlayNonOneDeviceScaleFactor
     : public WebContentsImplBrowserTestWindowControlsOverlay {
  public:
   void SetUp() override {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     // Device scale factor on MacOSX is always an integer.
     EnablePixelOutput(2.0f);
 #else
@@ -5126,7 +5131,7 @@ IN_PROC_BROWSER_TEST_F(
 
   EXPECT_TRUE(NavigateToURL(shell(), url));
   WaitForLoadStop(web_contents);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // Device scale factor on MacOSX is always an integer.
   ASSERT_EQ(2.0f,
             web_contents->GetRenderWidgetHostView()->GetDeviceScaleFactor());
@@ -5139,6 +5144,7 @@ IN_PROC_BROWSER_TEST_F(
   WaitForWindowControlsOverlayUpdate(web_contents, bounding_client_rect);
   ValidateWindowsControlOverlayState(web_contents, bounding_client_rect, 70);
 }
+#endif
 
 class RenderFrameCreatedObserver : public WebContentsObserver {
  public:

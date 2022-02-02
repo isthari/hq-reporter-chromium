@@ -40,7 +40,7 @@ const base::Feature kAutofillAutoTriggerManualFallbackForCards{
 // credit cards from Google payments.
 const base::Feature kAutofillCreditCardAuthentication{
   "AutofillCreditCardAuthentication",
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_ANDROID)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_ANDROID)
       // Better Auth project is fully launched on Win/Mac/Clank.
       base::FEATURE_ENABLED_BY_DEFAULT
 #else
@@ -166,11 +166,9 @@ const base::Feature kAutofillSuggestVirtualCardsOnIncompleteForm{
 
 // Controls offering credit card upload to Google Payments. Cannot ever be
 // ENABLED_BY_DEFAULT because the feature state depends on the user's country.
-// There are countries we simply can't turn this on for, and they change over
-// time, so it's important that we can flip a switch and be done instead of
-// having old versions of Chrome forever do the wrong thing. Enabling it by
-// default would mean that any first-run client without a Finch config won't get
-// the overriding command to NOT turn it on, which becomes an issue.
+// The set of launched countries is listed in autofill_experiments.cc, and this
+// flag remains as a way to easily enable upload credit card save for testers,
+// as well as enable non-fully-launched countries on a trial basis.
 const base::Feature kAutofillUpstream{"AutofillUpstream",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -180,8 +178,8 @@ const base::Feature kAutofillUpstreamAllowAllEmailDomains{
 bool ShouldShowImprovedUserConsentForCreditCardSave() {
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_WIN) || defined(OS_APPLE) || \
-    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || \
+    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   // The new user consent UI is fully launched on MacOS, Windows and Linux.
   return true;
 #else

@@ -214,25 +214,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Cryptohome.Errors" enum="CryptohomeError"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>apronin@chromium.org</owner>
   <owner>cros-hwsec+uma@chromium.org</owner>
   <summary>Cryptohome errors.</summary>
-</histogram>
-
-<histogram name="Cryptohome.EvkkEncryptionType" enum="EvkkEncryptionType"
-    expires_after="2021-08-01">
-  <obsolete>
-    Replaced with Cryptohome.WrappingKeyDerivation.Mount 2021-03-08 which
-    describes the derivation types more comprehensively.
-  </obsolete>
-  <owner>enlightened@chromium.org</owner>
-  <owner>tnagel@chromium.org</owner>
-  <summary>
-    Indicates whether Encrypted Vault Keyset Key (EVKK) is TPM wrapped. This is
-    reported when the Derive function inside scrypt auth block or TPM auth block
-    is called, which happens during cryptohome mount phase.
-  </summary>
 </histogram>
 
 <histogram name="Cryptohome.FreedCacheVaultDiskSpaceInMb" units="MB"
@@ -300,7 +285,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram base="true" name="Cryptohome.LECredential"
-    enum="CryptohomeLECredError" expires_after="2022-05-15">
+    enum="CryptohomeLECredError" expires_after="2022-07-17">
 <!-- Name completed by histogram_suffixes name="LECredentialOps" -->
 
   <owner>pmalani@chromium.org</owner>
@@ -328,20 +313,6 @@ chromium-metrics-reviews@google.com.
     <variant name="AddKeyResetSeedGeneration"
         summary="Reset seed generated during Add Key operation"/>
   </token>
-</histogram>
-
-<histogram name="Cryptohome.MigrationToGaiaId"
-    enum="CryptohomeMigrationToGaiaId" expires_after="2021-12-10">
-  <obsolete>
-    Deprecated as of 2021/12 and Milestone 98.
-  </obsolete>
-  <owner>alemate@chromium.org</owner>
-  <owner>rsorokin@chromium.org</owner>
-  <owner>cros-oac@google.com</owner>
-  <summary>
-    This is the status of cryptohome migration to GaiaId. Every time user logs
-    in current migration status is recorded.
-  </summary>
 </histogram>
 
 <histogram name="Cryptohome.MigrationUI.ConsumedBatteryPercent" units="%"
@@ -578,37 +549,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Cryptohome.TimeToPerformOOPMountCleanup" units="ms"
-    expires_after="2022-01-02">
-  <obsolete>
-    All mounts are now performed out-of-process, so this histogram is not needed
-    anymore, as there is nothing to compare this number to. Obsolete as of
-    2022-01-06.
-  </obsolete>
-  <owner>jorgelo@chromium.org</owner>
-  <owner>betuls@chromium.org</owner>
-  <summary>
-    The amount of time (ms) cryptohome spends terminating and reaping the
-    out-of-process mounter, which includes the time spent by the mounter itself
-    tearing down the user home directory.
-  </summary>
-</histogram>
-
-<histogram name="Cryptohome.TimeToPerformOOPMountOperation" units="ms"
-    expires_after="2022-01-06">
-  <obsolete>
-    All mounts are now performed out-of-process, so this histogram is not needed
-    anymore, as there is nothing to compare this number to. Obsolete as of
-    2022-01-06.
-  </obsolete>
-  <owner>jorgelo@chromium.org</owner>
-  <owner>betuls@chromium.org</owner>
-  <summary>
-    The amount of time (ms) cryptohome spends running the out-of-process
-    mounter, until the user home directory is finalized.
-  </summary>
-</histogram>
-
 <histogram name="Cryptohome.TimeToTakeTpmOwnership" units="ms"
     expires_after="2022-03-20">
   <owner>apronin@chromium.org</owner>
@@ -682,7 +622,7 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="CryptohomeClient" units="ms" expires_after="2022-05-22">
+<histogram name="CryptohomeClient" units="ms" expires_after="2022-07-24">
   <owner>zuan@chromium.org</owner>
   <owner>cros-hwsec+uma@chromium.org</owner>
   <summary>

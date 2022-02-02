@@ -169,13 +169,13 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/gfx/animation/animation.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/renderer_host/dip_util.h"
 #include "ui/gfx/geometry/dip_util.h"
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "content/browser/android/date_time_chooser_android.h"
 #include "content/browser/android/java_interfaces_impl.h"
 #include "content/browser/android/nfc_host.h"
@@ -184,7 +184,7 @@
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/android/view_android.h"
 #include "ui/base/device_form_factor.h"
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "content/browser/media/session/pepper_playback_observer.h"
@@ -312,7 +312,7 @@ bool AreValidRegisterProtocolHandlerArguments(
     return false;
 
   if (security_level < blink::ProtocolHandlerSecurityLevel::kUntrustedOrigins &&
-      !url_origin.IsSameOriginWith(origin))
+      !origin.IsSameOriginWith(url))
     return false;
 
   return true;
@@ -403,7 +403,7 @@ base::flat_set<WebContentsImpl*> GetAllOpeningWebContents(
   return result;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 float GetDeviceScaleAdjustment(int min_width) {
   static const float kMinFSM = 1.05f;
   static const int kWidthForMinFSM = 320;
@@ -594,7 +594,7 @@ std::unique_ptr<WebContents> WebContents::CreateWithSessionStorage(
         params.guest_delegate->GetOwnerWebContents());
   }
 
-  new_contents->Init(params);
+  new_contents->Init(params, blink::FramePolicy());
   if (outer_web_contents)
     outer_web_contents->InnerWebContentsCreated(new_contents.get());
   return new_contents;
@@ -720,7 +720,7 @@ class WebContentsImpl::WebContentsDestructionObserver
   raw_ptr<WebContentsImpl> owner_;
 };
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 // TODO(sreejakshetty): Make |WebContentsImpl::ColorChooserHolder| per-frame
 // instead of WebContents-owned.
 // WebContentsImpl::ColorChooserHolder -----------------------------------------
@@ -951,7 +951,7 @@ WebContentsImpl::WebContentsImpl(BrowserContext* browser_context)
   pepper_playback_observer_ = std::make_unique<PepperPlaybackObserver>(this);
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   display_cutout_host_impl_ = std::make_unique<DisplayCutoutHostImpl>(this);
 #endif
 
@@ -1035,7 +1035,7 @@ WebContentsImpl::~WebContentsImpl() {
     dialog_manager_->CancelDialogs(this, /*reset_state=*/true);
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   color_chooser_holder_.reset();
 #endif
   find_request_manager_.reset();
@@ -1071,7 +1071,7 @@ WebContentsImpl::~WebContentsImpl() {
       GetOuterWebContents()->OnAudioStateChanged();
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // For simplicity, destroy the Java WebContents before we notify of the
   // destruction of the WebContents.
   ClearWebContentsAndroid();
@@ -1122,7 +1122,6 @@ std::unique_ptr<WebContentsImpl> WebContentsImpl::CreateWithOpener(
   blink::FramePolicy frame_policy(new_root->pending_frame_policy());
   frame_policy.sandbox_flags |= params.starting_sandbox_flags;
   new_root->SetPendingFramePolicy(frame_policy);
-  new_root->CommitFramePolicy(frame_policy);
 
   // This may be true even when opener is null, such as when opening blocked
   // popups.
@@ -1139,7 +1138,7 @@ std::unique_ptr<WebContentsImpl> WebContentsImpl::CreateWithOpener(
         params.guest_delegate->GetOwnerWebContents());
   }
 
-  new_contents->Init(params);
+  new_contents->Init(params, frame_policy);
   if (outer_web_contents)
     outer_web_contents->InnerWebContentsCreated(new_contents.get());
   return new_contents;
@@ -1325,8 +1324,16 @@ bool WebContentsImpl::IsPrerenderedFrame(int frame_tree_node_id) {
   if (!frame_tree_node)
     return false;
 
-  // TODO(1196715, 1232528): We should also consider inner frame trees in a
-  // prerender.
+  // In the case of inner frame trees in a prerender, the inner frame tree's
+  // type, would not be FrameTree::Type::kPrerender. So if this is not the
+  // outermost frame, we use the lifecycle state of the document that owns this.
+  // TODO(1196715, 1232528): This relies on the LifecycleState being correct
+  // in the case of inner frame trees.
+  if (frame_tree_node->GetParentOrOuterDocumentOrEmbedder()) {
+    return frame_tree_node->GetParentOrOuterDocumentOrEmbedder()
+               ->lifecycle_state() ==
+           RenderFrameHostImpl::LifecycleStateImpl::kPrerendering;
+  }
   return frame_tree_node->frame_tree()->type() == FrameTree::Type::kPrerender;
 }
 
@@ -1352,12 +1359,6 @@ void WebContentsImpl::ForEachFrame(
   for (FrameTreeNode* node : primary_frame_tree_.Nodes()) {
     on_frame.Run(node->current_frame_host());
   }
-}
-
-int WebContentsImpl::SendToAllFrames(IPC::Message* message) {
-  OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::SendToAllFrames");
-  return SendToAllFramesImpl(primary_frame_tree_, /*include_pending=*/false,
-                             message);
 }
 
 int WebContentsImpl::SendToAllFramesIncludingPending(IPC::Message* message) {
@@ -1558,7 +1559,7 @@ void WebContentsImpl::OnScreensChange(bool is_multi_screen_changed) {
   // Mac display info may originate from a remote process hosting the NSWindow;
   // this local process display::Screen signal should not trigger updates.
   // TODO(crbug.com/1169291): Unify screen info plumbing, caching, etc.
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   // This updates Screen attributes and fires Screen.change events as needed,
   // propagating to all widgets through the VisualProperties update waterfall.
   // This is triggered by system changes, not renderer IPC, so explicitly check
@@ -1570,7 +1571,7 @@ void WebContentsImpl::OnScreensChange(bool is_multi_screen_changed) {
     if (!view->IsRenderWidgetHostViewChildFrame())
       view->UpdateScreenInfo();
   }
-#endif  // !OS_MAC
+#endif  // !BUILDFLAG(IS_MAC)
 }
 
 void WebContentsImpl::OnScreenOrientationChange() {
@@ -1838,7 +1839,7 @@ const blink::UserAgentOverride& WebContentsImpl::GetUserAgentOverride() {
 
 bool WebContentsImpl::ShouldOverrideUserAgentForRendererInitiatedNavigation() {
   NavigationEntryImpl* current_entry = GetController().GetLastCommittedEntry();
-  if (current_entry->IsInitialEntry())
+  if (!current_entry || current_entry->IsInitialEntry())
     return should_override_user_agent_in_new_tabs_;
 
   switch (renderer_initiated_user_agent_override_option_) {
@@ -1886,7 +1887,7 @@ bool WebContentsImpl::IsFullAccessibilityModeForTesting() {
   return accessibility_mode_ == ui::kAXModeComplete;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 
 void WebContentsImpl::SetDisplayCutoutSafeArea(gfx::Insets insets) {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::SetDisplayCutoutSafeArea");
@@ -1913,8 +1914,12 @@ const std::u16string& WebContentsImpl::GetTitle() {
   }
 
   NavigationEntry* entry = GetNavigationEntryForTitle();
-  CHECK(entry);
-  return entry->GetTitleForDisplay();
+  if (entry)
+    return entry->GetTitleForDisplay();
+  // |page_title_when_no_navigation_entry_| is finally used if no title can be
+  // retrieved.
+  DCHECK(!blink::features::IsInitialNavigationEntryEnabled());
+  return page_title_when_no_navigation_entry_;
 }
 
 SiteInstanceImpl* WebContentsImpl::GetSiteInstance() {
@@ -2118,13 +2123,13 @@ bool WebContentsImpl::IsCrashed() {
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
     case base::TERMINATION_STATUS_OOM:
     case base::TERMINATION_STATUS_LAUNCH_FAILED:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
 #endif
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     case base::TERMINATION_STATUS_OOM_PROTECTED:
 #endif
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case base::TERMINATION_STATUS_INTEGRITY_FAILURE:
 #endif
       return true;
@@ -2298,7 +2303,7 @@ const base::Location& WebContentsImpl::GetCreatorLocation() {
   return creator_location_;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void WebContentsImpl::SetPrimaryMainFrameImportance(
     ChildProcessImportance importance) {
   OPTIONAL_TRACE_EVENT1("content", "WebContentsImpl::SetMainFrameImportance",
@@ -2655,10 +2660,6 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
   prefs.canvas_2d_layers_enabled =
       command_line.HasSwitch(switches::kEnableCanvas2DLayers) ||
       base::FeatureList::IsEnabled(features::kEnableCanvas2DLayers);
-  prefs.canvas_context_lost_in_background_enabled =
-      command_line.HasSwitch(switches::kEnableCanvasContextLostInBackground) ||
-      base::FeatureList::IsEnabled(
-          features::kEnableCanvasContextLostInBackground);
   prefs.new_canvas_2d_api_enabled =
       command_line.HasSwitch(switches::kEnableNewCanvas2DAPI) ||
       base::FeatureList::IsEnabled(features::kEnableNewCanvas2DAPI);
@@ -2694,9 +2695,9 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
 
 // TODO(dtapuska): Enable barrel button selection drag support on Android.
 // crbug.com/758042
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   prefs.barrel_button_for_drag_enabled = true;
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
   prefs.enable_scroll_animator =
       command_line.HasSwitch(switches::kEnableSmoothScrolling) ||
@@ -2718,7 +2719,7 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
 
   if (GetController().GetVisibleEntry() &&
       GetController().GetVisibleEntry()->GetIsOverridingUserAgent()) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     // Only ignore viewport meta tag when Request Desktop Site is used, but not
     // in other situations where embedder changes to arbitrary mobile UA string.
     if (renderer_preferences_.user_agent_override.ua_metadata_override &&
@@ -2726,9 +2727,6 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
 #endif
       prefs.viewport_meta_enabled = false;
   }
-
-  prefs.main_frame_resizes_are_orientation_changes =
-      command_line.HasSwitch(switches::kMainFrameResizesAreOrientationChanges);
 
   prefs.spatial_navigation_enabled =
       command_line.HasSwitch(switches::kEnableSpatialNavigation);
@@ -2770,13 +2768,13 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
   if (has_persistent_video_)
     prefs.media_controls_enabled = false;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
   gfx::Size size = display.GetSizeInPixel();
   int min_width = size.width() < size.height() ? size.width() : size.height();
   prefs.device_scale_adjustment = GetDeviceScaleAdjustment(
       static_cast<int>(min_width / display.device_scale_factor()));
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
   GetContentClient()->browser()->OverrideWebkitPrefs(this, &prefs);
   return prefs;
@@ -2798,7 +2796,7 @@ void WebContentsImpl::SetSlowWebPreferences(
     SET_FROM_CACHE(prefs, pointer_events_max_touch_points);
     SET_FROM_CACHE(prefs, number_of_cpu_cores);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     SET_FROM_CACHE(prefs, video_fullscreen_orientation_lock_enabled);
     SET_FROM_CACHE(prefs, video_rotate_to_fullscreen_enabled);
 #endif
@@ -2812,9 +2810,9 @@ void WebContentsImpl::SetSlowWebPreferences(
     // Otherwise default is disabled.
     std::string touch_enabled_default_switch =
         switches::kTouchEventFeatureDetectionDisabled;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     touch_enabled_default_switch = switches::kTouchEventFeatureDetectionEnabled;
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
     const std::string touch_enabled_switch =
         command_line.HasSwitch(switches::kTouchEventFeatureDetection)
             ? command_line.GetSwitchValueASCII(
@@ -2840,7 +2838,7 @@ void WebContentsImpl::SetSlowWebPreferences(
 
     prefs->number_of_cpu_cores = base::SysInfo::NumberOfProcessors();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     const bool device_is_phone =
         ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE;
     prefs->video_fullscreen_orientation_lock_enabled = device_is_phone;
@@ -2859,7 +2857,7 @@ void WebContentsImpl::OnWebPreferencesChanged() {
     return;
   updating_web_preferences_ = true;
   SetWebPreferences(ComputeWebPreferences());
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   for (FrameTreeNode* node : primary_frame_tree_.Nodes()) {
     RenderFrameHostImpl* rfh = node->current_frame_host();
     if (rfh->is_local_root()) {
@@ -2960,7 +2958,8 @@ WebContents* WebContentsImpl::DeprecatedGetWebContents() {
   return this;
 }
 
-void WebContentsImpl::Init(const WebContents::CreateParams& params) {
+void WebContentsImpl::Init(const WebContents::CreateParams& params,
+                           blink::FramePolicy primary_main_frame_policy) {
   TRACE_EVENT0("content", "WebContentsImpl::Init");
 
   creator_location_ = params.creator_location;
@@ -2984,9 +2983,9 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
         ->PreventAssociationWithSpareProcess();
   }
 
-  primary_frame_tree_.Init(site_instance.get(),
-                           params.renderer_initiated_creation,
-                           params.main_frame_name, GetOriginalOpener());
+  primary_frame_tree_.Init(
+      site_instance.get(), params.renderer_initiated_creation,
+      params.main_frame_name, GetOriginalOpener(), primary_main_frame_policy);
 
   WebContentsViewDelegate* delegate =
       GetContentClient()->browser()->GetWebContentsViewDelegate(this);
@@ -3006,7 +3005,7 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
   screen_orientation_provider_ =
       std::make_unique<ScreenOrientationProvider>(this);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   DateTimeChooserAndroid::CreateForWebContents(this);
 #endif
 
@@ -3264,7 +3263,7 @@ bool WebContentsImpl::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
 bool WebContentsImpl::HandleWheelEvent(const blink::WebMouseWheelEvent& event) {
   OPTIONAL_TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("content.verbose"),
                         "WebContentsImpl::HandleWheelEvent");
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
   // On platforms other than Mac, control+mousewheel may change zoom. On Mac,
   // this isn't done for two reasons:
   //   -the OS already has a gesture to do this through pinch-zoom
@@ -3608,15 +3607,6 @@ void WebContentsImpl::UpdateVisibilityAndNotifyPageAndView(
   if (new_visibility != Visibility::VISIBLE)
     SetVisibilityAndNotifyObservers(new_visibility);
 }
-
-#if defined(OS_ANDROID)
-void WebContentsImpl::UpdateUserGestureCarryoverInfo() {
-  OPTIONAL_TRACE_EVENT0("content",
-                        "WebContentsImpl::UpdateUserGestureCarryoverInfo");
-  if (delegate_)
-    delegate_->UpdateUserGestureCarryoverInfo(this);
-}
-#endif
 
 bool WebContentsImpl::IsFullscreen() {
   return delegate_ ? delegate_->IsFullscreenForTabOrPending(this) : false;
@@ -4281,7 +4271,7 @@ bool WebContentsImpl::ShouldIgnoreUnresponsiveRenderer() {
   // Ignore unresponsive renderers if the debugger is attached to them since the
   // unresponsiveness might be a result of the renderer sitting on a breakpoint.
   //
-#ifdef OS_WIN
+#if BUILDFLAG(IS_WIN)
   // Check if a windows debugger is attached to the renderer process.
   base::ProcessHandle process_handle =
       GetMainFrame()->GetProcess()->GetProcess().Handle();
@@ -4289,7 +4279,7 @@ bool WebContentsImpl::ShouldIgnoreUnresponsiveRenderer() {
   if (CheckRemoteDebuggerPresent(process_handle, &debugger_present) &&
       debugger_present)
     return true;
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
   // TODO(pfeldman): Fix this to only return true if the renderer is *actually*
   // sitting on a breakpoint. https://crbug.com/684202
@@ -4397,7 +4387,7 @@ device::mojom::WakeLockContext* WebContentsImpl::GetWakeLockContext() {
   return wake_lock_context_host_->GetWakeLockContext();
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void WebContentsImpl::GetNFC(
     RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<device::mojom::NFC> receiver) {
@@ -4656,7 +4646,7 @@ void WebContentsImpl::Copy() {
 
 void WebContentsImpl::CopyToFindPboard() {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::CopyToFindPboard");
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   auto* input_handler = GetFocusedFrameWidgetInputHandler();
   if (!input_handler)
     return;
@@ -5193,7 +5183,7 @@ RenderFrameHostImpl* WebContentsImpl::GetOriginalOpener() {
   return opener_ftn ? opener_ftn->current_frame_host() : nullptr;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void WebContentsImpl::DidChooseColorInColorChooser(SkColor color) {
   OPTIONAL_TRACE_EVENT1("content",
                         "WebContentsImpl::DidChooseColorInColorChooser",
@@ -5824,14 +5814,13 @@ void WebContentsImpl::DidLoadResourceFromMemoryCache(
       /*include_credentials=*/include_credentials);
 }
 
-void WebContentsImpl::DocumentAvailableInMainFrame(
-    RenderFrameHost* render_frame_host) {
+void WebContentsImpl::PrimaryMainDocumentElementAvailable() {
   OPTIONAL_TRACE_EVENT0("content",
-                        "WebContentsImpl::DocumentAvailableInMainFrame");
+                        "WebContentsImpl::PrimaryMainDocumentElementAvailable");
   SCOPED_UMA_HISTOGRAM_TIMER(
-      "WebContentsObserver.DocumentAvailableInMainFrame");
-  observers_.NotifyObservers(&WebContentsObserver::DocumentAvailableInMainFrame,
-                             render_frame_host);
+      "WebContentsObserver.PrimaryMainDocumentElementAvailable");
+  observers_.NotifyObservers(
+      &WebContentsObserver::PrimaryMainDocumentElementAvailable);
 }
 
 void WebContentsImpl::PassiveInsecureContentFound(const GURL& resource_url) {
@@ -6035,7 +6024,7 @@ void WebContentsImpl::CapturePaintPreviewOfCrossProcessSubframe(
   delegate_->CapturePaintPreviewOfSubframe(this, rect, guid, render_frame_host);
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 base::android::ScopedJavaLocalRef<jobject>
 WebContentsImpl::GetJavaRenderFrameHostDelegate() {
   return GetJavaWebContents();
@@ -6225,7 +6214,7 @@ void WebContentsImpl::OnColorChooserFactoryReceiver(
   color_chooser_factory_receivers_.Add(this, std::move(receiver));
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void WebContentsImpl::OpenColorChooser(
     mojo::PendingReceiver<blink::mojom::ColorChooser> chooser_receiver,
     mojo::PendingRemote<blink::mojom::ColorChooserClient> client,
@@ -6400,16 +6389,29 @@ void WebContentsImpl::UpdateTitleForEntry(NavigationEntry* entry,
 
 bool WebContentsImpl::UpdateTitleForEntryImpl(NavigationEntryImpl* entry,
                                               const std::u16string& title) {
-  CHECK(entry);
   std::u16string final_title;
   base::TrimWhitespace(title, base::TRIM_ALL, &final_title);
 
-  if (final_title == entry->GetTitle())
-    return false;  // Nothing changed, don't bother.
+  // If a page is created via window.open and never navigated,
+  // there will be no navigation entry. In this situation,
+  // |page_title_when_no_navigation_entry_| will be used for page title.
+  // For a title update from a non-primary frame tree, |entry| will always be
+  // non-null.
+  if (entry) {
+    if (final_title == entry->GetTitle())
+      return false;  // Nothing changed, don't bother.
 
-  entry->SetTitle(final_title);
-  // The title for display may differ from the title just set; grab it.
-  final_title = entry->GetTitleForDisplay();
+    entry->SetTitle(final_title);
+
+    // The title for display may differ from the title just set; grab it.
+    final_title = entry->GetTitleForDisplay();
+  } else {
+    DCHECK(!blink::features::IsInitialNavigationEntryEnabled());
+    if (page_title_when_no_navigation_entry_ == final_title)
+      return false;  // Nothing changed, don't bother.
+
+    page_title_when_no_navigation_entry_ = final_title;
+  }
 
   return true;
 }
@@ -6419,7 +6421,8 @@ void WebContentsImpl::NotifyTitleUpdateForEntry(NavigationEntryImpl* entry) {
   // NavigationController.
   DCHECK(!entry || GetController().GetEntryWithUniqueIDIncludingPending(
                        entry->GetUniqueID()));
-  std::u16string final_title = entry->GetTitleForDisplay();
+  std::u16string final_title = entry ? entry->GetTitleForDisplay()
+                                     : page_title_when_no_navigation_entry_;
   bool did_web_contents_title_change = entry == GetNavigationEntryForTitle();
   if (did_web_contents_title_change)
     view_->SetPageTitle(final_title);
@@ -6553,7 +6556,7 @@ void WebContentsImpl::NotifyFrameSwapped(RenderFrameHostImpl* old_frame,
                                          RenderFrameHostImpl* new_frame) {
   TRACE_EVENT2("content", "WebContentsImpl::NotifyFrameSwapped", "old_frame",
                old_frame, "new_frame", new_frame);
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Copy importance from |old_frame| if |new_frame| is a main frame.
   if (old_frame && !new_frame->GetParent()) {
     RenderWidgetHostImpl* old_widget = old_frame->GetRenderWidgetHost();
@@ -6763,9 +6766,7 @@ void WebContentsImpl::RunJavaScriptDialog(
     if (!render_frame_host->GetLastCommittedOrigin().opaque()) {
       bool is_different_origin_subframe =
           render_frame_host->GetLastCommittedOrigin() !=
-          url::Origin::Create(render_frame_host->GetOutermostMainFrame()
-                                  ->GetLastCommittedURL()
-                                  .DeprecatedGetOriginAsURL());
+          render_frame_host->GetOutermostMainFrame()->GetLastCommittedOrigin();
       suppress_this_message |= is_different_origin_subframe;
       if (is_different_origin_subframe) {
         GetMainFrame()->AddMessageToConsole(
@@ -6902,7 +6903,7 @@ void WebContentsImpl::RunFileChooser(
 }
 
 double WebContentsImpl::GetPendingPageZoomLevel() {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // On Android, use the default page zoom level when the AccessibilityPageZoom
   // feature is not enabled.
   if (!base::FeatureList::IsEnabled(features::kAccessibilityPageZoom)) {
@@ -7168,7 +7169,7 @@ void WebContentsImpl::ClearTargetURL() {
 void WebContentsImpl::Close(RenderViewHost* rvh) {
   OPTIONAL_TRACE_EVENT1("content", "WebContentsImpl::Close", "render_view_host",
                         rvh);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // The UI may be in an event-tracking loop, such as between the
   // mouse-down and mouse-up in text selection or a button click.
   // Defer the close until after tracking is complete, so that we
@@ -7467,23 +7468,31 @@ void WebContentsImpl::UpdateTitle(RenderFrameHostImpl* render_frame_host,
       render_frame_host->frame_tree()->controller().GetEntryWithUniqueID(
           render_frame_host->nav_entry_id());
 
-  if (!entry) {
-    // We can handle title updates with no matching NavigationEntry, but only if
-    // the update is for the initial NavigationEntry. In that case the initial
-    // empty document RFH wouldn't have a `nav_entry_id` set because it hasn't
-    // committed any navigation. Note that if the title update came from the
-    // initial empty document but the WebContents is doing a session restore,
-    // we will ignore the title update (because GetLastCommittedEntry() would
-    // return the non-initial restored entry), which avoids accidental
-    // overwriting of the restored entry's title.
-    if (render_frame_host->GetParent() || !render_frame_host->frame_tree()
-                                               ->controller()
-                                               .GetLastCommittedEntry()
-                                               ->IsInitialEntry()) {
-      return;
+  if (blink::features::IsInitialNavigationEntryEnabled()) {
+    if (!entry) {
+      // When InitialNavigationEntry is enabled, we can handle title updates
+      // with no matching NavigationEntry, but only if the update is for the
+      // initial NavigationEntry. In that case the initial empty document RFH
+      // wouldn't have a `nav_entry_id` set because it hasn't committed any
+      // navigation. Note that if the title update came from the initial empty
+      // document but the WebContents is doing a session restore, we will
+      // ignore the title update (because GetLastCommittedEntry() would return
+      // the non-initial restored entry), which avoids accidental overwriting of
+      // the restored entry's title.
+      if (render_frame_host->GetParent() || !render_frame_host->frame_tree()
+                                                 ->controller()
+                                                 .GetLastCommittedEntry()
+                                                 ->IsInitialEntry()) {
+        return;
+      }
+      entry =
+          render_frame_host->frame_tree()->controller().GetLastCommittedEntry();
     }
-    entry =
-        render_frame_host->frame_tree()->controller().GetLastCommittedEntry();
+  } else {
+    // Otherwise, we can handle title updates when we don't have an entry in
+    // UpdateTitleForEntry, but only if the update is from the current RFH.
+    if (!entry && render_frame_host != GetMainFrame())
+      return;
   }
 
   // TODO(evan): make use of title_direction.
@@ -8008,7 +8017,7 @@ bool WebContentsImpl::CreateRenderViewForRenderManager(
       rvh_impl->frame_tree()->controller().GetLastCommittedEntryIndex(),
       rvh_impl->frame_tree()->controller().GetEntryCount());
 
-#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_ANDROID)
   // Force a ViewMsg_Resize to be sent, needed to make plugins show up on
   // linux. See crbug.com/83941.
   RenderWidgetHostView* rwh_view = render_view_host->GetWidget()->GetView();
@@ -8021,7 +8030,7 @@ bool WebContentsImpl::CreateRenderViewForRenderManager(
   return true;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 
 base::android::ScopedJavaLocalRef<jobject>
 WebContentsImpl::GetJavaWebContents() {
@@ -8169,14 +8178,14 @@ WebContentsImpl::GetFaviconURLs() {
 
 // The Mac implementation  of the next two methods is in
 // web_contents_impl_mac.mm
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
 
 void WebContentsImpl::Resize(const gfx::Rect& new_bounds) {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::Resize");
 #if defined(USE_AURA)
   aura::Window* window = GetNativeView();
   window->SetBounds(gfx::Rect(window->bounds().origin(), new_bounds.size()));
-#elif defined(OS_ANDROID)
+#elif BUILDFLAG(IS_ANDROID)
   content::RenderWidgetHostView* view = GetRenderWidgetHostView();
   if (view)
     view->SetBounds(new_bounds);
@@ -8187,13 +8196,13 @@ gfx::Size WebContentsImpl::GetSize() {
 #if defined(USE_AURA)
   aura::Window* window = GetNativeView();
   return window->bounds().size();
-#elif defined(OS_ANDROID)
+#elif BUILDFLAG(IS_ANDROID)
   ui::ViewAndroid* view_android = GetNativeView();
   return view_android->bounds().size();
 #endif
 }
 
-#endif  // !defined(OS_MAC)
+#endif  // !BUILDFLAG(IS_MAC)
 
 gfx::Rect WebContentsImpl::GetWindowsControlsOverlayRect() const {
   return window_controls_overlay_rect_;
@@ -8529,13 +8538,10 @@ void WebContentsImpl::BrowserPluginGuestWillDetach() {
     outermost->SetAsFocusedWebContentsIfNecessary();
 }
 
-PictureInPictureResult WebContentsImpl::EnterPictureInPicture(
-    const viz::SurfaceId& surface_id,
-    const gfx::Size& natural_size) {
+PictureInPictureResult WebContentsImpl::EnterPictureInPicture() {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::EnterPictureInPicture");
-  return delegate_
-             ? delegate_->EnterPictureInPicture(this, surface_id, natural_size)
-             : PictureInPictureResult::kNotSupported;
+  return delegate_ ? delegate_->EnterPictureInPicture(this)
+                   : PictureInPictureResult::kNotSupported;
 }
 
 void WebContentsImpl::ExitPictureInPicture() {
@@ -8564,7 +8570,7 @@ viz::FrameSinkId WebContentsImpl::GetCaptureFrameSinkId() {
   return base_view->GetFrameSinkId();
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void WebContentsImpl::NotifyFindMatchRectsReply(
     int version,
     const std::vector<gfx::RectF>& rects,
@@ -8827,7 +8833,7 @@ bool WebContentsImpl::ShowPopupMenu(
     std::move(show_poup_menu_callback_).Run(bounds);
     return true;
   }
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   if (browser_plugin_guest_) {
     browser_plugin_guest_->ShowPopupMenu(
         render_frame_host, popup_client, bounds, item_height, font_size,
@@ -9019,10 +9025,12 @@ void WebContentsImpl::OnColorProviderChanged() {
   observers_.NotifyObservers(&WebContentsObserver::OnColorProviderChanged);
 }
 
-const ui::ColorProvider* WebContentsImpl::GetColorProvider() const {
+const ui::ColorProvider& WebContentsImpl::GetColorProvider() const {
   auto* source = GetColorProviderSource();
   DCHECK(source);
-  return source->GetColorProvider();
+  auto* color_provider = source->GetColorProvider();
+  DCHECK(color_provider);
+  return *color_provider;
 }
 
 blink::mojom::FrameWidgetInputHandler*
@@ -9113,7 +9121,7 @@ void WebContentsImpl::RenderFrameHostStateChanged(
                           dict.Add("new", new_state);
                         });
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   if (old_state == LifecycleState::kActive && !render_frame_host->GetParent()) {
     // TODO(sreejakshetty): Remove this reset when ColorChooserHolder becomes
     // per-frame.
@@ -9229,16 +9237,14 @@ VisibleTimeRequestTrigger* WebContentsImpl::GetVisibleTimeRequestTrigger() {
 std::unique_ptr<PrerenderHandle> WebContentsImpl::StartPrerendering(
     const GURL& prerendering_url,
     PrerenderTriggerType trigger_type,
-    const std::string& embedder_histogram_suffix) {
-  // TODO(https://crbug.com/1166085): Use the ui::PageTransition value passed
-  // from Embedders for flexibility.
+    const std::string& embedder_histogram_suffix,
+    ui::PageTransition page_transition) {
   PrerenderAttributes attributes(
       prerendering_url, trigger_type, embedder_histogram_suffix,
       content::Referrer(), /*initiator_origin=*/absl::nullopt, prerendering_url,
       content::ChildProcessHost::kInvalidUniqueID,
       /*initiator_frame_token=*/absl::nullopt, ukm::kInvalidSourceId,
-      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
-                                ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
+      page_transition);
   int frame_tree_node_id =
       GetPrerenderHostRegistry()->CreateAndStartHost(attributes, *this);
 
@@ -9250,13 +9256,35 @@ std::unique_ptr<PrerenderHandle> WebContentsImpl::StartPrerendering(
   return nullptr;
 }
 
+bool WebContentsImpl::CancelPrerendering(
+    FrameTreeNode* frame_tree_node,
+    PrerenderHost::FinalStatus final_status) {
+  if (!blink::features::IsPrerender2Enabled())
+    return false;
+
+  if (!frame_tree_node)
+    return false;
+
+  DCHECK_EQ(this, FromFrameTreeNode(frame_tree_node));
+
+  // A prerendered page is identified by its root FrameTreeNode id, so if the
+  // given `frame_tree_node` is in any way embedded, we need to iterate up to
+  // the prerender root.
+  if (frame_tree_node->GetParentOrOuterDocumentOrEmbedder()) {
+    return frame_tree_node->GetParentOrOuterDocumentOrEmbedder()
+        ->CancelPrerendering(final_status);
+  }
+  return GetPrerenderHostRegistry()->CancelHost(
+      frame_tree_node->frame_tree_node_id(), final_status);
+}
+
 // static
 std::pair<int, int> WebContentsImpl::GetAvailablePointerAndHoverTypes() {
   // On Windows we have to temporarily allow blocking calls since
   // ui::GetAvailablePointerAndHoverTypes needs to call some in order to
   // figure out tablet device details in base::win::IsDeviceUsedAsATablet,
   // see https://crbug.com/1262162.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::ScopedAllowBlocking scoped_allow_blocking;
 #endif
   return ui::GetAvailablePointerAndHoverTypes();

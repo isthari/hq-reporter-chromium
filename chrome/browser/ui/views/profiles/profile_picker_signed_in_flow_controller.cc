@@ -24,6 +24,7 @@
 #include "chrome/browser/ui/views/profiles/profile_customization_bubble_view.h"
 #include "chrome/browser/ui/views/profiles/profile_picker_turn_sync_on_delegate.h"
 #include "chrome/browser/ui/webui/signin/dice_turn_sync_on_helper.h"
+#include "chrome/browser/ui/webui/signin/signin_url_utils.h"
 #include "chrome/browser/ui/webui/signin/sync_confirmation_ui.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
@@ -73,9 +74,14 @@ void MaybeShowProfileSwitchIPH(Browser* browser) {
   browser_view->MaybeShowProfileSwitchIPH();
 }
 
-GURL GetSyncConfirmationLoadingURL() {
-  return GURL(chrome::kChromeUISyncConfirmationURL)
-      .Resolve(chrome::kChromeUISyncConfirmationLoadingPath);
+// `profile_color` should be set now because the sync confirmation webUI is not
+// re-initialized when loading a URL for the same host but with another path.
+GURL GetSyncConfirmationLoadingURL(absl::optional<SkColor> profile_color) {
+  GURL url = GURL(chrome::kChromeUISyncConfirmationURL)
+                 .Resolve(chrome::kChromeUISyncConfirmationLoadingPath);
+  return AppendSyncConfirmationQueryParams(
+      url, {/*is_modal=*/false, SyncConfirmationUI::DesignVersion::kColored,
+            profile_color});
 }
 
 void ContinueSAMLSignin(std::unique_ptr<content::WebContents> saml_wc,
@@ -154,7 +160,11 @@ void ProfilePickerSignedInFlowController::FinishAndOpenBrowser(
 
 void ProfilePickerSignedInFlowController::SwitchToSyncConfirmation() {
   DCHECK(IsInitialized());
-  host_->ShowScreen(contents(), GURL(chrome::kChromeUISyncConfirmationURL),
+  GURL sync_confirmation_url = AppendSyncConfirmationQueryParams(
+      GURL(chrome::kChromeUISyncConfirmationURL),
+      {/*is_modal=*/false, SyncConfirmationUI::DesignVersion::kColored,
+       GetProfileColor()});
+  host_->ShowScreen(contents(), sync_confirmation_url,
                     /*navigation_finished_closure=*/
                     base::BindOnce(&ProfilePickerSignedInFlowController::
                                        SwitchToSyncConfirmationFinished,
@@ -226,7 +236,13 @@ void ProfilePickerSignedInFlowController::Init(bool is_saml) {
   // will be shown until DiceTurnSyncOnHelper (below) figures out whether it's a
   // managed account and whether sync is disabled by policies (which in some
   // cases involves fetching policies and can take a couple of seconds).
-  host_->ShowScreen(contents(), GetSyncConfirmationLoadingURL());
+  //
+  // It's fine to pass `profile_color_` here even though a policy can still
+  // overwrite its value later when polices become available. If policies get
+  // applied, we'll show the enterprise welcome screen in between the loading
+  // URL and the sync confirmation URL and thus the sync confirmation webUI will
+  // get recreated with the right color.
+  host_->ShowScreen(contents(), GetSyncConfirmationLoadingURL(profile_color_));
 
   // Set up a timeout for extended account info (which cancels any existing
   // timeout closure).
@@ -285,8 +301,7 @@ void ProfilePickerSignedInFlowController::SwitchToSyncConfirmationFinished() {
   SyncConfirmationUI* sync_confirmation_ui =
       static_cast<SyncConfirmationUI*>(contents()->GetWebUI()->GetController());
 
-  sync_confirmation_ui->InitializeMessageHandlerForCreationFlow(
-      GetProfileColor());
+  sync_confirmation_ui->InitializeMessageHandlerWithBrowser(nullptr);
 }
 
 void ProfilePickerSignedInFlowController::
@@ -377,9 +392,6 @@ void ProfilePickerSignedInFlowController::FinishAndOpenBrowserImpl(
   // Skip the FRE for this profile as it's replaced by profile creation flow.
   profile_->GetPrefs()->SetBoolean(prefs::kHasSeenWelcomePage, true);
 
-  // TODO(crbug.com/1126913): Change the callback of
-  // profiles::OpenBrowserWindowForProfile() to be a OnceCallback as it is only
-  // called once.
   profiles::OpenBrowserWindowForProfile(
       base::BindOnce(&ProfilePickerSignedInFlowController::OnBrowserOpened,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)),
@@ -389,7 +401,7 @@ void ProfilePickerSignedInFlowController::FinishAndOpenBrowserImpl(
                                      // extensions because we only open browser
                                      // window if the Profile is not locked.
                                      // Hence there is no extension blocked.
-      profile_, Profile::CREATE_STATUS_INITIALIZED);
+      profile_);
 }
 
 void ProfilePickerSignedInFlowController::FinishAndOpenBrowserForSAML() {
@@ -420,8 +432,7 @@ void ProfilePickerSignedInFlowController::OnSignInContentsFreedUp() {
 
 void ProfilePickerSignedInFlowController::OnBrowserOpened(
     BrowserOpenedCallback finish_flow_callback,
-    Profile* profile,
-    Profile::CreateStatus profile_create_status) {
+    Profile* profile) {
   TRACE_EVENT1("browser",
                "ProfilePickerSignedInFlowController::OnBrowserOpened",
                "profile_path", profile_->GetPath().AsUTF8Unsafe());

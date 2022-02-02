@@ -1058,9 +1058,8 @@ bool H264Decoder::FinishPicture(scoped_refptr<H264Picture> pic) {
     if (!(*output_candidate)->ref) {
       // Current picture hasn't been inserted into DPB yet, so don't remove it
       // if we managed to output it immediately.
-      int outputted_poc = (*output_candidate)->pic_order_cnt;
-      if (outputted_poc != pic->pic_order_cnt)
-        dpb_.DeleteByPOC(outputted_poc);
+      if (*output_candidate != pic)
+        dpb_.Delete(*output_candidate);
     }
 
     ++output_candidate;
@@ -1438,7 +1437,7 @@ H264Decoder::DecodeResult H264Decoder::Decode() {
     current_stream_has_been_changed_ = false;
   }
 
-  while (1) {
+  while (true) {
     H264Parser::Result par_res;
 
     if (!curr_nalu_) {

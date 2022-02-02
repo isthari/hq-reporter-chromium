@@ -55,6 +55,7 @@
 #include "components/cdm/browser/cdm_message_filter_android.h"
 #include "components/content_capture/browser/onscreen_content_provider.h"
 #include "components/crash/content/browser/crash_handler_host_linux.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "components/page_load_metrics/browser/metrics_navigation_throttle.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
@@ -202,7 +203,7 @@ void MaybeCreateSafeBrowsing(
 }  // anonymous namespace
 
 std::string GetProduct() {
-  return version_info::GetProductNameAndVersionForUserAgent();
+  return embedder_support::GetProduct(/*allow_override=*/true);
 }
 
 std::string GetUserAgent() {
@@ -257,10 +258,8 @@ AwContentBrowserClient::~AwContentBrowserClient() {}
 
 void AwContentBrowserClient::OnNetworkServiceCreated(
     network::mojom::NetworkService* network_service) {
-  network::mojom::HttpAuthStaticParamsPtr auth_static_params =
-      network::mojom::HttpAuthStaticParams::New();
-  auth_static_params->supported_schemes = AwBrowserContext::GetAuthSchemes();
-  content::GetNetworkService()->SetUpHttpAuth(std::move(auth_static_params));
+  content::GetNetworkService()->SetUpHttpAuth(
+      network::mojom::HttpAuthStaticParams::New());
 }
 
 void AwContentBrowserClient::ConfigureNetworkContextParams(

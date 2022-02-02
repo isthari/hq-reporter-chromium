@@ -11,7 +11,7 @@
 #include "ash/quick_pair/repository/fast_pair/device_id_map.h"
 #include "ash/quick_pair/repository/fast_pair/device_image_store.h"
 #include "ash/quick_pair/repository/fast_pair/device_metadata_fetcher.h"
-#include "ash/quick_pair/repository/fast_pair/fast_pair_image_decoder.h"
+#include "ash/quick_pair/repository/fast_pair/fast_pair_image_decoder_impl.h"
 #include "ash/quick_pair/repository/fast_pair/footprints_fetcher.h"
 #include "ash/quick_pair/repository/fast_pair/proto_conversions.h"
 #include "ash/quick_pair/repository/fast_pair/saved_device_registry.h"
@@ -21,7 +21,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "chromeos/services/bluetooth_config/public/cpp/device_image_info.h"
-#include "components/image_fetcher/core/image_fetcher.h"
 #include "device/bluetooth/bluetooth_device.h"
 
 namespace ash {
@@ -31,10 +30,10 @@ FastPairRepositoryImpl::FastPairRepositoryImpl()
     : FastPairRepository(),
       device_metadata_fetcher_(std::make_unique<DeviceMetadataFetcher>()),
       footprints_fetcher_(std::make_unique<FootprintsFetcher>()),
-      image_decoder_(std::make_unique<FastPairImageDecoder>(
-          std::unique_ptr<image_fetcher::ImageFetcher>())),
+      image_decoder_(std::make_unique<FastPairImageDecoderImpl>()),
       device_id_map_(std::make_unique<DeviceIdMap>()),
-      device_image_store_(std::make_unique<DeviceImageStore>()),
+      device_image_store_(
+          std::make_unique<DeviceImageStore>(image_decoder_.get())),
       saved_device_registry_(std::make_unique<SavedDeviceRegistry>()),
       footprints_last_updated_(base::Time::UnixEpoch()) {}
 
@@ -47,7 +46,8 @@ void FastPairRepositoryImpl::GetDeviceMetadata(
   if (metadata_cache_.contains(normalized_id)) {
     QP_LOG(VERBOSE) << __func__ << ": Data already in cache.";
     RecordFastPairRepositoryCacheResult(/*success=*/true);
-    std::move(callback).Run(metadata_cache_[normalized_id].get());
+    std::move(callback).Run(metadata_cache_[normalized_id].get(),
+                            /*has_retryable_error=*/false);
     return;
   }
   QP_LOG(VERBOSE) << __func__ << ": Not cached, fetching from web service.";
@@ -61,17 +61,17 @@ void FastPairRepositoryImpl::GetDeviceMetadata(
 void FastPairRepositoryImpl::OnMetadataFetched(
     const std::string& normalized_model_id,
     DeviceMetadataCallback callback,
-    absl::optional<nearby::fastpair::GetObservedDeviceResponse> response) {
-  RecordDeviceMetadataFetchResult(/*success=*/response.has_value());
-
+    absl::optional<nearby::fastpair::GetObservedDeviceResponse> response,
+    bool has_retryable_error) {
   if (!response) {
-    std::move(callback).Run(nullptr);
+    std::move(callback).Run(nullptr, has_retryable_error);
     return;
   }
   if (response->image().empty()) {
     metadata_cache_[normalized_model_id] =
         std::make_unique<DeviceMetadata>(std::move(*response), gfx::Image());
-    std::move(callback).Run(metadata_cache_[normalized_model_id].get());
+    std::move(callback).Run(metadata_cache_[normalized_model_id].get(),
+                            /*has_retryable_error=*/false);
     return;
   }
 
@@ -80,6 +80,7 @@ void FastPairRepositoryImpl::OnMetadataFetched(
 
   image_decoder_->DecodeImage(
       binary_data,
+      /*resize_to_notification_size=*/true,
       base::BindOnce(&FastPairRepositoryImpl::OnImageDecoded,
                      weak_ptr_factory_.GetWeakPtr(), normalized_model_id,
                      std::move(callback), *response));
@@ -92,7 +93,8 @@ void FastPairRepositoryImpl::OnImageDecoded(
     gfx::Image image) {
   metadata_cache_[normalized_model_id] =
       std::make_unique<DeviceMetadata>(response, std::move(image));
-  std::move(callback).Run(metadata_cache_[normalized_model_id].get());
+  std::move(callback).Run(metadata_cache_[normalized_model_id].get(),
+                          /*has_retryable_error=*/false);
 }
 
 void FastPairRepositoryImpl::IsValidModelId(
@@ -164,7 +166,8 @@ void FastPairRepositoryImpl::RetryCheckAccountKeys(
 void FastPairRepositoryImpl::CompleteAccountKeyLookup(
     CheckAccountKeysCallback callback,
     const std::vector<uint8_t> account_key,
-    DeviceMetadata* device_metadata) {
+    DeviceMetadata* device_metadata,
+    bool has_retryable_error) {
   if (!device_metadata) {
     std::move(callback).Run(absl::nullopt);
     return;
@@ -199,7 +202,8 @@ void FastPairRepositoryImpl::AddToFootprints(
     const std::string& hex_model_id,
     const std::string& mac_address,
     const std::vector<uint8_t>& account_key,
-    DeviceMetadata* metadata) {
+    DeviceMetadata* metadata,
+    bool has_retryable_error) {
   if (!metadata) {
     QP_LOG(WARNING) << __func__ << ": Unable to retrieve metadata.";
     return;
@@ -258,12 +262,19 @@ void FastPairRepositoryImpl::FetchDeviceImages(scoped_refptr<Device> device) {
 
 void FastPairRepositoryImpl::CompleteFetchDeviceImages(
     const std::string& hex_model_id,
-    DeviceMetadata* device_metadata) {
+    DeviceMetadata* device_metadata,
+    bool has_retryable_error) {
+  if (!device_metadata) {
+    QP_LOG(WARNING) << __func__ << ": No metadata available for "
+                    << hex_model_id;
+    return;
+  }
+
   QP_LOG(INFO) << __func__
                << ": Completing fetching device images for model ID "
                << hex_model_id;
-  device_image_store_->SaveDeviceImages(hex_model_id, device_metadata,
-                                        base::DoNothing());
+  device_image_store_->FetchDeviceImages(hex_model_id, device_metadata,
+                                         base::DoNothing());
 }
 
 bool FastPairRepositoryImpl::PersistDeviceImages(scoped_refptr<Device> device) {
@@ -289,7 +300,7 @@ bool FastPairRepositoryImpl::EvictDeviceImages(
   return device_image_store_->EvictDeviceImages(hex_model_id.value());
 }
 
-absl::optional<const chromeos::bluetooth_config::DeviceImageInfo>
+absl::optional<chromeos::bluetooth_config::DeviceImageInfo>
 FastPairRepositoryImpl::GetImagesForDevice(const std::string& device_id) {
   absl::optional<const std::string> hex_model_id =
       device_id_map_->GetModelIdForDeviceId(device_id);

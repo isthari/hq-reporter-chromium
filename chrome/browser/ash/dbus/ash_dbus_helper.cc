@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ash/dbus/ash_dbus_helper.h"
 
+#include "ash/components/cryptohome/system_salt_getter.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_paths.h"
 #include "base/files/file_path.h"
@@ -13,7 +14,7 @@
 #include "chrome/browser/ash/wilco_dtc_supportd/wilco_dtc_supportd_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chromeos/components/chromebox_for_meetings/buildflags/buildflags.h"  // PLATFORM_CFM
-#include "chromeos/cryptohome/system_salt_getter.h"
+#include "chromeos/components/hibernate/buildflags.h"  // ENABLE_HIBERNATE
 #include "chromeos/dbus/arc/arc_camera_client.h"
 #include "chromeos/dbus/arc/arc_sensor_service_client.h"
 #include "chromeos/dbus/attestation/attestation_client.h"
@@ -68,6 +69,12 @@
 #include "chromeos/dbus/chromebox_for_meetings/cfm_hotline_client.h"
 #endif
 
+#if BUILDFLAG(ENABLE_HIBERNATE)
+#include "chromeos/dbus/hiberman/hiberman_client.h" // nogncheck
+#endif
+
+namespace ash {
+
 namespace {
 
 // If running on desktop, override paths so that enrollment and cloud policy
@@ -76,14 +83,12 @@ void OverrideStubPathsIfNeeded() {
   base::FilePath user_data_dir;
   if (!base::SysInfo::IsRunningOnChromeOS() &&
       base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
-    chromeos::RegisterStubPathOverrides(user_data_dir);
+    RegisterStubPathOverrides(user_data_dir);
     chromeos::dbus_paths::RegisterStubPathOverrides(user_data_dir);
   }
 }
 
 }  // namespace
-
-namespace ash {
 
 void InitializeDBus() {
   using chromeos::InitializeDBusClient;
@@ -119,6 +124,9 @@ void InitializeDBus() {
   InitializeDBusClient<chromeos::DlpClient>(bus);
   InitializeDBusClient<chromeos::FederatedClient>(bus);
   chromeos::hermes_clients::Initialize(bus);
+#if BUILDFLAG(ENABLE_HIBERNATE)
+  InitializeDBusClient<chromeos::HibermanClient>(bus);
+#endif
   InitializeDBusClient<chromeos::InstallAttributesClient>(bus);
   InitializeDBusClient<chromeos::IpPeripheralServiceClient>(bus);
   InitializeDBusClient<chromeos::KerberosClient>(bus);
@@ -216,6 +224,9 @@ void ShutdownDBus() {
   chromeos::KerberosClient::Shutdown();
   chromeos::IpPeripheralServiceClient::Shutdown();
   chromeos::InstallAttributesClient::Shutdown();
+#if BUILDFLAG(ENABLE_HIBERNATE)
+  chromeos::HibermanClient::Shutdown();
+#endif
   chromeos::hermes_clients::Shutdown();
   chromeos::FederatedClient::Shutdown();
   chromeos::DlcserviceClient::Shutdown();

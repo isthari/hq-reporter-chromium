@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <tuple>
 #include <utility>
 
 #include "base/containers/contains.h"
@@ -241,7 +242,7 @@ Surface::QueueFrameResult Surface::QueueFrame(
 
   // The frame should not fail to display beyond this point. Release the
   // callback so it is not called.
-  (void)frame_rejected_callback.Release();
+  std::ignore = frame_rejected_callback.Release();
 
   return result;
 }
@@ -799,10 +800,6 @@ void Surface::ActivatePendingFrameForInheritedDeadline() {
 std::unique_ptr<gfx::DelegatedInkMetadata> Surface::TakeDelegatedInkMetadata() {
   DCHECK(active_frame_data_);
   return active_frame_data_->TakeDelegatedInkMetadata();
-}
-
-SurfaceSavedFrameStorage* Surface::GetSurfaceSavedFrameStorage() {
-  return &surface_saved_frame_storage_;
 }
 
 }  // namespace viz

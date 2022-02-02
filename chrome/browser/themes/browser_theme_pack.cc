@@ -96,7 +96,7 @@ constexpr int kTallestFrameHeight = kTallestTabHeight + 19;
 // changed default theme assets, if you need themes to recreate their generated
 // images (which are cached), if you changed how missing values are
 // generated, or if you changed any constants.
-const int kThemePackVersion = 78;
+const int kThemePackVersion = 80;
 
 // IDs that are in the DataPack won't clash with the positive integer
 // uint16_t. kHeaderID should always have the maximum value because we want the
@@ -1061,6 +1061,8 @@ void BrowserThemePack::AddColorMixers(
        kColorTabForegroundActiveFrameActive},
       {TP::COLOR_TAB_FOREGROUND_ACTIVE_FRAME_INACTIVE,
        kColorTabForegroundActiveFrameInactive},
+      {TP::COLOR_TAB_THROBBER_SPINNING, ui::kColorThrobber},
+      {TP::COLOR_TAB_THROBBER_WAITING, ui::kColorThrobberPreconnect},
       {TP::COLOR_TOOLBAR, kColorToolbar},
       {TP::COLOR_TOOLBAR_TEXT, kColorToolbarText},
   };
@@ -1506,11 +1508,31 @@ void BrowserThemePack::SetFrameAndToolbarRelatedColors() {
     SetColor(TP::COLOR_DOWNLOAD_SHELF, toolbar_color);
     SetColor(TP::COLOR_TAB_BACKGROUND_ACTIVE_FRAME_ACTIVE, toolbar_color);
     SetColor(TP::COLOR_TAB_BACKGROUND_ACTIVE_FRAME_INACTIVE, toolbar_color);
+
+    // If the toolbar color is set but the text color is not, ensure it has
+    // sufficient contrast.
+    SkColor toolbar_text_color =
+        TP::GetDefaultColor(TP::COLOR_TOOLBAR_TEXT, false);
+    toolbar_text_color =
+        color_utils::BlendForMinContrast(toolbar_text_color, toolbar_color)
+            .color;
+    SetColorIfUnspecified(TP::COLOR_TOOLBAR_TEXT, toolbar_text_color);
   }
   SkColor toolbar_button_icon_color;
+  color_utils::HSL button_tint;
   if (GetColor(TP::COLOR_TOOLBAR_BUTTON_ICON, &toolbar_button_icon_color)) {
     SetColor(TP::COLOR_TOOLBAR_BUTTON_ICON_HOVERED, toolbar_button_icon_color);
     SetColor(TP::COLOR_TOOLBAR_BUTTON_ICON_PRESSED, toolbar_button_icon_color);
+    SetColor(TP::COLOR_TAB_THROBBER_SPINNING, toolbar_button_icon_color);
+    SetColor(TP::COLOR_TAB_THROBBER_WAITING, toolbar_button_icon_color);
+  } else if (GetTint(TP::TINT_BUTTONS, &button_tint)) {
+    // Duplicate how COLOR_TOOLBAR_BUTTON_ICON will be computed.
+    // TODO(pkasting): Should this code be shared with
+    // ThemeHelper::GetDefaultColor() somehow?
+    const SkColor button_color =
+        color_utils::HSLShift(gfx::kChromeIconGrey, button_tint);
+    SetColor(TP::COLOR_TAB_THROBBER_SPINNING, button_color);
+    SetColor(TP::COLOR_TAB_THROBBER_WAITING, button_color);
   }
   SkColor toolbar_text_color;
   if (GetColor(TP::COLOR_TOOLBAR_TEXT, &toolbar_text_color)) {

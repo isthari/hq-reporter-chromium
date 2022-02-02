@@ -87,7 +87,6 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/boot_times_recorder.h"
-#include "components/app_restore/features.h"
 #endif
 
 using content::NavigationController;
@@ -539,23 +538,6 @@ class SessionRestoreImpl : public BrowserListObserver {
     }
 
     for (auto i = windows->begin(); i != windows->end(); ++i) {
-      // Check if a collapse tab group will be restored and if the feature flag
-      // |kTabGroupsCollapseFreezing| is enabled. UMA metrics for features are
-      // gathered based on the check of the feature flag. The goal of this code
-      // is to ensure the feature is initialized before the first UMA snapshot
-      // gets uploaded.
-      // TODO(1110108): Remove this check once the feature is fully launched.
-      for (auto& session_tab_group : (*i)->tab_groups) {
-        // Ensure that the user has a collapsed group before checking if the
-        // freezing experiment is enabled to ensure our metrics accurately track
-        // the impact of freezing for users with collapsed tab groups.
-        if (session_tab_group->visual_data.is_collapsed() &&
-            base::FeatureList::IsEnabled(
-                features::kTabGroupsCollapseFreezing)) {
-          break;
-        }
-      }
-
       ++(*window_count);
       // 1. Choose between restoring tabs in an existing browser or in a newly
       //    created browser.
@@ -621,14 +603,14 @@ class SessionRestoreImpl : public BrowserListObserver {
                        initial_tab_count);
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
       // On the mac, app visibility is asynchronously available, so we can't
       // rely on a particular value here.
       const bool is_visibility_async =
           browser->type() == Browser::Type::TYPE_APP;
 #else
       const bool is_visibility_async = false;
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
       DCHECK(is_visibility_async || browser->window()->IsVisible() ||
              browser->window()->IsMinimized());
@@ -864,7 +846,7 @@ class SessionRestoreImpl : public BrowserListObserver {
           /*user_gesture=*/false);
     }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     params.restore_id = restore_id;
 #endif
 
@@ -1053,14 +1035,11 @@ void SessionRestore::RestoreSessionAfterCrash(Browser* browser) {
            ? SessionRestore::CLOBBER_CURRENT_TAB
            : 0);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // In Chrome OS, apps are restored by full restore only. This function is
-  // called when the chrome browser is launched after crash, so only browser
-  // tabs are restored, apps are not restroed.
-  if (!full_restore::features::IsFullRestoreEnabled())
-    behavior |= SessionRestore::RESTORE_APPS;
-#else
-  // Apps should always be restored on crash restore.
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // Apps should always be restored on crash restore except on Chrome OS. In
+  // Chrome OS, apps are restored by full restore only. This function is called
+  // when the chrome browser is launched after crash, so only browser restored,
+  // apps are not restored in Chrome OS.
   behavior |= SessionRestore::RESTORE_APPS;
 #endif
   SessionRestore::RestoreSession(profile, browser, behavior, StartupTabs());

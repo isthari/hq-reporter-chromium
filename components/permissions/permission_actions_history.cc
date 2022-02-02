@@ -88,7 +88,7 @@ void PermissionActionsHistory::RecordAction(
   const base::StringPiece permission_path(PermissionKeyForRequestType(type));
 
   if (!update->FindPathOfType(permission_path, base::Value::Type::LIST)) {
-    update->SetPath(permission_path, base::ListValue());
+    update->SetPath(permission_path, base::Value(base::Value::Type::LIST));
   }
 
   base::Value* permission_actions =

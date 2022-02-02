@@ -78,6 +78,7 @@ absl::optional<WebFeature> FeatureCoop(CrossOriginOpenerPolicyValue value) {
     case CrossOriginOpenerPolicyValue::kSameOriginAllowPopups:
       return WebFeature::kCrossOriginOpenerPolicySameOriginAllowPopups;
     case CrossOriginOpenerPolicyValue::kSameOriginPlusCoep:
+    case CrossOriginOpenerPolicyValue::kSameOriginAllowPopupsPlusCoep:
       return WebFeature::kCoopAndCoepIsolated;
   }
 }
@@ -94,6 +95,7 @@ absl::optional<WebFeature> FeatureCoopRO(CrossOriginOpenerPolicyValue value) {
       return WebFeature::
           kCrossOriginOpenerPolicySameOriginAllowPopupsReportOnly;
     case CrossOriginOpenerPolicyValue::kSameOriginPlusCoep:
+    case CrossOriginOpenerPolicyValue::kSameOriginAllowPopupsPlusCoep:
       return WebFeature::kCoopAndCoepIsolatedReportOnly;
   }
 }
@@ -428,15 +430,6 @@ void Navigator::DidNavigate(
   base::WeakPtr<RenderFrameHostImpl> old_frame_host =
       frame_tree_node->render_manager()->current_frame_host()->GetWeakPtr();
 
-  // If a frame claims the navigation was same-document, it must be the current
-  // frame, not a pending one.
-  // TODO(creis): This check should be moved to RenderFrameHostImpl, allowing an
-  // early return.  See https://crbug.com/1209097.
-  if (was_within_same_document && render_frame_host != old_frame_host.get()) {
-    bad_message::ReceivedBadMessage(render_frame_host->GetProcess(),
-                                    bad_message::NI_IN_PAGE_NAVIGATION);
-    was_within_same_document = false;
-  }
   // At this point we have already chosen a SiteInstance for this navigation, so
   // set OriginIsolationRequest to kNone in the conversion to UrlInfo below:
   // this is done implicitly in the UrlInfoInit constructor.
@@ -451,6 +444,12 @@ void Navigator::DidNavigate(
         old_frame_host->render_view_host()->GetPageLifecycleStateManager();
     page_lifecycle_state_manager->DidSetPagehideDispatchDuringNewPageCommit(
         std::move(old_page_info->new_lifecycle_state_for_old_page));
+  }
+
+  // If a frame claims the navigation was same-document, it must be the current
+  // frame, not a pending one.
+  if (was_within_same_document && render_frame_host != old_frame_host.get()) {
+    was_within_same_document = false;
   }
 
   if (ui::PageTransitionIsMainFrame(params.transition)) {
@@ -581,31 +580,33 @@ void Navigator::DidNavigate(
   // Send notification about committed provisional loads. This notification is
   // different from the NAV_ENTRY_COMMITTED notification which doesn't include
   // the actual URL navigated to and isn't sent for AUTO_SUBFRAME navigations.
-  DCHECK(delegate_);
-  DCHECK_EQ(!render_frame_host->GetParent(),
-            did_navigate ? details.is_main_frame : false);
-  navigation_request->DidCommitNavigation(
-      params, did_navigate, details.did_replace_entry,
-      details.previous_main_frame_url, details.type);
+  if (details.type != NAVIGATION_TYPE_NAV_IGNORE) {
+    DCHECK(delegate_);
+    DCHECK_EQ(!render_frame_host->GetParent(),
+              did_navigate ? details.is_main_frame : false);
+    navigation_request->DidCommitNavigation(
+        params, did_navigate, details.did_replace_entry,
+        details.previous_main_frame_url, details.type);
 
-  // Dispatch PrimaryPageChanged notification when a main frame
-  // non-same-document navigation changes the current Page in the FrameTree.
-  //
-  // We do this here to ensure that this navigation has updated all relevant
-  // properties of RenderFrameHost / Page / Navigation Controller / Navigation
-  // Request (e.g. `RenderFrameHost::GetLastCommittedURL`,
-  // `NavigationRequest::GetHttpStatusCode`) before notifying the observers.
-  // TODO(crbug.com/1275933): Don't dispatch PrimaryPageChanged for initial
-  // empty document navigations.
-  if (!was_within_same_document && render_frame_host->is_main_frame()) {
-    navigation_request->frame_tree_node()
-        ->frame_tree()
-        ->delegate()
-        ->NotifyPageChanged(render_frame_host->GetPage());
+    // Dispatch PrimaryPageChanged notification when a main frame
+    // non-same-document navigation changes the current Page in the FrameTree.
+    //
+    // We do this here to ensure that this navigation has updated all relevant
+    // properties of RenderFrameHost / Page / Navigation Controller / Navigation
+    // Request (e.g. `RenderFrameHost::GetLastCommittedURL`,
+    // `NavigationRequest::GetHttpStatusCode`) before notifying the observers.
+    // TODO(crbug.com/1275933): Don't dispatch PrimaryPageChanged for initial
+    // empty document navigations.
+    if (!was_within_same_document && render_frame_host->is_main_frame()) {
+      navigation_request->frame_tree_node()
+          ->frame_tree()
+          ->delegate()
+          ->NotifyPageChanged(render_frame_host->GetPage());
 
-    // Finally reset the `navigation_request` after navigation commit and all
-    // NavigationRequest usages.
-    navigation_request.reset();
+      // Finally reset the `navigation_request` after navigation commit and all
+      // NavigationRequest usages.
+      navigation_request.reset();
+    }
   }
 
   if (did_create_new_document) {

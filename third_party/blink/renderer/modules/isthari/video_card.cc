@@ -12,7 +12,11 @@
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
+#if BUILDFLAG(IS_LINUX)
 #include "third_party/decklink/linux/platform.h"
+#elif BUILDFLAG(IS_WIN)
+#include "third_party/decklink/win/platform.h"
+#endif
 #include "third_party/libyuv/include/libyuv.h"
 
 namespace blink {

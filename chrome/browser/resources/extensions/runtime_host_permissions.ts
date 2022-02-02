@@ -21,25 +21,18 @@ import {CrActionMenuElement} from 'chrome://resources/cr_elements/cr_action_menu
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ItemDelegate} from './item.js';
 
-/** Event interface for dom-repeat. */
-interface RepeaterEvent extends CustomEvent {
-  model: {
-    item: string,
-  };
-}
-
-interface ExtensionsRuntimeHostPermissionsElement {
+export interface ExtensionsRuntimeHostPermissionsElement {
   $: {
     hostActionMenu: CrActionMenuElement,
-    'host-access': HTMLSelectElement,
+    hostAccess: HTMLSelectElement,
   };
 }
 
-class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
+export class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
   static get is() {
     return 'extensions-runtime-host-permissions';
   }
@@ -143,7 +136,7 @@ class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
   private revertingHostAccess_: boolean;
 
   private onHostAccessChange_() {
-    const selectMenu = this.$['host-access'];
+    const selectMenu = this.$.hostAccess;
     const access = selectMenu.value as chrome.developerPrivate.HostAccess;
 
     // Log a user action when the host access selection is changed by the user,
@@ -240,14 +233,14 @@ class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
   }
 
   private onHostDialogCancel_() {
-    // The user canceled the dialog. Set host-access back to the old value,
+    // The user canceled the dialog. Set hostAccess back to the old value,
     // if the dialog was shown when just transitioning to a new state.
     chrome.metricsPrivate.recordUserAction(
         'Extensions.Settings.Hosts.AddHostDialogCanceled');
     if (this.oldHostAccess_) {
       assert(this.permissions.hostAccess === this.oldHostAccess_);
       this.revertingHostAccess_ = true;
-      this.$['host-access'].value = this.oldHostAccess_;
+      this.$.hostAccess.value = this.oldHostAccess_;
       this.revertingHostAccess_ = false;
       this.oldHostAccess_ = null;
     }
@@ -257,7 +250,7 @@ class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
     return !!this.oldHostAccess_;
   }
 
-  private onEditHostClick_(e: RepeaterEvent) {
+  private onEditHostClick_(e: DomRepeatEvent<string>) {
     chrome.metricsPrivate.recordUserAction(
         'Extensions.Settings.Hosts.ActionMenuOpened');
     this.actionMenuModel_ = e.model.item;
@@ -298,6 +291,13 @@ class ExtensionsRuntimeHostPermissionsElement extends PolymerElement {
   private onLearnMoreClick_() {
     chrome.metricsPrivate.recordUserAction(
         'Extensions.Settings.Hosts.LearnMoreActivated');
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'extensions-runtime-host-permissions':
+        ExtensionsRuntimeHostPermissionsElement;
   }
 }
 

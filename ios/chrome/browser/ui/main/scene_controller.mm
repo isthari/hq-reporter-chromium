@@ -123,6 +123,7 @@
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ios/public/provider/chrome/browser/mailto/mailto_handler_provider.h"
 #include "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
+#import "ios/public/provider/chrome/browser/ui_utils/ui_utils_api.h"
 #import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
 #include "ios/web/public/thread/web_task_traits.h"
 #import "ios/web/public/web_state.h"
@@ -1782,7 +1783,8 @@ bool IsSigninForcedByPolicy() {
 
 // TODO(crbug.com/779791) : Remove show settings commands from MainController.
 - (void)showSavedPasswordsSettingsFromViewController:
-    (UIViewController*)baseViewController {
+            (UIViewController*)baseViewController
+                                    showCancelButton:(BOOL)showCancelButton {
   if (!baseViewController) {
     // TODO(crbug.com/779791): Don't pass base view controller through
     // dispatched command.
@@ -1793,14 +1795,16 @@ bool IsSigninForcedByPolicy() {
                                          self.signinCoordinator.class));
   if (self.settingsNavigationController) {
     [self.settingsNavigationController
-        showSavedPasswordsSettingsFromViewController:baseViewController];
+        showSavedPasswordsSettingsFromViewController:baseViewController
+                                    showCancelButton:showCancelButton];
     return;
   }
   Browser* browser = self.mainInterface.browser;
-  self.settingsNavigationController =
-      [SettingsNavigationController savePasswordsControllerForBrowser:browser
-                                                             delegate:self
-                                      startPasswordCheckAutomatically:NO];
+  self.settingsNavigationController = [SettingsNavigationController
+      savePasswordsControllerForBrowser:browser
+                               delegate:self
+        startPasswordCheckAutomatically:YES
+                       showCancelButton:showCancelButton];
   [baseViewController presentViewController:self.settingsNavigationController
                                    animated:YES
                                  completion:nil];
@@ -1822,7 +1826,8 @@ bool IsSigninForcedByPolicy() {
   self.settingsNavigationController =
       [SettingsNavigationController savePasswordsControllerForBrowser:browser
                                                              delegate:self
-                                      startPasswordCheckAutomatically:YES];
+                                      startPasswordCheckAutomatically:YES
+                                                     showCancelButton:NO];
   [baseViewController presentViewController:self.settingsNavigationController
                                    animated:YES
                                  completion:nil];
@@ -2306,7 +2311,7 @@ bool IsSigninForcedByPolicy() {
   // Immediately hide modals from the provider (alert views, action sheets,
   // popovers). They will be ultimately dismissed by their owners, but at least,
   // they are not visible.
-  ios::GetChromeBrowserProvider().HideModalViewStack();
+  ios::provider::HideModalViewStack();
 
   // ChromeIdentityService is responsible for the dialogs displayed by the
   // services it wraps.
@@ -2354,7 +2359,7 @@ bool IsSigninForcedByPolicy() {
   [self closeSettingsOrSigninAnimated:NO completion:chosenCompletion];
 
   // Verify that no modal views are left presented.
-  ios::GetChromeBrowserProvider().LogIfModalViewsArePresented();
+  ios::provider::LogIfModalViewsArePresented();
 }
 
 - (void)openMultipleTabsInMode:
@@ -2748,7 +2753,7 @@ bool IsSigninForcedByPolicy() {
     id<PolicyChangeCommands> handler = HandlerForProtocol(
         self.signinCoordinator.browser->GetCommandDispatcher(),
         PolicyChangeCommands);
-    [handler showPolicySignoutPrompt];
+    [handler showForceSignedOutPrompt];
     self.signinCoordinator = nil;
     return;
   }
@@ -2914,6 +2919,7 @@ bool IsSigninForcedByPolicy() {
 - (void)showTabSwitcher {
   DCHECK(self.mainCoordinator);
   [self.mainCoordinator setActivePage:self.activePage];
+  [self.mainCoordinator setActiveMode:TabGridModeNormal];
   [self.mainCoordinator showTabGrid];
 }
 

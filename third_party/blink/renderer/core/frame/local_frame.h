@@ -70,7 +70,7 @@
 #include "third_party/blink/renderer/core/loader/back_forward_cache_loader_helper_impl.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
 #include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote.h"
@@ -141,6 +141,10 @@ class WebPluginContainerImpl;
 class WebPrescientNetworking;
 class WebURLLoaderFactory;
 struct BlinkTransferableMessage;
+
+#if !BUILDFLAG(IS_ANDROID)
+class WindowControlsOverlayChangedDelegate;
+#endif
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT Supplement<LocalFrame>;
 
@@ -405,7 +409,7 @@ class CORE_EXPORT LocalFrame final
   //
   // Navigation-associated interfaces are currently implemented as
   // channel-associated interfaces. See
-  // https://chromium.googlesource.com/chromium/src/+/master/docs/mojo_ipc_conversion.md#Channel_Associated-Interfaces
+  // https://chromium.googlesource.com/chromium/src/+/main/docs/mojo_ipc_conversion.md#Channel_Associated-Interfaces
   AssociatedInterfaceProvider* GetRemoteNavigationAssociatedInterfaces();
 
   LocalFrameClient* Client() const;
@@ -643,10 +647,15 @@ class CORE_EXPORT LocalFrame final
   void ClosePageForTesting();
   void SetInitialFocus(bool reverse);
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   void GetCharacterIndexAtPoint(const gfx::Point& point);
 #endif
+
+#if !BUILDFLAG(IS_ANDROID)
   void UpdateWindowControlsOverlay(const gfx::Rect& bounding_rect_in_dips);
+  void RegisterWindowControlsOverlayChangedDelegate(
+      WindowControlsOverlayChangedDelegate*);
+#endif
 
   SystemClipboard* GetSystemClipboard();
 
@@ -684,6 +693,7 @@ class CORE_EXPORT LocalFrame final
 
   bool SwapIn();
 
+#if !BUILDFLAG(IS_ANDROID)
   // For PWAs with display_overrides, these getters are information about the
   // titlebar bounds sent over from the browser via UpdateWindowControlsOverlay
   // in LocalMainFrame that are needed to persist the lifetime of the frame.
@@ -693,6 +703,7 @@ class CORE_EXPORT LocalFrame final
   const gfx::Rect& GetWindowControlsOverlayRect() const {
     return window_controls_overlay_rect_;
   }
+#endif
 
   void LoadJavaScriptURL(const KURL& url);
 
@@ -714,7 +725,7 @@ class CORE_EXPORT LocalFrame final
   // to FrameFirstPaint.
   void OnFirstPaint(bool text_painted, bool image_painted);
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   void ResetTextInputHostForTesting();
   void RebindTextInputHostForTesting();
 #endif
@@ -926,8 +937,12 @@ class CORE_EXPORT LocalFrame final
 
   PaymentRequestToken payment_request_token_;
 
+#if !BUILDFLAG(IS_ANDROID)
   bool is_window_controls_overlay_visible_ = false;
   gfx::Rect window_controls_overlay_rect_;
+  WeakMember<WindowControlsOverlayChangedDelegate>
+      window_controls_overlay_changed_delegate_;
+#endif
 
   // The evidence for or against a frame being an ad frame. `absl::nullopt` if
   // not yet set or if the frame is a top-level frame. (Only subframes can be

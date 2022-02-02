@@ -306,7 +306,7 @@ void ExtensionsToolbarContainer::OnContextMenuShown(
   // Only update the extension's toolbar visibility if the context menu is being
   // shown from an extension visible in the toolbar.
   if (!ExtensionsMenuView::IsShowing()) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     // TODO(crbug/1065584): Remove hiding active popup here once this bug is
     // fixed.
     HideActivePopup();
@@ -627,7 +627,7 @@ bool ExtensionsToolbarContainer::CanStartDragForView(View* sender,
     return false;
 
   // TODO(crbug.com/1275586): Force-pinned extensions are not draggable.
-  return model_->IsActionForcePinned(*it);
+  return !model_->IsActionForcePinned(*it);
 }
 
 bool ExtensionsToolbarContainer::GetDropFormats(

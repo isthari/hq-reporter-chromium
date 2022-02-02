@@ -64,6 +64,10 @@ EuiccStatusUploader::EuiccStatusUploader(CloudPolicyClient* client,
     : client_(client),
       local_state_(local_state),
       retry_entry_(&kBackOffPolicy) {
+  if (!chromeos::NetworkHandler::IsInitialized()) {
+    LOG(WARNING) << "NetworkHandler is not initialized.";
+    return;
+  }
   chromeos::NetworkHandler::Get()
       ->managed_network_configuration_handler()
       ->AddObserver(this);
@@ -74,11 +78,13 @@ EuiccStatusUploader::EuiccStatusUploader(CloudPolicyClient* client,
 }
 
 EuiccStatusUploader::~EuiccStatusUploader() {
-  chromeos::NetworkHandler::Get()
-      ->managed_network_configuration_handler()
-      ->RemoveObserver(this);
-  chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
-      this, FROM_HERE);
+  if (chromeos::NetworkHandler::IsInitialized()) {
+    chromeos::NetworkHandler::Get()
+        ->managed_network_configuration_handler()
+        ->RemoveObserver(this);
+    chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
+        this, FROM_HERE);
+  }
   if (chromeos::HermesEuiccClient::Get())
     chromeos::HermesEuiccClient::Get()->RemoveObserver(this);
 }
@@ -159,7 +165,7 @@ base::Value EuiccStatusUploader::GetCurrentEuiccStatus() {
       continue;
 
     // Read the SMDP address from ONC.
-    const base::DictionaryValue* policy =
+    const base::Value* policy =
         chromeos::NetworkHandler::Get()
             ->managed_network_configuration_handler()
             ->FindPolicyByGUID(/*userhash=*/std::string(), network->guid(),
@@ -167,7 +173,7 @@ base::Value EuiccStatusUploader::GetCurrentEuiccStatus() {
     DCHECK(policy);
 
     const base::Value* cellular_dict =
-        policy->FindKey(::onc::network_config::kCellular);
+        policy->FindDictKey(::onc::network_config::kCellular);
     DCHECK(cellular_dict);
 
     const std::string* smdp_address =

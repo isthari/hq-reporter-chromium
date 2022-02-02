@@ -14,13 +14,13 @@
 
 #include "base/memory/raw_ptr.h"
 #include "components/autofill/core/browser/payments/payments_client.h"
+#include "components/autofill/core/browser/payments/payments_requests/update_virtual_card_enrollment_request.h"
 
 namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
 
-namespace autofill {
-namespace payments {
+namespace autofill::payments {
 
 class TestPaymentsClient : public payments::PaymentsClient {
  public:
@@ -72,6 +72,18 @@ class TestPaymentsClient : public payments::PaymentsClient {
       const SelectChallengeOptionRequestDetails& details,
       base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
                               const std::string&)> callback) override;
+
+  void GetVirtualCardEnrollmentDetails(
+      const GetDetailsForEnrollmentRequestDetails& request_details,
+      base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
+                              const payments::PaymentsClient::
+                                  GetDetailsForEnrollmentResponseDetails&)>
+          callback) override;
+
+  void UpdateVirtualCardEnrollment(
+      const UpdateVirtualCardEnrollmentRequestDetails& request_details,
+      base::OnceCallback<void(AutofillClient::PaymentsRpcResult)> callback)
+      override;
 
   // Some metrics are affected by the latency of GetUnmaskDetails, so it is
   // useful to control whether or not GetUnmaskDetails() is responded to.
@@ -128,6 +140,16 @@ class TestPaymentsClient : public payments::PaymentsClient {
     return upload_card_source_;
   }
 
+  const GetDetailsForEnrollmentRequestDetails&
+  get_details_for_enrollment_request_details() {
+    return get_details_for_enrollment_request_details_;
+  }
+
+  const UpdateVirtualCardEnrollmentRequestDetails&
+  update_virtual_card_enrollment_request_details() {
+    return update_virtual_card_enrollment_request_details_;
+  }
+
  private:
   PaymentsClient::UploadCardResponseDetails upload_card_response_details_;
   // Some metrics are affected by the latency of GetUnmaskDetails, so it is
@@ -151,9 +173,12 @@ class TestPaymentsClient : public payments::PaymentsClient {
   std::unique_ptr<base::Value> LegalMessage();
   absl::optional<AutofillClient::PaymentsRpcResult>
       select_challenge_option_result_;
+  payments::PaymentsClient::GetDetailsForEnrollmentRequestDetails
+      get_details_for_enrollment_request_details_;
+  payments::PaymentsClient::UpdateVirtualCardEnrollmentRequestDetails
+      update_virtual_card_enrollment_request_details_;
 };
 
-}  // namespace payments
-}  // namespace autofill
+}  // namespace autofill::payments
 
 #endif  // COMPONENTS_AUTOFILL_CORE_BROWSER_PAYMENTS_TEST_PAYMENTS_CLIENT_H_

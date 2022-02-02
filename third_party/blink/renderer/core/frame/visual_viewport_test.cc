@@ -50,7 +50,6 @@
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 #include "third_party/blink/renderer/platform/geometry/double_point.h"
-#include "third_party/blink/renderer/platform/geometry/double_rect.h"
 #include "third_party/blink/renderer/platform/graphics/compositing/paint_artifact_compositor.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper.h"
@@ -2595,7 +2594,7 @@ TEST_P(VisualViewportTest, PaintScrollbar) {
   UpdateAllLifecyclePhases();
 
   auto check_scrollbar = [](const cc::Layer* scrollbar, float scale) {
-    EXPECT_TRUE(scrollbar->DrawsContent());
+    EXPECT_TRUE(scrollbar->draws_content());
     EXPECT_FALSE(scrollbar->HitTestable());
     EXPECT_TRUE(scrollbar->IsScrollbarLayerForTesting());
     EXPECT_EQ(

@@ -797,11 +797,9 @@ body:not(.check-select) #selection-menu-button {
 }
 
 #cloud-import-details {
-  background-color: white;
-  border-radius: 2px;
-  box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 14%),
-              0 1px 10px 0 rgba(0, 0, 0, 12%),
-              0 2px 4px -1px rgba(0, 0, 0, 40%);
+  background-color: var(--cros-bg-color-elevation-3);
+  border-radius: 12px;
+  box-shadow: var(--cros-elevation-3-shadow);
   line-height: 1.5em;
   position: absolute;
   top: 42px;  /* Positioned just overlapping the top of the toolbar */
@@ -812,7 +810,7 @@ body:not(.check-select) #selection-menu-button {
 
 /* These horizontal positions for #cloud-import-details are fallback value.
    Usually, these positions are calculated based on the position of dropdown.
-   These fallback values will be used when the cloud import penel is shown
+   These fallback values will be used when the cloud import panel is shown
    before the toolbar buttons are fully laid out. */
 html[dir='ltr'] #cloud-import-details {
   right: 148px;  /* Positioned in relation to the cloud-import toolbar button */
@@ -828,13 +826,14 @@ html[dir='rtl'] #cloud-import-details {
 }
 
 #cloud-import-details .banner {
-  background-color: rgb(55, 71, 79);
-  border-radius: 2px 2px 0 0;
-  color: white;
+  background-color: var(--cros-color-prominent);
+  border-radius: 12px 12px 0 0;
+  color: var(--cros-button-label-color-primary);
   padding: 20px;
 }
 
 #cloud-import-details .banner .title {
+  font-family: 'Google Sans';
   font-size: 122%;
   font-weight: 500;
   margin-bottom: 5px;
@@ -853,6 +852,7 @@ html[dir='rtl'] #cloud-import-details {
 }
 
 #cloud-import-details .status iron-icon {
+  --iron-icon-fill-color: var(--cros-icon-color-primary);
   display: block;
   height: 16px;
   opacity: .6;
@@ -860,22 +860,22 @@ html[dir='rtl'] #cloud-import-details {
 }
 
 #cloud-import-details .status .content {
-  color: #646464;
+  color: var(--cros-text-color-secondary);
   flex: 1;
   padding-inline-start: 10px;
 }
 
 #cloud-import-details .status .content::first-line {
-  color: #333;
+  color: var(--cros-text-color-primary);
   font-size: 110%;
 }
 
 #cloud-import-details .status a[is='action-link'] {
-  color: rgb(51, 103, 214);
+  color: var(--cros-link-color);
 }
 
 #cloud-import-details .progress {
-  background-color: #E0E0E0;
+  background-color: var(--cros-highlight-color);
   border-radius: 2px;
   height: 4px;
   margin-top: 14px;
@@ -883,7 +883,7 @@ html[dir='rtl'] #cloud-import-details {
 }
 
 #cloud-import-details .progress .value {
-  background-color: rgb(26, 194, 34);
+  background-color: var(--cros-icon-color-prominent);
   border-radius: 2px;
   height: 4px;
   transition: width 100ms linear;
@@ -891,23 +891,45 @@ html[dir='rtl'] #cloud-import-details {
 }
 
 #cloud-import-details cr-button {
-  --ink-color: white;
+  --active-bg: transparent;
+  --active-shadow:
+    0 1px 2px var(--cros-button-active-shadow-color-key-secondary),
+    0 1px 3px var(--cros-button-active-shadow-color-ambient-secondary);
+  --active-shadow-action:
+    0 1px 2px var(--cros-button-active-shadow-color-key-primary),
+    0 1px 3px var(--cros-button-active-shadow-color-ambient-primary);
+  --bg-action: var(--cros-button-background-color-primary);
+  --border-color: var(--cros-button-stroke-color-secondary);
+  --disabled-bg-action:
+    var(--cros-button-background-color-primary-disabled);
+  --disabled-bg: var(--cros-button-background-color-primary-disabled);
+  --disabled-border-color:
+    var(--cros-button-stroke-color-secondary-disabled);
+  --disabled-text-color: var(--cros-button-label-color-secondary-disabled);
+  --hover-bg-action:
+    var(--cros-button-background-color-primary-hover-preblended);
+  --hover-bg-color: var(--cros-button-background-color-secondary-hover);
+  --hover-border-color: var(--cros-button-stroke-color-secondary-hover);
+  --ink-color: var(--cros-button-ripple-color-secondary);
+  --ripple-opacity-action: var(--cros-button-primary-ripple-opacity);
+  --ripple-opacity: var(--cros-button-secondary-ripple-opacity);
+  --text-color-action: var(--cros-button-label-color-primary);
+  --text-color: var(--cros-button-label-color-secondary);
   align-self: flex-end;
-  border: none;
   box-shadow: none;
-  color: white;
   font-weight: 500;
   margin-top: 20px;
   padding: 0;
   text-transform: uppercase;
 }
 
-#cloud-import-details cr-button.import {
-  background-color: rgb(51, 103, 214);
+#cloud-import-details cr-button.action-button {
+  --ink-color: var(--cros-button-ripple-color-primary);
 }
 
-#cloud-import-details cr-button.cancel {
-  background-color: rgb(219, 68, 55);
+#cloud-import-details cr-button.cancel-button {
+  /* no margin needed because the cancel button is in a new row */
+  margin-inline-end: 0;
 }
 
 #files-selected-label {
@@ -1298,13 +1320,10 @@ html.focus-outline-visible .dialog-header.files-ng cr-toggle:focus {
 
 html.focus-outline-visible .dialog-footer .primary:focus,
 html.focus-outline-visible .dialog-footer .secondary:focus,
-html.focus-outline-visible .dialog-footer select:focus {
+html.focus-outline-visible .dialog-footer select:focus,
+html.focus-outline-visible #cloud-import-details cr-button:focus {
   outline: 2px solid var(--cros-focus-ring-color);
   outline-offset: 2px;
-}
-
-html.focus-outline-visible #cloud-import-details cr-button:focus {
-  box-shadow: 0 0 0 2px rgba(51, 103, 214, 50%);
 }
 
 .progressable:not([progress]) .progress-bar,
@@ -1489,42 +1508,6 @@ body.files-ng .downloads-warning[hidden] {
   }
 }
 
-/* Drive space warning banner. */
-body.files-ng .volume-warning {
-  align-items: center;
-  border-bottom: 1px solid var(--cr-separator-color, rgb(224, 224, 224));
-  color: white;
-  display: flex;
-  flex: none;
-  flex-direction: row;
-  font-size: 13px;
-  height: 40px;
-  opacity: 1;
-  overflow: hidden;
-  position: relative;
-  transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1) 0s,
-              opacity 150ms ease 50ms;
-  visibility: visible;
-}
-
-body.files-ng .volume-warning[hidden] {
-  border-top-width: 0;
-  display: flex !important;  /* Overrides [hidden] for animation. */
-  height: 0;
-  opacity: 0;
-  visibility: hidden;
-}
-
-body.files-ng .volume-warning .drive-icon {
-  background: white url(../images/files/ui/drive_logo.svg) no-repeat center;
-  background-size: 20px 20px;
-  flex: none;
-  height: 20px;
-  margin-inline-end: 12px;
-  margin-inline-start: 8px;
-  width: 20px;
-}
-
 body.files-ng .button-group {
   display: flex;
   flex: 0 0 auto;
@@ -1535,25 +1518,6 @@ body.files-ng .button-group {
 
 body.files-ng .button-group > a {
   text-decoration-line: none;
-}
-
-body.files-ng .volume-warning .banner-button {
-  border: 0;
-  height: 32px;
-  margin-inline-end: 8px;
-  padding-inline-end: 16px;
-  padding-inline-start: 16px;
-}
-
-body.files-ng .volume-warning .info-icon {
-  -webkit-mask-image: url(../images/files/ui/info.svg);
-  background-color: var(--cros-text-color-secondary);
-  background-size: 20px 20px;
-  flex: none;
-  height: 20px;
-  margin-inline-end: 16px;
-  margin-inline-start: 8px;
-  width: 20px;
 }
 
 body.files-ng .banner-close {
@@ -1825,19 +1789,27 @@ body.files-ng #default-task-dialog.bottom-shadow::after {
   width: 100%
 }
 
-body.files-ng #default-tasks-list li {
+#default-tasks-list li {
   height: 40px;
   line-height: 40px;
 }
 
-body.files-ng #default-tasks-list > li > * {
+#default-tasks-list > li > .icon {
+  -webkit-mask-position: 16px center;
+  -webkit-mask-repeat: no-repeat;
   background-position: 16px center;
   background-repeat: no-repeat;
   background-size: 20px;
-  padding-inline-start: 52px;
+  height: 100%;
 }
 
-html[dir='rtl'] body.files-ng #default-tasks-list > li > * {
+#default-tasks-list > li > .label {
+  padding-inline-start: 52px;
+  position: absolute;
+}
+
+html[dir='rtl'] #default-tasks-list > li > .icon {
+  -webkit-mask-position-x: calc(100% - 16px);
   background-position-x: calc(100% - 16px);
 }
 
@@ -2130,13 +2102,8 @@ body.check-select #list-container list li[selected] .detail-thumbnail
   opacity: 0;
 }
 
-#tasks-menu cr-menu-item:not(.change-default) {
-  background-position: left 10px center;
-  padding-inline-start: 32px;
-}
-
-html[dir='rtl'] #tasks-menu cr-menu-item:not(.change-default) {
-  background-position: right 10px center;
+#tasks-menu cr-menu-item.change-default .icon.start {
+  display: none;
 }
 
 #action-bar {
@@ -2285,7 +2252,6 @@ div.shade[fadein] {
 }
 
 /* Message panel for unmounted Drive */
-#unmounted-panel,
 #format-panel {
   bottom: 0;
   color: #333;
@@ -2298,8 +2264,6 @@ div.shade[fadein] {
   top: 0;
 }
 
-body[drive='mounting'] .dialog-container #unmounted-panel,
-body[drive='error'] .dialog-container #unmounted-panel,
 body[unformatted] .dialog-container #format-panel {
   display: block;
 }
@@ -2313,7 +2277,6 @@ body[unformatted] .dialog-container .filelist-panel {
   opacity: 0;
 }
 
-#unmounted-panel > *,
 #format-panel > * {
   align-items: center;
   display: none;
@@ -2323,23 +2286,8 @@ body[unformatted] .dialog-container .filelist-panel {
   margin-bottom: 10px;
 }
 
-#unmounted-panel > .loading {
-  position: relative;
-}
-
-#unmounted-panel > .loading > .spinner-box {
-  bottom: 0;
-  position: absolute;
-  right: 100%;
-  top: 0;
-  width: 40px;
-}
-
 body[unformatted] #format-panel > .error,
-body[drive='mounting'] #unmounted-panel > .loading,
-body[drive='error'] #unmounted-panel > .error,
-#format-panel > #format-button,
-#unmounted-panel.retry-enabled > .learn-more {
+#format-panel > #format-button {
   display: flex;
 }
 
@@ -2620,11 +2568,6 @@ body.files-ng #list-container
   white-space: pre-wrap;
 }
 
-.drive-welcome-wrapper {
-  /* drive_welcome.css will override it once loaded. */
-  display: none;
-}
-
 list.autocomplete-suggestions {
   background-color: var(--cros-bg-color-elevation-2);
   border-radius: 3px;
@@ -2632,12 +2575,13 @@ list.autocomplete-suggestions {
   box-sizing: border-box;  /* To match the width with the search box's. */
   color: var(--cros-menu-label-color);
   flex: none;
-  margin-inline-start: -36px;
-  margin-top: 10px;
+  margin-inline-start: -47px;
+  margin-top: 7px;
   overflow: hidden;
   padding: 8px 0;
   position: fixed;
-  width: 260px !important; /* This overrides the value specified by script. */
+  /* TODO(crbug.com/1289086): Remove the hard-code with, use JS to set it. */
+  width: 286px !important; /* This overrides the value specified by script. */
   z-index: 550;
 }
 
@@ -2645,6 +2589,11 @@ list.autocomplete-suggestions > li {
   align-items: center;
   display: flex;
   height: 32px;
+}
+
+/* "search drive" row */
+list.autocomplete-suggestions > li:first-of-type {
+  color: var(--cros-text-color-secondary);
 }
 
 list.autocomplete-suggestions > li > div.detail-icon {
@@ -2660,7 +2609,6 @@ list.autocomplete-suggestions > li > div.detail-text {
 }
 
 list.autocomplete-suggestions > li > div.detail-text em {
-  color: var(--cros-text-color-secondary);
   font-style: normal;
 }
 
@@ -2668,7 +2616,7 @@ list.autocomplete-suggestions > li > div[search-icon] {
   -webkit-mask-image: url(../images/files/ui/search.svg);
   -webkit-mask-position: center;
   -webkit-mask-repeat: no-repeat;
-  background-color: var(--cros-menu-icon-color);
+  background-color: currentColor;
 }
 
 list.autocomplete-suggestions > [selected],

@@ -103,6 +103,7 @@ class ASH_EXPORT PagedAppsGridView : public AppsGridView,
 
   // views::View:
   void Layout() override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // AppsGridView:
   gfx::Size GetTileViewSize() const override;
@@ -130,6 +131,9 @@ class ASH_EXPORT PagedAppsGridView : public AppsGridView,
   const gfx::Vector2d CalculateTransitionOffset(
       int page_of_view) const override;
   void EnsureViewVisible(const GridIndex& index) override;
+  absl::optional<VisibleItemIndexRange> GetVisibleItemIndexRange()
+      const override;
+  base::ScopedClosureRunner LockAppsGridOpacity() override;
 
   // PaginationModelObserver:
   void TotalPagesChanged(int previous_page_count, int new_page_count) override;
@@ -329,6 +333,9 @@ class ASH_EXPORT PagedAppsGridView : public AppsGridView,
   // A margin added to the height of the clip rect used for clipping the
   // cardified state's background cards.
   int margin_for_gradient_mask_ = 0;
+
+  // If true, ignore the calls on `UpdateOpacity()`.
+  bool lock_opacity_ = false;
 
   base::WeakPtrFactory<PagedAppsGridView> weak_ptr_factory_{this};
 };

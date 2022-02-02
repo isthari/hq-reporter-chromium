@@ -11,7 +11,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -127,16 +126,22 @@ class CONTENT_EXPORT AuctionProcessManager {
   // AuctionProcessManager to request more WorkletServices, or even to delete
   // the AuctionProcessManager, since nothing but the callback invocation is on
   // the call stack.
-  bool RequestWorkletService(WorkletType worklet_type,
-                             const url::Origin& origin,
-                             ProcessHandle* process_handle,
-                             base::OnceClosure callback) WARN_UNUSED_RESULT;
+  [[nodiscard]] bool RequestWorkletService(WorkletType worklet_type,
+                                           const url::Origin& origin,
+                                           ProcessHandle* process_handle,
+                                           base::OnceClosure callback);
 
   size_t GetPendingBidderRequestsForTesting() const {
     return pending_bidder_request_queue_.size();
   }
   size_t GetPendingSellerRequestsForTesting() const {
     return pending_seller_request_queue_.size();
+  }
+  size_t GetBidderProcessCountForTesting() const {
+    return bidder_processes_.size();
+  }
+  size_t GetSellerProcessCountForTesting() const {
+    return seller_processes_.size();
   }
 
  protected:

@@ -55,7 +55,7 @@ struct NaClLoaderSystemInfo {
   long number_of_cores;
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 std::string GetCommandLineFeatureFlagChoice(
     const base::CommandLine* command_line,
     std::string feature_flag) {
@@ -115,7 +115,7 @@ void AddVerboseLoggingInNaclSwitch(base::CommandLine* command_line) {
         switches::kVerboseLoggingInNacl,
         switches::kVerboseLoggingInNaclChoiceDisabled);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 // The child must mimic the behavior of zygote_main_linux.cc on the child
 // side of the fork. See zygote_main_linux.cc:HandleForkRequest from
@@ -129,9 +129,6 @@ void BecomeNaClLoader(base::ScopedFD browser_fd,
   PCHECK(0 == IGNORE_EINTR(close(kNaClZygoteDescriptor)));
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-#if defined(OS_CHROMEOS)
-  AddVerboseLoggingInNaclSwitch(command_line);
-#endif
   if (command_line->HasSwitch(switches::kVerboseLoggingInNacl)) {
     base::Environment::Create()->SetVar(
         "NACLVERBOSITY",
@@ -359,9 +356,6 @@ static const char kNaClHelperRDebug[] = "r_debug";
 // dynamic linker's structure into the address provided by the option.
 // Hereafter, if someone attaches a debugger (or examines a core dump),
 // the debugger will find all the symbols in the normal way.
-//
-// Non-SFI mode does not use nacl_helper_bootstrap, so it doesn't need to
-// process the --r_debug option.
 static void CheckRDebug(char* argv0) {
   std::string r_debug_switch_value =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
@@ -429,6 +423,15 @@ int main(int argc, char* argv[]) {
                                             sysconf(_SC_NPROCESSORS_ONLN)};
 
   CheckRDebug(argv[0]);
+
+#if BUILDFLAG(IS_CHROMEOS)
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  AddVerboseLoggingInNaclSwitch(command_line);
+  if (command_line->HasSwitch(switches::kVerboseLoggingInNacl)) {
+    if (!freopen("/tmp/nacl.log", "a", stderr))
+      LOG(WARNING) << "Could not open /tmp/nacl.log";
+  }
+#endif
 
   std::unique_ptr<nacl::NaClSandbox> nacl_sandbox(new nacl::NaClSandbox);
   // Make sure that the early initialization did not start any spurious

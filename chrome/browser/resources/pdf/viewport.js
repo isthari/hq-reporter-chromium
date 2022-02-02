@@ -82,12 +82,9 @@ export class Viewport {
     /** @private {!HTMLElement} */
     this.window_ = container;
 
-    /** @private {number} */
-    this.scrollbarWidth_ = scrollbarWidth;
-
     /** @private {!ScrollContent} */
     this.scrollContent_ =
-        new ScrollContent(this.window_, sizer, content, this.scrollbarWidth_);
+        new ScrollContent(this.window_, sizer, content, scrollbarWidth);
 
     /** @private {number} */
     this.defaultZoom_ = defaultZoom;
@@ -171,6 +168,10 @@ export class Viewport {
         'pinchend',
         e => this.onPinchEnd_(
             /** @type {!CustomEvent<!PinchEventDetail>} */ (e)));
+    this.gestureDetector_.getEventTarget().addEventListener(
+        'wheel',
+        e => this.onWheel_(
+            /** @type {!CustomEvent<!PinchEventDetail>} */ (e)));
 
     // Set to a default zoom manager - used in tests.
     this.setZoomManager(new InactiveZoomManager(this.getZoom.bind(this), 1));
@@ -200,6 +201,15 @@ export class Viewport {
 
     document.body.addEventListener(
         'change-zoom', e => this.setZoom(e.detail.zoom));
+  }
+
+  /**
+   * Sets whether the viewport is in Presentation mode.
+   * @param {boolean} enabled
+   */
+  setPresentationMode(enabled) {
+    assert((document.fullscreenElement !== null) === enabled);
+    this.gestureDetector_.setPresentationMode(enabled);
   }
 
   /**
@@ -504,11 +514,11 @@ export class Viewport {
   }
 
   /**
-   * Exposes the current content size for testing.
+   * Gets the content size.
    * @return {!Size}
    */
-  get contentSizeForTesting() {
-    return this.scrollContent_.sizeForTesting;
+  get contentSize() {
+    return this.scrollContent_.size;
   }
 
   /** @return {number} The current zoom. */
@@ -680,9 +690,21 @@ export class Viewport {
     });
   }
 
-  /** @return {number} The width of scrollbars in the viewport in pixels. */
+  /**
+   * Gets the width of scrollbars in the viewport in pixels.
+   * @return {number}
+   */
   get scrollbarWidth() {
-    return this.scrollbarWidth_;
+    return this.scrollContent_.scrollbarWidth;
+  }
+
+  /**
+   * Gets the width of overlay scrollbars in the viewport in pixels, or 0 if not
+   * using overlay scrollbars.
+   * @return {number}
+   */
+  get overlayScrollbarWidth() {
+    return this.scrollContent_.overlayScrollbarWidth;
   }
 
   /** @return {FittingType} The fitting type the viewport is currently in. */
@@ -868,7 +890,7 @@ export class Viewport {
     const zoomedDimensions = this.getZoomedDocumentDimensions_(zoom);
 
     // Check if adding a scrollbar will result in needing the other scrollbar.
-    const scrollbarWidth = this.scrollbarWidth_;
+    const scrollbarWidth = this.scrollContent_.scrollbarWidth;
     if (needsScrollbars.horizontal &&
         zoomedDimensions.height > this.window_.offsetHeight - scrollbarWidth) {
       needsScrollbars.vertical = true;
@@ -1532,6 +1554,19 @@ export class Viewport {
     });
   }
 
+  /**
+   * A callback that's called when a Presentation mode wheel event is detected.
+   * @param {!CustomEvent<!PinchEventDetail>} e the pinch event.
+   * @private
+   */
+  onWheel_(e) {
+    if (e.detail.direction === 'down') {
+      this.goToNextPage();
+    } else {
+      this.goToPreviousPage();
+    }
+  }
+
   /** @return {!GestureDetector} */
   getGestureDetectorForTesting() {
     return this.gestureDetector_;
@@ -1751,11 +1786,33 @@ class ScrollContent {
     this.dispatchScroll_();
   }
 
+  /** @return {number} */
+  get scrollbarWidth() {
+    return this.scrollbarWidth_;
+  }
+
+  /** @return {number} */
+  get overlayScrollbarWidth() {
+    let overlayScrollbarWidth = 0;
+
+    // TODO(crbug.com/1286009): Support overlay scrollbars on all platforms.
+    // <if expr="is_macosx">
+    overlayScrollbarWidth = 16;
+    // </if>
+    // <if expr="not is_macosx">
+    if (this.unseasonedPlugin_) {
+      overlayScrollbarWidth = this.scrollbarWidth_;
+    }
+    // </if>
+
+    return overlayScrollbarWidth;
+  }
+
   /**
-   * Exposes the current content size for testing.
+   * Gets the content size.
    * @return {!Size}
    */
-  get sizeForTesting() {
+  get size() {
     return {
       width: this.width_,
       height: this.height_,

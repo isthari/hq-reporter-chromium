@@ -8,7 +8,6 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 
 namespace {
 
@@ -116,7 +115,7 @@ PrinterCapsAndDefaults::PrinterCapsAndDefaults(
 
 PrinterCapsAndDefaults::~PrinterCapsAndDefaults() = default;
 
-PrintBackend::PrintBackend(const std::string& locale) : locale_(locale) {}
+PrintBackend::PrintBackend() = default;
 
 PrintBackend::~PrintBackend() = default;
 
@@ -126,19 +125,8 @@ scoped_refptr<PrintBackend> PrintBackend::CreateInstance(
   return g_print_backend_for_test
              ? g_print_backend_for_test
              : PrintBackend::CreateInstanceImpl(
-                   /*print_backend_settings=*/nullptr, locale,
-                   /*for_cloud_print=*/false);
+                   /*print_backend_settings=*/nullptr, locale);
 }
-
-#if defined(USE_CUPS)
-// static
-scoped_refptr<PrintBackend> PrintBackend::CreateInstanceForCloudPrint(
-    const base::DictionaryValue* print_backend_settings) {
-  return PrintBackend::CreateInstanceImpl(print_backend_settings,
-                                          /*locale=*/std::string(),
-                                          /*for_cloud_print=*/true);
-}
-#endif  // defined(USE_CUPS)
 
 // static
 void PrintBackend::SetPrintBackendForTesting(PrintBackend* backend) {

@@ -16,6 +16,7 @@
 
 #include "ash/components/account_manager/account_manager_factory.h"
 #include "ash/components/arc/arc_prefs.h"
+#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/components/login/auth/auth_session_authenticator.h"
 #include "ash/components/login/auth/challenge_response/known_user_pref_utils.h"
 #include "ash/components/login/auth/stub_authenticator_builder.h"
@@ -121,7 +122,6 @@
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/assistant/buildflags.h"
-#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
@@ -225,7 +225,7 @@ constexpr char kOnboardingBackfillVersion[] = "0.0.0.0";
 base::TimeDelta GetActivityTimeBeforeOnboardingSurvey() {
   auto* command_line = base::CommandLine::ForCurrentProcess();
   const auto& time_switch =
-      chromeos::switches::kTimeBeforeOnboardingSurveyInSecondsForTesting;
+      switches::kTimeBeforeOnboardingSurveyInSecondsForTesting;
 
   if (!command_line->HasSwitch(time_switch)) {
     return kActivityTimeBeforeOnboardingSurvey;
@@ -620,7 +620,8 @@ scoped_refptr<Authenticator> UserSessionManager::CreateAuthenticator(
     } else if (base::FeatureList::IsEnabled(
                    ash::features::kUseAuthsessionAuthentication)) {
       authenticator_ = new AuthSessionAuthenticator(
-          consumer, std::make_unique<ChromeSafeModeDelegate>());
+          consumer, std::make_unique<ChromeSafeModeDelegate>(),
+          IsEphemeralMountForced());
     } else {
       authenticator_ =
           base::MakeRefCounted<ChromeCryptohomeAuthenticator>(consumer);
@@ -939,10 +940,6 @@ bool UserSessionManager::RestartToApplyPerSessionFlagsIfNeed(
   // user session restore after crash of in case when flags were changed inside
   // user session.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kLoginUser))
-    return false;
-
-  // We can't restart if that's a second user sign in that is happening.
-  if (user_manager::UserManager::Get()->GetLoggedInUsers().size() > 1)
     return false;
 
   // Don't restart browser if it is not the first profile in the session.
@@ -2188,9 +2185,10 @@ void UserSessionManager::DoBrowserLaunchInternal(Profile* profile,
     return;
 
   const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+      ProfileHelper::Get()->GetUserByProfile(profile);
   if (ash::BrowserDataMigratorImpl::MaybeRestartToMigrate(
-          user->GetAccountId(), user->username_hash())) {
+          user->GetAccountId(), user->username_hash(),
+          crosapi::browser_util::PolicyInitState::kAfterInit)) {
     LOG(WARNING) << "Restarting chrome to run profile migration.";
     return;
   }
@@ -2315,6 +2313,14 @@ void UserSessionManager::InjectAuthenticatorBuilder(
   authenticator_.reset();
 }
 
+bool UserSessionManager::IsEphemeralMountForced() {
+  bool ephemeral_users_enabled = false;
+  auto* cros_settings = CrosSettings::Get();
+  cros_settings->GetBoolean(kAccountsPrefEphemeralUsersEnabled,
+                            &ephemeral_users_enabled);
+  return ephemeral_users_enabled;
+}
+
 void UserSessionManager::OnTokenHandleObtained(const AccountId& account_id,
                                                bool success) {
   if (!success)
@@ -2325,14 +2331,11 @@ void UserSessionManager::OnTokenHandleObtained(const AccountId& account_id,
 bool UserSessionManager::TokenHandlesEnabled() {
   if (!should_obtain_handles_)
     return false;
-  bool ephemeral_users_enabled = false;
   bool show_names_on_signin = true;
   auto* cros_settings = CrosSettings::Get();
-  cros_settings->GetBoolean(kAccountsPrefEphemeralUsersEnabled,
-                            &ephemeral_users_enabled);
   cros_settings->GetBoolean(kAccountsPrefShowUserNamesOnSignIn,
                             &show_names_on_signin);
-  return show_names_on_signin && !ephemeral_users_enabled;
+  return show_names_on_signin && !IsEphemeralMountForced();
 }
 
 void UserSessionManager::Shutdown() {

@@ -27,24 +27,13 @@ void LogOutcome(TailoredSecurityOutcome outcome, bool enable) {
 
 }  // namespace
 
-TailoredSecurityConsentedModalAndroid::TailoredSecurityConsentedModalAndroid() =
-    default;
-
-TailoredSecurityConsentedModalAndroid::
-    ~TailoredSecurityConsentedModalAndroid() {
-  DismissMessageInternal(messages::DismissReason::UNKNOWN);
-}
-
-void TailoredSecurityConsentedModalAndroid::DisplayMessage(
+TailoredSecurityConsentedModalAndroid::TailoredSecurityConsentedModalAndroid(
     content::WebContents* web_contents,
     bool enable,
-    base::OnceClosure dismiss_callback) {
-  if (message_) {
-    return;
-  }
-  web_contents_ = web_contents;
-  is_enable_message_ = enable;
-  dismiss_callback_ = std::move(dismiss_callback);
+    base::OnceClosure dismiss_callback)
+    : web_contents_(web_contents),
+      dismiss_callback_(std::move(dismiss_callback)),
+      is_enable_message_(enable) {
   message_ = std::make_unique<messages::MessageWrapper>(
       is_enable_message_
           ? messages::MessageIdentifier::TAILORED_SECURITY_ENABLED
@@ -70,14 +59,14 @@ void TailoredSecurityConsentedModalAndroid::DisplayMessage(
     description = l10n_util::GetStringUTF16(
         IDS_TAILORED_SECURITY_CONSENTED_DISABLE_MESSAGE_DESCRIPTION);
     icon_resource_id =
-        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_GPP_MAYBE_GREY);
+        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD);
+    message_->DisableIconTint();
   }
   message_->SetTitle(title);
   message_->SetDescription(description);
   message_->SetPrimaryButtonText(l10n_util::GetStringUTF16(
       IDS_TAILORED_SECURITY_CONSENTED_MESSAGE_OK_BUTTON));
   message_->SetIconResourceId(icon_resource_id);
-  message_->DisableIconTint();
   message_->SetSecondaryIconResourceId(
       ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SETTINGS));
   message_->SetSecondaryActionCallback(base::BindOnce(
@@ -90,13 +79,17 @@ void TailoredSecurityConsentedModalAndroid::DisplayMessage(
   LogOutcome(TailoredSecurityOutcome::kShown, is_enable_message_);
 }
 
+TailoredSecurityConsentedModalAndroid::
+    ~TailoredSecurityConsentedModalAndroid() {
+  DismissMessageInternal(messages::DismissReason::UNKNOWN);
+}
+
 void TailoredSecurityConsentedModalAndroid::DismissMessageInternal(
     messages::DismissReason dismiss_reason) {
   if (!message_)
     return;
   messages::MessageDispatcherBridge::Get()->DismissMessage(message_.get(),
                                                            dismiss_reason);
-  std::move(dismiss_callback_).Run();
 }
 
 void TailoredSecurityConsentedModalAndroid::HandleSettingsClicked() {
@@ -110,12 +103,12 @@ void TailoredSecurityConsentedModalAndroid::HandleMessageDismissed(
     messages::DismissReason dismiss_reason) {
   LogOutcome(TailoredSecurityOutcome::kDismissed, is_enable_message_);
   message_.reset();
-  std::move(dismiss_callback_).Run();
+  if (dismiss_callback_)
+    std::move(dismiss_callback_).Run();
 }
 
 void TailoredSecurityConsentedModalAndroid::HandleMessageAccepted() {
   LogOutcome(TailoredSecurityOutcome::kAccepted, is_enable_message_);
-  std::move(dismiss_callback_).Run();
 }
 
 }  // namespace safe_browsing

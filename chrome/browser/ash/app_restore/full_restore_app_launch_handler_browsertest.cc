@@ -42,12 +42,11 @@
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/app_restore/app_launch_info.h"
-#include "components/app_restore/features.h"
 #include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_read_handler.h"
 #include "components/app_restore/full_restore_save_handler.h"
@@ -211,8 +210,6 @@ class FullRestoreAppLaunchHandlerBrowserTest
   FullRestoreAppLaunchHandlerBrowserTest()
       : faster_animations_(
             ui::ScopedAnimationDurationScaleMode::ZERO_DURATION) {
-    scoped_feature_list_.InitAndEnableFeature(
-        ::full_restore::features::kFullRestore);
     scoped_restore_for_testing_ = std::make_unique<ScopedRestoreForTesting>();
     set_launch_browser_for_testing(nullptr);
   }
@@ -231,7 +228,7 @@ class FullRestoreAppLaunchHandlerBrowserTest
   }
 
   void CreateWebApp() {
-    auto web_application_info = std::make_unique<WebApplicationInfo>();
+    auto web_application_info = std::make_unique<WebAppInstallInfo>();
     web_application_info->start_url = GURL("https://example.org");
     web_app::AppId app_id = web_app::test::InstallWebApp(
         profile(), std::move(web_application_info));
@@ -308,7 +305,6 @@ class FullRestoreAppLaunchHandlerBrowserTest
   void ResetRestoreForTesting() { scoped_restore_for_testing_.reset(); }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   ui::ScopedAnimationDurationScaleMode faster_animations_;
   std::unique_ptr<ScopedRestoreForTesting> scoped_restore_for_testing_;
   std::unique_ptr<NotificationDisplayServiceTester> display_service_;
@@ -2337,10 +2333,7 @@ IN_PROC_BROWSER_TEST_F(ArcAppLaunchHandlerArcAppBrowserTest, RestoreLate) {
 class FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest
     : public SystemWebAppIntegrationTest {
  public:
-  FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        ::full_restore::features::kFullRestore);
-  }
+  FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest() = default;
   ~FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest() override = default;
 
   Browser* LaunchSystemWebApp(
@@ -2427,9 +2420,6 @@ class FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest
     return ::full_restore::FullRestoreReadHandler::GetInstance()->HasWindowInfo(
         restore_window_id);
   }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_P(FullRestoreAppLaunchHandlerSystemWebAppsBrowserTest,

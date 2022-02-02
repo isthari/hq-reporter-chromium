@@ -58,7 +58,7 @@
 #include "ui/aura/window.h"
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "chrome/browser/shell_integration_win.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -251,7 +251,7 @@ std::unique_ptr<OverlayWindowViews> OverlayWindowViews::Create(
   overlay_window->Init(std::move(params));
   overlay_window->OnRootViewReady();
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   std::wstring app_user_model_id;
   Browser* browser =
       chrome::FindBrowserWithWebContents(controller->GetWebContents());
@@ -270,7 +270,7 @@ std::unique_ptr<OverlayWindowViews> OverlayWindowViews::Create(
           overlay_window->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
     }
   }
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
   return overlay_window;
 }
@@ -1105,13 +1105,13 @@ void OverlayWindowViews::OnKeyEvent(ui::KeyEvent* event) {
 // On Windows, the Alt+F4 keyboard combination closes the window. Only handle
 // closure on key press so Close() is not called a second time when the key
 // is released.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (event->type() == ui::ET_KEY_PRESSED && event->IsAltDown() &&
       event->key_code() == ui::VKEY_F4) {
     controller_->Close(true /* should_pause_video */);
     event->SetHandled();
   }
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
   views::Widget::OnKeyEvent(event);
 }
@@ -1301,8 +1301,12 @@ void OverlayWindowViews::UpdateMaxSize(const gfx::Rect& work_area) {
   if (work_area.IsEmpty())
     return;
 
-  const auto new_max_size =
-      gfx::Size(work_area.width() / 2, work_area.height() / 2);
+  auto new_max_size = gfx::Size(work_area.width() / 2, work_area.height() / 2);
+
+  // Ensure |new_max_size| is not smaller than |min_size_|, or else we will
+  // crash.
+  new_max_size.SetToMax(min_size_);
+
   // Make sure we only run the logic to update the current size if the maximum
   // size actually changes. Running it unconditionally means also running it
   // when DPI <-> pixel computations introduce off-by-1 errors, which leads to

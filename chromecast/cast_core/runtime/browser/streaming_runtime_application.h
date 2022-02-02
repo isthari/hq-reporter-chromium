@@ -9,54 +9,53 @@
 #include "chromecast/cast_core/runtime/browser/runtime_application_base.h"
 #include "chromecast/cast_core/runtime/browser/streaming_receiver_session_client.h"
 #include "components/cast_streaming/browser/public/network_context_getter.h"
-#include "components/cast_streaming/public/mojom/renderer_controller.mojom.h"
-#include "media/mojo/mojom/renderer.mojom.h"
-#include "mojo/public/cpp/bindings/associated_remote.h"
-#include "mojo/public/cpp/bindings/remote.h"
 
 namespace chromecast {
+
+namespace media {
+class VideoPlaneController;
+}
 
 class MessagePortService;
 
 class StreamingRuntimeApplication final
     : public RuntimeApplicationBase,
-      public StreamingReceiverSessionClient::Handler,
-      public CastWebContents::Observer {
+      public StreamingReceiverSessionClient::Handler {
  public:
   // |web_service| is expected to exist for the lifetime of this instance.
   StreamingRuntimeApplication(
+      std::string cast_session_id,
+      cast::common::ApplicationConfig app_config,
       CastWebService* web_service,
       scoped_refptr<base::SequencedTaskRunner> task_runner,
-      cast_streaming::NetworkContextGetter network_context_getter);
+      cast_streaming::NetworkContextGetter network_context_getter,
+      media::VideoPlaneController* video_plane_controller);
   ~StreamingRuntimeApplication() override;
 
  private:
+  // RuntimeApplication implementation:
+  const GURL& GetApplicationUrl() const override;
+
   // RuntimeApplicationBase implementation:
-  void HandleMessage(const cast::web::Message& message,
-                     cast::web::MessagePortStatus* response) override;
-  void InitializeApplication(CoreApplicationServiceGrpc* grpc_stub,
-                             CastWebContents* cast_web_contents) override;
+  cast::utils::GrpcStatusOr<cast::web::MessagePortStatus> HandlePortMessage(
+      cast::web::Message message) override;
+  void InitializeApplication(
+      base::OnceClosure app_initialized_callback) override;
   void StopApplication() override;
+  bool IsStreamingApplication() const override;
 
   // StreamingReceiverSessionClient::Handler implementation:
   void OnStreamingSessionStarted() override;
   void OnError() override;
   void StartAvSettingsQuery(
       std::unique_ptr<cast_api_bindings::MessagePort> message_port) override;
+  void OnResolutionChanged(
+      const gfx::Rect& size,
+      const ::media::VideoTransformation& transformation) override;
 
-  // CastWebContents::Observer overrides.
-  void MainFrameReadyToCommitNavigation(
-      content::NavigationHandle* navigation_handle) override;
+  void OnApplicationStateChanged(grpc::Status status);
 
-  // Helper method to start playback using |renderer_connection_| and
-  // |renderer_controls_|.
-  void StartRenderer();
-
-  bool has_started_streaming_ = false;
-
-  mojo::AssociatedRemote<cast_streaming::mojom::RendererController>
-      renderer_connection_;
-  mojo::Remote<media::mojom::Renderer> renderer_controls_;
+  media::VideoPlaneController* video_plane_controller_;
 
   // Returns the network context used by |receiver_session_client_|.
   const cast_streaming::NetworkContextGetter network_context_getter_;
@@ -66,6 +65,9 @@ class StreamingRuntimeApplication final
 
   // Object responsible for maintaining the lifetime of the streaming session.
   std::unique_ptr<StreamingReceiverSessionClient> receiver_session_client_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
+  base::WeakPtrFactory<StreamingRuntimeApplication> weak_factory_{this};
 };
 
 }  // namespace chromecast

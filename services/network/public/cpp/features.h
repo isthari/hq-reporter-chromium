@@ -17,8 +17,6 @@ extern const base::Feature kExpectCTReporting;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kNetworkErrorLogging;
 COMPONENT_EXPORT(NETWORK_CPP)
-extern const base::Feature kNetworkService;
-COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kReporting;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kThrottleDelayable;
@@ -33,11 +31,11 @@ extern const base::Feature kCORBProtectionSniffing;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kProactivelyThrottleLowPriorityRequests;
 COMPONENT_EXPORT(NETWORK_CPP)
-extern const base::Feature kCrossOriginEmbedderPolicyCredentialless;
-COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kCrossOriginOpenerPolicy;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kCrossOriginOpenerPolicyByDefault;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kCoopSameOriginAllowPopupsPlusCoep;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kSplitAuthCacheByNetworkIsolationKey;
 COMPONENT_EXPORT(NETWORK_CPP)
@@ -72,7 +70,10 @@ COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kAcceptCHFrame;
 
 COMPONENT_EXPORT(NETWORK_CPP)
-extern const base::Feature kSCTAuditingRetryAndPersistReports;
+extern const base::Feature kSCTAuditingRetryReports;
+
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kSCTAuditingPersistReports;
 
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kLoaderDataPipeTuningFeature;
@@ -108,6 +109,12 @@ extern const base::Feature kURLLoaderSyncClient;
 
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kOptimizeUpdateLoadInfo;
+
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kCombineResponseBody;
+
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kFasterSetCookie;
 
 }  // namespace features
 }  // namespace network

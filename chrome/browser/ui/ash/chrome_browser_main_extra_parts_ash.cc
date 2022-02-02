@@ -56,9 +56,12 @@
 #include "chrome/browser/ui/ash/tablet_mode_page_behavior.h"
 #include "chrome/browser/ui/ash/vpn_list_forwarder.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client_impl.h"
+#include "chrome/browser/ui/quick_answers/quick_answers_controller_impl.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension_factory.h"
 #include "chrome/browser/ui/views/tabs/tab_scrubber_chromeos.h"
+#include "chromeos/components/quick_answers/public/cpp/controller/quick_answers_controller.h"
+#include "chromeos/components/quick_answers/quick_answers_client.h"
 #include "chromeos/network/network_connect.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "chromeos/services/bluetooth_config/fast_pair_delegate.h"
@@ -214,7 +217,7 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
   }
 #endif
 
-  night_light_client_ = std::make_unique<NightLightClient>(
+  night_light_client_ = std::make_unique<ash::NightLightClient>(
       g_browser_process->shared_url_loader_factory());
   night_light_client_->Start();
 
@@ -239,7 +242,12 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
   }
 }
 
-void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
+void ChromeBrowserMainExtraPartsAsh::PostProfileInit(Profile* profile,
+                                                     bool is_initial_profile) {
+  // The setup below is intended to run for only the initial profile.
+  if (!is_initial_profile)
+    return;
+
   login_screen_client_ = std::make_unique<LoginScreenClientImpl>();
   // https://crbug.com/884127 ensuring that LoginScreenClientImpl is initialized
   // before using it InitializeDeviceDisablingManager.
@@ -283,6 +291,12 @@ void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
 
   ash_web_view_factory_ = std::make_unique<AshWebViewFactoryImpl>();
 
+  quick_answers_controller_ = std::make_unique<QuickAnswersControllerImpl>();
+  QuickAnswersController::Get()->SetClient(
+      std::make_unique<quick_answers::QuickAnswersClient>(
+          g_browser_process->shared_url_loader_factory(),
+          QuickAnswersController::Get()->GetQuickAnswersDelegate()));
+
   // Initialize TabScrubberChromeOS after the Ash Shell has been initialized.
   TabScrubberChromeOS::GetInstance();
 }
@@ -312,6 +326,7 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   tab_cluster_ui_client_.reset();
 
   // Initialized in PostProfileInit (which may not get called in some tests).
+  quick_answers_controller_.reset();
   ash_web_view_factory_.reset();
   network_portal_notification_controller_.reset();
   display_settings_handler_.reset();
@@ -358,8 +373,8 @@ class ChromeBrowserMainExtraPartsAsh::UserProfileLoadedObserver
   // session_manager::SessionManagerObserver:
   void OnUserProfileLoaded(const AccountId& account_id) override {
     Profile* profile =
-        chromeos::ProfileHelper::Get()->GetProfileByAccountId(account_id);
-    if (chromeos::ProfileHelper::IsRegularProfile(profile) &&
+        ash::ProfileHelper::Get()->GetProfileByAccountId(account_id);
+    if (ash::ProfileHelper::IsRegularProfile(profile) &&
         !profile->IsGuestSession()) {
       // Start the error notifier services to show auth/sync notifications.
       ash::SigninErrorNotifierFactory::GetForProfile(profile);

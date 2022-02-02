@@ -37,7 +37,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 
 namespace blink {
@@ -145,6 +145,7 @@ class CORE_EXPORT PerformanceTiming final : public ScriptWrappable,
   // Largest Text Paint is the first paint after the largest text within
   // viewport being painted. LargestTextPaint and LargestTextPaintSize
   // are the time and size of it.
+  double LargestContentfulPaintImageBPP() const;
   uint64_t LargestTextPaint() const;
   uint64_t LargestTextPaintSize() const;
   // Largest Contentful Paint is the either the largest text paint time or the

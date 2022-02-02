@@ -82,6 +82,7 @@
 <translation id="1346748346194534595">Удесно</translation>
 <translation id="1351937230027495976">Скупи мени</translation>
 <translation id="1364382257761975320">Да бисте откључали Chromebook, користите отисак прста</translation>
+<translation id="1364618750746929654">Генерисање транскрипције није успело</translation>
 <translation id="1383597849754832576">Преузимање фајлова говора није успело. Пробајте касније.</translation>
 <translation id="1383876407941801731">Претражи</translation>
 <translation id="1391102559483454063">Укључено</translation>
@@ -239,7 +240,7 @@
 <translation id="255671100581129685">Google помоћник није доступан у јавној сесији.</translation>
 <translation id="256712445991462162">монтирана лупа екрана</translation>
 <translation id="2570734079541893434">Управљајте подешавањима</translation>
-<translation id="2573588302192866788">Нисмо успели да повежемо <ph name="NAME" /></translation>
+<translation id="2573588302192866788">Није успело повезивање <ph name="NAME" /></translation>
 <translation id="2575685495496069081">Онемогућено је вишеструко пријављивање</translation>
 <translation id="2582112259361606227">Рестартујте да бисте ажурирали</translation>
 <translation id="2595239820337756193">5 km у миљама</translation>
@@ -406,10 +407,9 @@
 <translation id="3630697955794050612">искључено</translation>
 <translation id="3631369015426612114">Дозволи обавештења из следећих извора</translation>
 <translation id="3638400994746983214">Укључује/искључује екран за приватност. <ph name="STATE_TEXT" />.</translation>
-<translation id="3640092422335864171">Сачувајте уређај <ph name="NAME" /></translation>
+<translation id="3640092422335864171">Сачувајте <ph name="NAME" /></translation>
 <translation id="3649505501900178324">Ажурирајте истекло</translation>
 <translation id="366222428570480733"><ph name="USER_EMAIL_ADDRESS" /> Корисник којим се управља</translation>
-<translation id="3665889125180354336">Снимај помоћу микрофона</translation>
 <translation id="3680908746918359504">Обриши све маркере</translation>
 <translation id="36813544980941320">WiFi мреже ће се делити између вашег телефона и уређаја <ph name="DEVICE_NAME" /></translation>
 <translation id="3694122362646626770">Веб-сајтови</translation>
@@ -424,7 +424,7 @@
 <translation id="3742055079367172538">Снимак екрана је направљен</translation>
 <translation id="3771549900096082774">Режим високог контраста</translation>
 <translation id="3773700760453577392">Администратор је забранио вишеструко пријављивање за <ph name="USER_EMAIL" />. Сви корисници морају да се одјаве да бисмо наставили са сесијом.</translation>
-<translation id="3779139509281456663">Повезује се са уређајем <ph name="NAME" /></translation>
+<translation id="3779139509281456663">Повезује се <ph name="NAME" /></translation>
 <translation id="3783640748446814672">alt</translation>
 <translation id="3784455785234192852">Закључај</translation>
 <translation id="3796746699333205839">Апликација користи камеру и микрофон</translation>
@@ -488,7 +488,7 @@
 <translation id="4215497585250573029">Подешавања VPN-а</translation>
 <translation id="4217571870635786043">Диктирање</translation>
 <translation id="4221957499226645091"><ph name="APP_NAME" />, инсталирана апликација, паузирана</translation>
-<translation id="4223947355273782392">Сачувајте уређај <ph name="NAME" /> на <ph name="EMAIL" /> ради бржег упаривања са осталим уређајима</translation>
+<translation id="4223947355273782392">Сачувајте уређај <ph name="NAME" /> на <ph name="EMAIL" /> ради бржег упаривања са другим уређајима</translation>
 <translation id="4239069858505860023">GPRS</translation>
 <translation id="4242533952199664413">Отвори подешавања</translation>
 <translation id="4250229828105606438">Снимак екрана</translation>
@@ -578,6 +578,7 @@
 <translation id="4733161265940833579"><ph name="BATTERY_PERCENTAGE" />% (лева)</translation>
 <translation id="4734965478015604180">Хоризонтално</translation>
 <translation id="4735498845456076464">Тастерска пречица <ph name="LAUNCHER_KEY_NAME" /> + број је промењена. Да бисте користили функцијске тастере, притисните тастер <ph name="LAUNCHER_KEY_NAME" /> + тастер у горњем реду.</translation>
+<translation id="473775607612524610">Ажурирај</translation>
 <translation id="4759238208242260848">Преузимања</translation>
 <translation id="4774338217796918551">Вратите се сутра у <ph name="COME_BACK_TIME" />.</translation>
 <translation id="4776917500594043016">Лозинка за <ph name="USER_EMAIL_ADDRESS" /></translation>
@@ -653,7 +654,7 @@
 <translation id="5297423144044956168">Није пронађен ниједан мобилни уређај</translation>
 <translation id="5297704307811127955">Искључено</translation>
 <translation id="5302048478445481009">Језик</translation>
-<translation id="5308380583665731573">Повезивање</translation>
+<translation id="5308380583665731573">Повежи</translation>
 <translation id="5313326810920013265">Подешавања Bluetooth-а</translation>
 <translation id="5314219114274263156">Екран је снимљен</translation>
 <translation id="5317780077021120954">Сачувај</translation>
@@ -679,6 +680,7 @@
 <translation id="54609108002486618">Управљани</translation>
 <translation id="5465662442746197494">Потребна вам је помоћ?</translation>
 <translation id="547979256943495781">Полица на десној страни</translation>
+<translation id="5491186829646618080">Доступна су ажурирања фирмвера</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">Администратор је уклонио све eSIM профиле. Додатне информације потражите од администратора.</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> се повезује.</translation>
@@ -971,6 +973,7 @@
 <translation id="7514365320538308">Преузми</translation>
 <translation id="7526573455193969409">Мрежа се можда надгледа</translation>
 <translation id="7536035074519304529">IP адреса: <ph name="ADDRESS" /></translation>
+<translation id="7544300628205093162">Позадинско осветљење тастатуре је укључено</translation>
 <translation id="7548434653388805669">Време је за спавање</translation>
 <translation id="7551643184018910560">Закачи на полицу</translation>
 <translation id="7561982940498449837">Затвори мени</translation>
@@ -1055,6 +1058,7 @@
 <translation id="8036504271468642248">Претходна реченица</translation>
 <translation id="8042893070933512245">Отвори мени подешавања приступачности</translation>
 <translation id="8042925093898452104">Затворите детаљне информације</translation>
+<translation id="8044457332620420407">Позадинско осветљење тастатуре је искључено</translation>
 <translation id="8048123526339889627">Подешавања Bluetooth-а</translation>
 <translation id="8051716679295756675">Шаблон под насловом <ph name="DESK_TEMPLATE_NAME" /> већ постоји</translation>
 <translation id="8052898407431791827">Копирано је у привремену меморију</translation>
@@ -1175,6 +1179,7 @@
 <translation id="8876661425082386199">Проверите везу</translation>
 <translation id="8877788021141246043">Подеси подсетник</translation>
 <translation id="8878886163241303700">Проширени екран</translation>
+<translation id="888982883502837004">Доступна су ажурирања фирмвера за уређај. Кликните да бисте их прегледали и ажурирали.</translation>
 <translation id="8896630965521842259">Шаблон <ph name="DESK_TEMPLATE_NAME" /> ће бити трајно избрисан</translation>
 <translation id="890616557918890486">Промени извор</translation>
 <translation id="8909138438987180327">Батерија је на <ph name="PERCENTAGE" />%.</translation>

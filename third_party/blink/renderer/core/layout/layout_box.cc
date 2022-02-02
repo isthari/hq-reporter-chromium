@@ -107,7 +107,6 @@
 #include "third_party/blink/renderer/core/resize_observer/resize_observer_size.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
 #include "third_party/blink/renderer/core/style/shadow_list.h"
-#include "third_party/blink/renderer/platform/geometry/double_rect.h"
 #include "third_party/blink/renderer/platform/geometry/float_rounded_rect.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -339,7 +338,8 @@ LayoutUnit MenuListIntrinsicBlockSize(const HTMLSelectElement& select,
 
 #if DCHECK_IS_ON()
 void CheckDidAddFragment(const LayoutBox& box,
-                         const NGPhysicalBoxFragment& new_fragment) {
+                         const NGPhysicalBoxFragment& new_fragment,
+                         wtf_size_t new_fragment_index = kNotFound) {
   // If |HasFragmentItems|, |ChildrenInline()| should be true.
   // |HasFragmentItems| uses this condition to optimize .
   if (new_fragment.HasItems())
@@ -350,12 +350,17 @@ void CheckDidAddFragment(const LayoutBox& box,
     DCHECK_EQ(fragment.IsFirstForNode(), index == 0);
     if (const NGFragmentItems* fragment_items = fragment.Items())
       fragment_items->CheckAllItemsAreValid();
+    // Don't check past the fragment just added. Those entries may be invalid at
+    // this point.
+    if (index == new_fragment_index)
+      break;
     ++index;
   }
 }
 #else
 inline void CheckDidAddFragment(const LayoutBox& box,
-                                const NGPhysicalBoxFragment& fragment) {}
+                                const NGPhysicalBoxFragment& fragment,
+                                wtf_size_t new_fragment_index = kNotFound) {}
 #endif
 
 // Applies the overflow clip to |result|. For any axis that is clipped, |result|
@@ -455,8 +460,7 @@ LayoutBox::~LayoutBox() = default;
 PaintLayerType LayoutBox::LayerTypeRequired() const {
   NOT_DESTROYED();
   if (IsStacked() || HasHiddenBackface() ||
-      (StyleRef().SpecifiesColumns() && !IsLayoutNGObject()) ||
-      IsEffectiveRootScroller())
+      (StyleRef().SpecifiesColumns() && !IsLayoutNGObject()))
     return kNormalPaintLayer;
 
   if (HasNonVisibleOverflow())
@@ -2525,6 +2529,29 @@ bool LayoutBox::HitTestAllPhases(HitTestResult& result,
                                         accumulated_offset, hit_test_filter);
 }
 
+bool LayoutBox::HitTestOverflowControl(
+    HitTestResult& result,
+    const HitTestLocation& hit_test_location,
+    const PhysicalOffset& adjusted_location) const {
+  NOT_DESTROYED();
+
+  auto* scrollable_area = GetScrollableArea();
+  if (!scrollable_area)
+    return false;
+
+  if (!VisibleToHitTestRequest(result.GetHitTestRequest()))
+    return false;
+
+  PhysicalOffset local_point = hit_test_location.Point() - adjusted_location;
+  if (!scrollable_area->HitTestOverflowControls(result,
+                                                ToRoundedPoint(local_point)))
+    return false;
+
+  UpdateHitTestResult(result, local_point);
+  return result.AddNodeToListBasedTestResult(
+             NodeForHitTest(), hit_test_location) == kStopHitTesting;
+}
+
 bool LayoutBox::NodeAtPoint(HitTestResult& result,
                             const HitTestLocation& hit_test_location,
                             const PhysicalOffset& accumulated_offset,
@@ -2535,7 +2562,7 @@ bool LayoutBox::NodeAtPoint(HitTestResult& result,
 
   bool should_hit_test_self = IsInSelfHitTestingPhase(action);
 
-  if (should_hit_test_self && IsScrollContainer() &&
+  if (should_hit_test_self &&
       HitTestOverflowControl(result, hit_test_location, accumulated_offset))
     return true;
 
@@ -3345,13 +3372,29 @@ void LayoutBox::AddLayoutResult(scoped_refptr<const NGLayoutResult> result,
   DCHECK_EQ(result->Status(), NGLayoutResult::kSuccess);
   if (index != WTF::kNotFound && layout_results_.size() > index) {
     if (layout_results_.size() > index + 1) {
-      // Before forgetting any old fragments and their items, we need to clear
-      // associations.
-      if (To<NGPhysicalBoxFragment>(result->PhysicalFragment())
-              .IsInlineFormattingContext())
-        NGFragmentItems::ClearAssociatedFragments(this);
-
-      ShrinkLayoutResults(index + 1);
+      const auto& box_fragment =
+          To<NGPhysicalBoxFragment>(result->PhysicalFragment());
+      // If we have reached the end, remove surplus results from previous
+      // layout.
+      //
+      // Note: When an OOF is fragmented, we wait to lay it out at the
+      // fragmentation context root. If the OOF lives above a column spanner,
+      // though, we may lay it out early to make sure the OOF contributes to the
+      // correct column block-size. Thus, if an item broke as a result of a
+      // spanner, remove subsequent sibling items so that OOFs don't try to
+      // access old fragments.
+      //
+      // TODO(layout-dev): Other solutions to handling interactions between OOFs
+      // and spanner breaks may need to be considered.
+      if (!box_fragment.BreakToken() ||
+          To<NGBlockBreakToken>(box_fragment.BreakToken())
+              ->IsCausedByColumnSpanner()) {
+        // Before forgetting any old fragments and their items, we need to clear
+        // associations.
+        if (box_fragment.IsInlineFormattingContext())
+          NGFragmentItems::ClearAssociatedFragments(this);
+        ShrinkLayoutResults(index + 1);
+      }
     }
     ReplaceLayoutResult(std::move(result), index);
     return;
@@ -3372,6 +3415,9 @@ void LayoutBox::AddLayoutResult(scoped_refptr<const NGLayoutResult> result) {
   // inline formatting context, we have some finalization to do.
   if (!fragment.BreakToken() && HasFragmentItems())
     NGFragmentItems::FinalizeAfterLayout(layout_results_);
+
+  if (layout_results_.size() > 1)
+    FragmentCountOrSizeDidChange();
 }
 
 void LayoutBox::ReplaceLayoutResult(scoped_refptr<const NGLayoutResult> result,
@@ -3382,28 +3428,23 @@ void LayoutBox::ReplaceLayoutResult(scoped_refptr<const NGLayoutResult> result,
   if (old_result == result.get())
     return;
   const auto& fragment = To<NGPhysicalBoxFragment>(result->PhysicalFragment());
-  bool got_new_fragment = &old_result->PhysicalFragment() != &fragment;
+  const auto& old_fragment = old_result->PhysicalFragment();
+  bool got_new_fragment = &old_fragment != &fragment;
   if (got_new_fragment) {
-    // Clear associations with the LayoutObjects and the items in the *first*
-    // box fragment. We only ever associate LayoutObjects with the items in the
-    // first box fragment, but this doesn't take place until we have added all
-    // the fragments for the node. Therefore we need to clean up this now,
-    // regardless of which index we're at. This means that we're potentially
-    // doing duplicate work here (for each fragment we replace), but only if
-    // we're split into multiple box fragments.
-    // TODO(layout-dev): Make this work for multiple box fragments (block
-    // fragmentation).
-    if (To<NGPhysicalBoxFragment>(layout_results_[0]->PhysicalFragment())
-            .HasItems()) {
+    if (HasFragmentItems()) {
       if (!index)
         InvalidateItems(*old_result);
       NGFragmentItems::ClearAssociatedFragments(this);
+    }
+    if (layout_results_.size() > 1) {
+      if (fragment.Size() != old_fragment.Size())
+        FragmentCountOrSizeDidChange();
     }
   }
   // |layout_results_| is particularly critical when side effects are disabled.
   DCHECK(!NGDisableSideEffectsScope::IsDisabled());
   layout_results_[index] = std::move(result);
-  CheckDidAddFragment(*this, fragment);
+  CheckDidAddFragment(*this, fragment, index);
 
   // If this is the last fragment for the node, and its node establishes an
   // inline formatting context, we have some finalization to do.
@@ -3444,9 +3485,7 @@ void LayoutBox::ClearLayoutResults() {
     InvalidateItems(*measure_result_);
   measure_result_ = nullptr;
 
-  if (!layout_results_.IsEmpty() &&
-      To<NGPhysicalBoxFragment>(layout_results_[0]->PhysicalFragment())
-          .IsInlineFormattingContext())
+  if (HasFragmentItems())
     NGFragmentItems::ClearAssociatedFragments(this);
 
   ShrinkLayoutResults(0);
@@ -3460,6 +3499,8 @@ void LayoutBox::ShrinkLayoutResults(wtf_size_t results_to_keep) {
     InvalidateItems(*layout_results_[i]);
   // |layout_results_| is particularly critical when side effects are disabled.
   DCHECK(!NGDisableSideEffectsScope::IsDisabled());
+  if (layout_results_.size() > 1)
+    FragmentCountOrSizeDidChange();
   layout_results_.Shrink(results_to_keep);
 }
 
@@ -3647,14 +3688,6 @@ scoped_refptr<const NGLayoutResult> LayoutBox::CachedLayoutResult(
             old_space.ExpectedBfcBlockOffset() &&
         new_space.ForcedBfcBlockOffset() == old_space.ForcedBfcBlockOffset();
 
-    // Even for the first fragment, when block fragmentation is enabled, block
-    // offset changes should cause re-layout, since we will fragment at other
-    // locations than before.
-    if (UNLIKELY(!are_bfc_offsets_equal && new_space.HasBlockFragmentation())) {
-      DCHECK(old_space.HasBlockFragmentation());
-      return nullptr;
-    }
-
     is_margin_strut_equal = new_space.MarginStrut() == old_space.MarginStrut();
     is_exclusion_space_equal =
         new_space.ExclusionSpace() == old_space.ExclusionSpace();
@@ -3691,6 +3724,119 @@ scoped_refptr<const NGLayoutResult> LayoutBox::CachedLayoutResult(
               *cached_layout_result, new_space, &bfc_block_offset,
               &block_offset_delta, &end_margin_strut))
         return nullptr;
+    }
+
+    if (UNLIKELY(new_space.HasBlockFragmentation())) {
+      DCHECK(old_space.HasBlockFragmentation());
+      // We're should currently be checking if the node is unfragmented before
+      // we get here.
+      DCHECK(physical_fragment.IsOnlyForNode());
+
+      // Sometimes we perform simplified layout on a block-flow which is just
+      // growing in block-size. When fragmentation is present we can't hit the
+      // cache for these cases as we may grow past the fragmentation line.
+      if (cache_status != NGLayoutCacheStatus::kHit)
+        return nullptr;
+
+      // If the node didn't break into multiple fragments, we might be able to
+      // re-use the result. If the fragmentainer block-size has changed, or if
+      // the fragment's block-offset within the fragmentainer has changed, we
+      // need to check if the node will still fit as one fragment. If we cannot
+      // be sure that this is the case, we need to miss the cache.
+      if (new_space.IsInitialColumnBalancingPass()) {
+        if (!old_space.IsInitialColumnBalancingPass()) {
+          // If the previous result was generated with a known fragmentainer
+          // size (i.e. not in the initial column balancing pass),
+          // TallestUnbreakableBlockSize() won't be stored in the layout result,
+          // because we currently only calculate this in the initial column
+          // balancing pass. Since we're now in an initial column balancing pass
+          // again, we cannot re-use the result, because not propagating the
+          // tallest unbreakable block-size might cause incorrect layout.
+          //
+          // Another problem is OOF descendants. In the initial column balancing
+          // pass, they affect FragmentainerBlockSize() (because OOFs are
+          // supposed to affect column balancing), while in actual layout
+          // passes, OOFs will escape their actual containing block and become
+          // direct children of some fragmentainer. In other words, any relevant
+          // information about OOFs and how they might affect balancing has been
+          // lost.
+          return nullptr;
+        }
+        // (On the other hand, if the previous result was also generated in the
+        // initial column balancing pass, we don't need to perform any
+        // additional checks.)
+      } else if (new_space.FragmentainerBlockSize() !=
+                     old_space.FragmentainerBlockSize() ||
+                 new_space.FragmentainerOffsetAtBfc() !=
+                     old_space.FragmentainerOffsetAtBfc()) {
+        // If the fragment was forced to stay in a fragmentainer (even if it
+        // overflowed), BlockSizeForFragmentation() cannot be used for cache
+        // testing.
+        if (cached_layout_result->IsBlockSizeForFragmentationClamped())
+          return nullptr;
+
+        bool check_exclusion_space = false;
+        if (!bfc_block_offset) {
+          // This happens for self-collapsing nodes, and also when the node
+          // isn't a regular block container (e.g. fieldset, flex, grid, table
+          // or multicol).
+          //
+          // Self-collapsing blocks may have floats and OOF descendants.
+          // Checking if floats cross the fragmentation line is easy enough
+          // (check the exclusion space), but we currently have no way of
+          // checking OOF descendants. OOFs are included in
+          // BlockSizeForFragmentation() in the initial column balancing pass
+          // only, but since we don't know the start offset of this node,
+          // there's nothing we can do about it. Give up if this is the case.
+          if (old_space.IsInitialColumnBalancingPass())
+            return nullptr;
+
+          // If we're self-collapsing, we may continue, and just check the
+          // exclusion space for floats. Otherwise (the algorithm type probably
+          // didn't set a BFC block-offset), we need to give up, as we have no
+          // idea where we are.
+          //
+          // TODO(mstensho): Could we just fix it so that all algorithms set a
+          // BFC block-offset on the result, and change this test into a DCHECK?
+          if (!cached_layout_result->IsSelfCollapsing())
+            return nullptr;
+
+          check_exclusion_space = true;
+        } else {
+          if (physical_fragment.IsInlineFormattingContext() &&
+              !physical_fragment.IsFormattingContextRoot()) {
+            // If floats were added inside an inline formatting context, they
+            // might extrude.
+            if (cached_layout_result->ExclusionSpace() !=
+                old_space.ExclusionSpace())
+              check_exclusion_space = true;
+          }
+
+          // Note: It should be fine to use NGLayoutResult::
+          // BlockSizeForFragmentation() directly here, rather than the helper
+          // function BlockSizeForFragmentation() in ng_fragmentation_utils.cc,
+          // since what the latter does shouldn't matter, since we're not
+          // monolithic content (HasBlockFragmentation() is true), and we're not
+          // a line box.
+          LayoutUnit block_size_for_fragmentation =
+              cached_layout_result->BlockSizeForFragmentation();
+
+          LayoutUnit block_end_offset = new_space.FragmentainerOffsetAtBfc() +
+                                        *bfc_block_offset +
+                                        block_size_for_fragmentation;
+          if (block_end_offset > new_space.FragmentainerBlockSize())
+            return nullptr;
+        }
+
+        if (check_exclusion_space) {
+          const auto& exclusion_space = cached_layout_result->ExclusionSpace();
+          LayoutUnit block_end_offset =
+              new_space.FragmentainerOffsetAtBfc() +
+              exclusion_space.ClearanceOffset(EClear::kBoth);
+          if (block_end_offset > new_space.FragmentainerBlockSize())
+            return nullptr;
+        }
+      }
     }
   }
 
@@ -7790,11 +7936,13 @@ LayoutRect LayoutBox::VisualOverflowRect() const {
 
 #if DCHECK_IS_ON()
 LayoutRect LayoutBox::VisualOverflowRectAllowingUnset() const {
+  NOT_DESTROYED();
   NGInkOverflow::ReadUnsetAsNoneScope read_unset_as_none;
   return VisualOverflowRect();
 }
 
 PhysicalRect LayoutBox::PhysicalVisualOverflowRectAllowingUnset() const {
+  NOT_DESTROYED();
   NGInkOverflow::ReadUnsetAsNoneScope read_unset_as_none;
   return PhysicalVisualOverflowRect();
 }
@@ -8200,8 +8348,15 @@ void LayoutBox::ReassignSnapAreas(LayoutBox& new_container) {
 bool LayoutBox::AllowedToPropagateRecursiveScrollToParentFrame(
     const mojom::blink::ScrollIntoViewParamsPtr& params) {
   NOT_DESTROYED();
-  if (!GetFrameView()->SafeToPropagateScrollToParent())
-    return false;
+  if (!params->cross_origin_boundaries) {
+    Frame& this_frame = GetFrameView()->GetFrame();
+    Frame* parent_frame = this_frame.Tree().Parent();
+    if (parent_frame &&
+        !parent_frame->GetSecurityContext()->GetSecurityOrigin()->CanAccess(
+            this_frame.GetSecurityContext()->GetSecurityOrigin())) {
+      return false;
+    }
+  }
 
   if (params->type != mojom::blink::ScrollType::kProgrammatic)
     return true;

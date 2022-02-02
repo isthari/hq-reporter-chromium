@@ -51,7 +51,7 @@ base::Time GetLastShownTime(PrefService* prefs) {
   if (!dictionary)
     return base::Time();
   absl::optional<base::Time> last_shown_time =
-      base::ValueToTime(dictionary->FindPath(kLastShownTime));
+      base::ValueToTime(dictionary->FindKey(kLastShownTime));
   return last_shown_time.value_or(base::Time());
 }
 
@@ -64,7 +64,7 @@ base::Time GetFirstLoginTime(PrefService* prefs) {
   if (!dictionary)
     return base::Time();
   absl::optional<base::Time> first_login_time =
-      base::ValueToTime(dictionary->FindPath(kFirstLoginTime));
+      base::ValueToTime(dictionary->FindKey(kFirstLoginTime));
   return first_login_time.value_or(base::Time());
 }
 
@@ -74,7 +74,7 @@ bool WasLauncherShownPreviously(PrefService* prefs) {
       prefs->GetDictionary(prefs::kShelfLauncherNudge);
   if (!dictionary)
     return false;
-  return dictionary->FindBoolPath(kWasLauncherShown).value_or(false);
+  return dictionary->FindBoolKey(kWasLauncherShown).value_or(false);
 }
 
 }  // namespace
@@ -117,7 +117,7 @@ int LauncherNudgeController::GetShownCount(PrefService* prefs) {
       prefs->GetDictionary(prefs::kShelfLauncherNudge);
   if (!dictionary)
     return 0;
-  return dictionary->FindIntPath(kShownCount).value_or(0);
+  return dictionary->FindIntKey(kShownCount).value_or(0);
 }
 
 base::TimeDelta LauncherNudgeController::GetNudgeInterval(
@@ -196,8 +196,8 @@ void LauncherNudgeController::HandleNudgeShown() {
 
   const int shown_count = GetShownCount(prefs);
   DictionaryPrefUpdate update(prefs, prefs::kShelfLauncherNudge);
-  update->SetIntPath(kShownCount, shown_count + 1);
-  update->SetPath(kLastShownTime, base::TimeToValue(GetNow()));
+  update->SetIntKey(kShownCount, shown_count + 1);
+  update->SetKey(kLastShownTime, base::TimeToValue(GetNow()));
 }
 
 void LauncherNudgeController::MaybeShowNudge() {
@@ -250,7 +250,7 @@ void LauncherNudgeController::OnActiveUserPrefServiceChanged(
     // If the current logged in user is a new one, record the first login time
     // to know when to show the nudge.
     DictionaryPrefUpdate update(prefs, prefs::kShelfLauncherNudge);
-    update->SetPath(kFirstLoginTime, base::TimeToValue(GetNow()));
+    update->SetKey(kFirstLoginTime, base::TimeToValue(GetNow()));
   } else if (GetFirstLoginTime(prefs).is_null()) {
     // For the users that has logged in before the nudge feature is landed, we
     // assume the user has opened the launcher before and thus don't show the
@@ -279,7 +279,7 @@ void LauncherNudgeController::OnAppListVisibilityChanged(bool shown,
 
   if (!WasLauncherShownPreviously(prefs) && shown) {
     DictionaryPrefUpdate update(prefs, prefs::kShelfLauncherNudge);
-    update->SetBoolPath(kWasLauncherShown, true);
+    update->SetBoolKey(kWasLauncherShown, true);
   }
 }
 

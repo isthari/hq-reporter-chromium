@@ -34,7 +34,6 @@ import org.chromium.chrome.browser.autofill_assistant.infobox.AssistantInfoBoxCo
 import org.chromium.chrome.browser.autofill_assistant.overlay.AssistantOverlayCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantCollectUserDataModel;
-import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController.SheetState;
@@ -67,21 +66,17 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
     private final AssistantRootViewContainer mRootViewContainer;
     @Nullable
     private WebContents mWebContents;
-    private ApplicationViewportInsetSupplier mWindowApplicationInsetSupplier;
+    private final ApplicationViewportInsetSupplier mWindowApplicationInsetSupplier;
     private final AccessibilityUtil.Observer mAccessibilityObserver;
     private final BottomSheetObserver mBottomSheetObserver;
 
     // Child coordinators.
     private final AssistantHeaderCoordinator mHeaderCoordinator;
-    private final AssistantDetailsCoordinator mDetailsCoordinator;
-    private final AssistantFormCoordinator mFormCoordinator;
     private final AssistantActionsCarouselCoordinator mActionsCoordinator;
     private final AssistantPeekHeightCoordinator mPeekHeightCoordinator;
     private final ObservableSupplierImpl<Integer> mInsetSupplier = new ObservableSupplierImpl<>();
     private AssistantInfoBoxCoordinator mInfoBoxCoordinator;
-    private AssistantCollectUserDataCoordinator mPaymentRequestCoordinator;
-    private final AssistantGenericUiCoordinator mPersistentGenericUiCoordinator;
-    private final AssistantGenericUiCoordinator mGenericUiCoordinator;
+    private AssistantCollectUserDataCoordinator mCollectUserDataCoordinator;
 
     // The transition triggered whenever the layout of the BottomSheet content changes.
     private final TransitionSet mLayoutTransition =
@@ -104,7 +99,7 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
             AssistantOverlayCoordinator overlayCoordinator, BottomSheetController controller,
             ApplicationViewportInsetSupplier applicationViewportInsetSupplier,
             @Nullable AssistantTabObscuringUtil tabObscuringUtil,
-            @NonNull BrowserControlsStateProvider browserControlsStateProvider,
+            @NonNull AssistantBrowserControlsFactory browserControlsFactory,
             AccessibilityUtil accessibilityUtil, AssistantInfoPageUtil infoPageUtil,
             @Nullable AssistantProfileImageUtil profileImageUtil) {
         mAccessibilityUtil = accessibilityUtil;
@@ -128,7 +123,7 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
         mRootViewContainer =
                 (AssistantRootViewContainer) LayoutUtils.createInflater(activity).inflate(
                         R.layout.autofill_assistant_bottom_sheet_content, /* root= */ null);
-        mRootViewContainer.initialize(browserControlsStateProvider, accessibilityUtil);
+        mRootViewContainer.initialize(browserControlsFactory, accessibilityUtil);
         mScrollableContent = mRootViewContainer.findViewById(R.id.scrollable_content);
         ViewGroup scrollableContentContainer =
                 mScrollableContent.findViewById(R.id.scrollable_content_container);
@@ -146,21 +141,22 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
         mHeaderCoordinator = new AssistantHeaderCoordinator(
                 activity, model.getHeaderModel(), accessibilityUtil, profileImageUtil);
         mInfoBoxCoordinator = new AssistantInfoBoxCoordinator(activity, model.getInfoBoxModel());
-        mDetailsCoordinator =
+        AssistantDetailsCoordinator detailsCoordinator =
                 new AssistantDetailsCoordinator(activity, infoPageUtil, model.getDetailsModel(),
                         ImageFetcherFactory.createImageFetcher(ImageFetcherConfig.DISK_CACHE_ONLY,
                                 AutofillAssistantUiController.getProfile().getProfileKey()));
-        mPaymentRequestCoordinator =
+        mCollectUserDataCoordinator =
                 new AssistantCollectUserDataCoordinator(activity, model.getCollectUserDataModel());
-        mFormCoordinator = new AssistantFormCoordinator(activity, model.getFormModel());
+        AssistantFormCoordinator formCoordinator =
+                new AssistantFormCoordinator(activity, model.getFormModel());
         mActionsCoordinator =
                 new AssistantActionsCarouselCoordinator(activity, model.getActionsModel());
         mPeekHeightCoordinator = new AssistantPeekHeightCoordinator(activity, this, controller,
                 mContent.getToolbarView(), mHeaderCoordinator.getView(),
                 mActionsCoordinator.getView(), AssistantPeekHeightCoordinator.PeekMode.HANDLE);
-        mPersistentGenericUiCoordinator =
+        AssistantGenericUiCoordinator persistentGenericUiCoordinator =
                 new AssistantGenericUiCoordinator(activity, model.getPersistentGenericUiModel());
-        mGenericUiCoordinator =
+        AssistantGenericUiCoordinator genericUiCoordinator =
                 new AssistantGenericUiCoordinator(activity, model.getGenericUiModel());
 
         // We don't want to animate the carousels children views as they are already animated by the
@@ -172,7 +168,7 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
         // do not animate the contents of the payment method section inside the section choice list,
         // since the animation is not required and causes a rendering crash.
         mLayoutTransition.excludeChildren(
-                mPaymentRequestCoordinator.getView()
+                mCollectUserDataCoordinator.getView()
                         .findViewWithTag(AssistantTagsForTesting
                                                  .COLLECT_USER_DATA_PAYMENT_METHOD_SECTION_TAG)
                         .findViewWithTag(AssistantTagsForTesting.COLLECT_USER_DATA_CHOICE_LIST),
@@ -182,21 +178,21 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
         // container, except the actions.
         mRootViewContainer.addView(mHeaderCoordinator.getView(), 0);
         scrollableContentContainer.addView(mInfoBoxCoordinator.getView());
-        scrollableContentContainer.addView(mDetailsCoordinator.getView());
-        scrollableContentContainer.addView(mPersistentGenericUiCoordinator.getView());
-        scrollableContentContainer.addView(mPaymentRequestCoordinator.getView());
-        scrollableContentContainer.addView(mFormCoordinator.getView());
-        scrollableContentContainer.addView(mGenericUiCoordinator.getView());
+        scrollableContentContainer.addView(detailsCoordinator.getView());
+        scrollableContentContainer.addView(persistentGenericUiCoordinator.getView());
+        scrollableContentContainer.addView(mCollectUserDataCoordinator.getView());
+        scrollableContentContainer.addView(formCoordinator.getView());
+        scrollableContentContainer.addView(genericUiCoordinator.getView());
         mRootViewContainer.addView(mActionsCoordinator.getView());
 
         // Set children top margins to have a spacing between them.
         int childSpacing = activity.getResources().getDimensionPixelSize(
                 R.dimen.autofill_assistant_bottombar_vertical_spacing);
-        setChildMarginTop(mDetailsCoordinator.getView(), childSpacing);
-        setChildMarginTop(mPersistentGenericUiCoordinator.getView(), childSpacing);
-        setChildMarginTop(mPaymentRequestCoordinator.getView(), childSpacing);
-        setChildMarginTop(mFormCoordinator.getView(), childSpacing);
-        setChildMarginTop(mGenericUiCoordinator.getView(), childSpacing);
+        setChildMarginTop(detailsCoordinator.getView(), childSpacing);
+        setChildMarginTop(persistentGenericUiCoordinator.getView(), childSpacing);
+        setChildMarginTop(mCollectUserDataCoordinator.getView(), childSpacing);
+        setChildMarginTop(formCoordinator.getView(), childSpacing);
+        setChildMarginTop(genericUiCoordinator.getView(), childSpacing);
 
         // Hide the carousels when they are empty.
         hideWhenEmpty(mActionsCoordinator.getView(), model.getActionsModel());
@@ -204,7 +200,7 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
         // Set the horizontal margins of children. We don't set them on the payment request, the
         // carousels or the form to allow them to take the full width of the sheet.
         setHorizontalMargins(mInfoBoxCoordinator.getView());
-        setHorizontalMargins(mDetailsCoordinator.getView());
+        setHorizontalMargins(detailsCoordinator.getView());
 
         mBottomSheetObserver = new EmptyBottomSheetObserver() {
             @Override
@@ -366,8 +362,8 @@ class AssistantBottomBarCoordinator implements AssistantPeekHeightCoordinator.De
 
         mInfoBoxCoordinator.destroy();
         mInfoBoxCoordinator = null;
-        mPaymentRequestCoordinator.destroy();
-        mPaymentRequestCoordinator = null;
+        mCollectUserDataCoordinator.destroy();
+        mCollectUserDataCoordinator = null;
         mHeaderCoordinator.destroy();
         mRootViewContainer.destroy();
     }

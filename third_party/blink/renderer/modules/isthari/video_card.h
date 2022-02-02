@@ -7,13 +7,16 @@
 #include <string>
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
-//#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/decklink/linux/DeckLinkAPI.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
+#if BUILDFLAG(IS_LINUX)
+#include "third_party/decklink/linux/DeckLinkAPI.h"
+#elif BUILDFLAG(IS_WIN)
+#include "third_party/decklink/win/DeckLinkAPI.h"
+#endif
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -44,7 +47,7 @@ public:
     void enableVideoOutput(long mode);
     void disableVideoOutput();
     
-    long getModeCount() { return modes_.size(); }
+    long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
 
     // IDeckLinkInputCallback

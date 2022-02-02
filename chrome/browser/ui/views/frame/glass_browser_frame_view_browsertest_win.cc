@@ -26,7 +26,7 @@
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
-#include "chrome/browser/web_applications/web_application_info.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/content_features.h"
@@ -57,7 +57,7 @@ class WebAppGlassBrowserFrameViewTest : public InProcessBrowserTest {
   // TODO(https://crbug.com/863278): Force Aero glass on Windows 7 for this
   // test.
   bool InstallAndLaunchWebApp() {
-    auto web_app_info = std::make_unique<WebApplicationInfo>();
+    auto web_app_info = std::make_unique<WebAppInstallInfo>();
     web_app_info->start_url = GetStartURL();
     web_app_info->scope = GetStartURL().GetWithoutFilename();
     if (theme_color_)
@@ -196,7 +196,7 @@ class WebAppGlassBrowserFrameViewWindowControlsOverlayTest
 
     std::vector<blink::mojom::DisplayMode> display_overrides = {
         blink::mojom::DisplayMode::kWindowControlsOverlay};
-    auto web_app_info = std::make_unique<WebApplicationInfo>();
+    auto web_app_info = std::make_unique<WebAppInstallInfo>();
     web_app_info->start_url = start_url;
     web_app_info->scope = start_url.GetWithoutFilename();
     web_app_info->display_mode = blink::mojom::DisplayMode::kStandalone;
@@ -352,4 +352,23 @@ IN_PROC_BROWSER_TEST_F(WebAppGlassBrowserFrameViewWindowControlsOverlayTest,
 
   // Verify the component clears when the feature is turned off.
   EXPECT_EQ(glass_frame_view_->NonClientHitTest(kPoint), HTCLOSE);
+}
+
+// Regression test for https://crbug.com/1286896.
+IN_PROC_BROWSER_TEST_F(WebAppGlassBrowserFrameViewWindowControlsOverlayTest,
+                       TitlebarLayoutAfterUpdateWindowTitle) {
+  if (!InstallAndLaunchWebAppWithWindowControlsOverlay())
+    return;
+
+  browser_view_->ToggleWindowControlsOverlayEnabled();
+  glass_frame_view_->GetWidget()->LayoutRootViewIfNecessary();
+  glass_frame_view_->UpdateWindowTitle();
+
+  WebAppFrameToolbarView* web_app_frame_toolbar =
+      glass_frame_view_->web_app_frame_toolbar_for_testing();
+
+  // Verify that the center container doesn't consume space by expecting the
+  // right container to consume the full width of the WebAppFrameToolbarView.
+  EXPECT_EQ(web_app_frame_toolbar->width(),
+            web_app_frame_toolbar->get_right_container_for_testing()->width());
 }

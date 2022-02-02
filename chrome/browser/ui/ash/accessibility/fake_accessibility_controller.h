@@ -69,7 +69,9 @@ class FakeAccessibilityController : ash::AccessibilityController {
       const std::u16string& display_language) override;
   void UpdateDictationBubble(
       bool visible,
-      const absl::optional<std::u16string>& text) override;
+      ash::DictationBubbleIconType icon,
+      const absl::optional<std::u16string>& text,
+      const absl::optional<std::vector<std::string>>& hints) override;
 
  private:
   bool was_client_set_ = false;

@@ -13,14 +13,17 @@
 #include "components/feed/core/proto/v2/wire/upload_actions_request.pb.h"
 #include "components/feed/core/proto/v2/wire/upload_actions_response.pb.h"
 #include "components/feed/core/v2/config.h"
+#include "components/feed/core/v2/enums.h"
 #include "components/feed/core/v2/feed_network.h"
 #include "components/feed/core/v2/feed_store.h"
 #include "components/feed/core/v2/feed_stream.h"
 #include "components/feed/core/v2/feedstore_util.h"
+#include "components/feed/core/v2/ios_shared_prefs.h"
 #include "components/feed/core/v2/launch_reliability_logger.h"
 #include "components/feed/core/v2/metrics_reporter.h"
 #include "components/feed/core/v2/proto_util.h"
 #include "components/feed/core/v2/request_throttler.h"
+#include "components/feed/core/v2/types.h"
 
 namespace feed {
 using feedstore::StoredAction;
@@ -50,9 +53,13 @@ UploadActionsTask::Result& UploadActionsTask::Result::operator=(Result&&) =
 
 class UploadActionsTask::Batch {
  public:
-  Batch()
+  explicit Batch(const feedwire::ClientInfo& client_info)
       : feed_action_request_(
-            std::make_unique<feedwire::UploadActionsRequest>()) {}
+            std::make_unique<feedwire::UploadActionsRequest>()) {
+    *feed_action_request_->mutable_client_info() = client_info;
+    LOG(ERROR) << "Action Request instance ID: "
+               << client_info.client_instance_id();
+  }
   Batch(const Batch&) = delete;
   Batch& operator=(const Batch&) = delete;
   ~Batch() = default;
@@ -107,20 +114,28 @@ class UploadActionsTask::Batch {
 };
 
 UploadActionsTask::UploadActionsTask(
-    feedwire::FeedAction action,
-    bool upload_now,
     FeedStream* stream,
     base::OnceCallback<void(UploadActionsTask::Result)> callback)
-    : stream_(*stream),
-      upload_now_(upload_now),
-      wire_action_(std::move(action)),
-      callback_(std::move(callback)) {
+    : stream_(*stream), callback_(std::move(callback)) {
+  account_info_ = stream_.GetAccountInfo();
+}
+
+UploadActionsTask::UploadActionsTask(
+    feedwire::FeedAction action,
+    bool upload_now,
+    const LoggingParameters& logging_parameters,
+    FeedStream* stream,
+    base::OnceCallback<void(UploadActionsTask::Result)> callback)
+    : UploadActionsTask(stream, std::move(callback)) {
+  upload_now_ = upload_now;
+  logging_parameters_ = logging_parameters;
+  wire_action_ = std::move(action);
+
   auto* client_data = wire_action_->mutable_client_data();
   client_data->set_timestamp_seconds(
       (base::Time::Now() - base::Time::UnixEpoch()).InSeconds());
   client_data->set_action_surface(
       feedwire::ActionSurface::ANDROID_CHROME_NEW_TAB);
-  gaia_ = stream_.GetSyncSignedInGaia();
 }
 
 UploadActionsTask::UploadActionsTask(
@@ -128,22 +143,18 @@ UploadActionsTask::UploadActionsTask(
     FeedStream* stream,
     LaunchReliabilityLogger* launch_reliability_logger,
     base::OnceCallback<void(UploadActionsTask::Result)> callback)
-    : stream_(*stream),
-      pending_actions_(std::move(pending_actions)),
-      callback_(std::move(callback)),
-      launch_reliability_logger_(launch_reliability_logger) {
-  gaia_ = stream_.GetSyncSignedInGaia();
+    : UploadActionsTask(stream, std::move(callback)) {
+  pending_actions_ = std::move(pending_actions);
+  launch_reliability_logger_ = launch_reliability_logger;
 }
 
 UploadActionsTask::UploadActionsTask(
     FeedStream* stream,
     LaunchReliabilityLogger* launch_reliability_logger,
     base::OnceCallback<void(UploadActionsTask::Result)> callback)
-    : stream_(*stream),
-      read_pending_actions_(true),
-      callback_(std::move(callback)),
-      launch_reliability_logger_(launch_reliability_logger) {
-  gaia_ = stream_.GetSyncSignedInGaia();
+    : UploadActionsTask(stream, std::move(callback)) {
+  read_pending_actions_ = true;
+  launch_reliability_logger_ = launch_reliability_logger;
 }
 
 UploadActionsTask::~UploadActionsTask() = default;
@@ -159,7 +170,21 @@ void UploadActionsTask::Run() {
   // From constructor 1: If there is an action to store, store it and maybe try
   // to upload all pending actions.
   if (wire_action_) {
+    // Abort if we shouldn't be sending or storing this action.
+    if (logging_parameters_.email.empty()) {
+      Done(UploadActionsStatus::kAbortUploadForSignedOutUser);
+      return;
+    }
+    // Are logging parameters associated with a different account?
+    if (logging_parameters_.email != account_info_.email
+        // Is the datastore associated with a different account?
+        || stream_.GetMetadata().gaia() != account_info_.gaia) {
+      Done(UploadActionsStatus::kAbortUploadForWrongUser);
+      return;
+    }
+
     StoredAction action;
+
     feedstore::Metadata metadata = stream_.GetMetadata();
     int32_t action_id = feedstore::GetNextActionId(metadata).GetUnsafeValue();
     stream_.SetMetadata(std::move(metadata));
@@ -196,11 +221,6 @@ void UploadActionsTask::OnStorePendingActionFinished(bool write_ok) {
     return;
   }
 
-  if (!stream_.CanUploadActions()) {
-    Done(UploadActionsStatus::kAbortUploadBecauseDisabled);
-    return;
-  }
-
   // If the new action was stored and upload_now was set, load all pending
   // actions and try to upload.
   ReadActions();
@@ -229,12 +249,10 @@ void UploadActionsTask::UploadPendingActions() {
     return;
   }
   // Can't upload actions for another user, so abort.
-  if (stream_.GetSyncSignedInGaia() != gaia_) {
+  if (stream_.GetAccountInfo() != account_info_ ||
+      // Is the datastore associated with a different account?
+      stream_.GetMetadata().gaia() != account_info_.gaia) {
     Done(UploadActionsStatus::kAbortUploadForWrongUser);
-    return;
-  }
-  if (!stream_.CanUploadActions()) {
-    Done(UploadActionsStatus::kAbortUploadBecauseDisabled);
     return;
   }
   UpdateAndUploadNextBatch();
@@ -248,7 +266,8 @@ void UploadActionsTask::UpdateAndUploadNextBatch() {
   }
 
   // Grab a few actions to be processed and erase them from pending_actions_.
-  auto batch = std::make_unique<Batch>();
+  auto batch = std::make_unique<Batch>(
+      CreateClientInfo(stream_.GetSignedInRequestMetadata()));
   std::vector<feedstore::StoredAction> to_update;
   std::vector<LocalActionId> to_erase;
   batch->BiteOffAFewActions(&pending_actions_, &to_update, &to_erase);
@@ -284,7 +303,7 @@ void UploadActionsTask::OnUpdateActionsFinished(
   }
 
   stream_.GetNetwork().SendApiRequest<UploadActionsDiscoverApi>(
-      *request, gaia_,
+      *request, account_info_,
       base::BindOnce(&UploadActionsTask::OnUploadFinished,
                      weak_ptr_factory_.GetWeakPtr(), std::move(batch)));
 }

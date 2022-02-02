@@ -339,28 +339,56 @@ async function websocketTest(t, { source, target, expected }) {
 }
 
 const WorkerScriptTestResult = {
-  FAILURE: { loaded: false },
-  SUCCESS: { loaded: true, message: "success" },
+  SUCCESS: { loaded: true },
+  FAILURE: { error: "unknown error" },
 };
+
+function workerScriptUrl(target) {
+  const url =
+    resolveUrl("resources/preflight.py", targetResolveOptions(target));
+
+  url.searchParams.append("body", "postMessage({ loaded: true })")
+  url.searchParams.append("mime-type", "application/javascript")
+
+  return url;
+}
 
 async function workerScriptTest(t, { source, target, expected }) {
   const sourceUrl =
       resolveUrl("resources/worker-fetcher.html", sourceResolveOptions(source));
 
-  const targetUrl =
-      resolveUrl("resources/preflight.py", targetResolveOptions(target));
-  targetUrl.searchParams.append("body", "postMessage('success')")
-  targetUrl.searchParams.append("mime-type", "application/javascript")
+  const targetUrl = workerScriptUrl(target);
 
   const iframe = await appendIframe(t, document, sourceUrl);
   const reply = futureMessage();
 
   iframe.contentWindow.postMessage({ url: targetUrl.href }, "*");
 
-  const { loaded, message } = await reply;
+  const { error, loaded } = await reply;
 
+  assert_equals(error, expected.error, "worker error");
   assert_equals(loaded, expected.loaded, "response loaded");
-  assert_equals(message, expected.message, "response message");
+}
+
+async function nestedWorkerScriptTest(t, { source, target, expected }) {
+  const targetUrl = workerScriptUrl(target);
+
+  const sourceUrl = resolveUrl(
+      "resources/worker-fetcher.js", sourceResolveOptions(source));
+  sourceUrl.searchParams.append("url", targetUrl);
+
+  // Iframe must be same-origin with the parent worker.
+  const iframeUrl = new URL("worker-fetcher.html", sourceUrl);
+
+  const iframe = await appendIframe(t, document, iframeUrl);
+  const reply = futureMessage();
+
+  iframe.contentWindow.postMessage({ url: sourceUrl.href }, "*");
+
+  const { error, loaded } = await reply;
+
+  assert_equals(error, expected.error, "worker error");
+  assert_equals(loaded, expected.loaded, "response loaded");
 }
 
 async function sharedWorkerScriptTest(t, { source, target, expected }) {
@@ -370,15 +398,63 @@ async function sharedWorkerScriptTest(t, { source, target, expected }) {
   const targetUrl =
       resolveUrl("resources/preflight.py", targetResolveOptions(target));
   targetUrl.searchParams.append(
-      "body", "onconnect = (e) => e.ports[0].postMessage('success')")
+      "body", "onconnect = (e) => e.ports[0].postMessage({ loaded: true })")
 
   const iframe = await appendIframe(t, document, sourceUrl);
   const reply = futureMessage();
 
   iframe.contentWindow.postMessage({ url: targetUrl.href }, "*");
 
-  const { loaded, message } = await reply;
+  const { error, loaded } = await reply;
 
+  assert_equals(error, expected.error, "worker error");
   assert_equals(loaded, expected.loaded, "response loaded");
-  assert_equals(message, expected.message, "response message");
+}
+
+// Results that may be expected in tests.
+const WorkerFetchTestResult = {
+  SUCCESS: { status: 200, body: "success" },
+  FAILURE: { error: "TypeError" },
+};
+
+async function workerFetchTest(t, { source, target, expected }) {
+  const targetUrl =
+      resolveUrl("resources/preflight.py", targetResolveOptions(target));
+
+  const sourceUrl =
+      resolveUrl("resources/fetcher.js", sourceResolveOptions(source));
+  sourceUrl.searchParams.append("url", targetUrl.href);
+
+  const fetcherUrl = new URL("worker-fetcher.html", sourceUrl);
+
+  const reply = futureMessage();
+  const iframe = await appendIframe(t, document, fetcherUrl);
+
+  iframe.contentWindow.postMessage({ url: sourceUrl.href }, "*");
+
+  const { error, status, message } = await reply;
+  assert_equals(error, expected.error, "fetch error");
+  assert_equals(status, expected.status, "response status");
+  assert_equals(message, expected.message, "response body");
+}
+
+async function sharedWorkerFetchTest(t, { source, target, expected }) {
+  const targetUrl =
+      resolveUrl("resources/preflight.py", targetResolveOptions(target));
+
+  const sourceUrl =
+      resolveUrl("resources/shared-fetcher.js", sourceResolveOptions(source));
+  sourceUrl.searchParams.append("url", targetUrl.href);
+
+  const fetcherUrl = new URL("shared-worker-fetcher.html", sourceUrl);
+
+  const reply = futureMessage();
+  const iframe = await appendIframe(t, document, fetcherUrl);
+
+  iframe.contentWindow.postMessage({ url: sourceUrl.href }, "*");
+
+  const { error, status, message } = await reply;
+  assert_equals(error, expected.error, "fetch error");
+  assert_equals(status, expected.status, "response status");
+  assert_equals(message, expected.message, "response body");
 }

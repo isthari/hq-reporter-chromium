@@ -4,12 +4,16 @@
 
 package org.chromium.chrome.browser.subscriptions;
 
+import android.os.Build;
+
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
+import org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tasks.tab_management.PriceTrackingUtilities;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -137,6 +141,16 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
             return;
         }
 
+        // Make sure the notification channel is initialized if there is a user-managed PRICE_TRACK
+        // subscription. For chrome-managed subscriptions, channel will be initialized via message
+        // card in tab switcher.
+        if (CommerceSubscription.CommerceSubscriptionType.PRICE_TRACK.equals(type)
+                && CommerceSubscription.SubscriptionManagementType.USER_MANAGED.equals(
+                        subscriptions.get(0).getManagementType())
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (new PriceDropNotificationManager()).createNotificationChannel();
+        }
+
         if (!mCanHandleRequests) {
             mDeferredTasks.add(new DeferredSubscriptionOperation(
                     Operation.SUBSCRIBE, subscriptions, wrappedCallback));
@@ -219,6 +233,17 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
             }
             callback.onResult(false);
         });
+    }
+
+    /**
+     * Called when user account is cleared or updated.
+     */
+    void onIdentityChanged() {
+        mStorage.deleteAll();
+        // If the feature is still eligible to work, we should re-init and fetch the fresh data.
+        if (PriceTrackingUtilities.isPriceDropNotificationEligible()) {
+            initTypes((status) -> { assert status == SubscriptionsManager.StatusCode.OK; });
+        }
     }
 
     private void unsubscribe(List<CommerceSubscription> subscriptions, Callback<Integer> callback) {

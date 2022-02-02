@@ -98,7 +98,7 @@ struct WebPrintParams;
 struct WebPrintPresetOptions;
 struct WebScriptSource;
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 struct WebFontFamilyNames;
 #endif
 
@@ -348,7 +348,7 @@ class WebLocalFrame : public WebFrame {
 
   // `world_id` must be > kMainDOMWorldId and < kEmbedderWorldIdLimit (a
   // high number used internally).
-  WARN_UNUSED_RESULT virtual v8::Local<v8::Value>
+  [[nodiscard]] virtual v8::Local<v8::Value>
   ExecuteScriptInIsolatedWorldAndReturnValue(int32_t world_id,
                                              const WebScriptSource&,
                                              BackForwardCacheAware) = 0;
@@ -741,6 +741,11 @@ class WebLocalFrame : public WebFrame {
   virtual uint32_t PrintBegin(const WebPrintParams& print_params,
                               const WebNode& constrain_to_node) = 0;
 
+  // Called when printing has been requested, but has not yet begun. This
+  // gives the document an opportunity to load any new resources needed for
+  // printing. It returns whether any resources will need to load.
+  virtual bool WillPrintSoon() = 0;
+
   // Returns the page shrinking factor calculated by webkit (usually
   // between 1/1.33 and 1/2). Returns 0 if the page number is invalid or
   // not in printing mode.
@@ -828,7 +833,7 @@ class WebLocalFrame : public WebFrame {
 
   // Fonts --------------------------------------------------------------------
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Returns the font family names currently used.
   virtual WebFontFamilyNames GetWebFontFamilyNames() const = 0;
 #endif

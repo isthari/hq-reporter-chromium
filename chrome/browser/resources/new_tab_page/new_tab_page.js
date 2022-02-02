@@ -14,9 +14,6 @@ export {BrowserCommandProxy} from 'chrome://resources/js/browser_command/browser
 export {NtpElement} from './app.js';
 export {BackgroundManager} from './background_manager.js';
 export {CustomizeDialogPage} from './customize_dialog_types.js';
-// <if expr="not is_official_build">
-export {FooHandlerRemote} from './foo.mojom-webui.js';
-// </if>
 export {recordDuration, recordLoadDuration, recordOccurence, recordPerdecage} from './metrics_utils.js';
 export {ChromeCartProxy} from './modules/cart/chrome_cart_proxy.js';
 export {chromeCartDescriptor} from './modules/cart/module.js';
@@ -25,8 +22,8 @@ export {DriveProxy} from './modules/drive/drive_module_proxy.js';
 export {driveDescriptor} from './modules/drive/module.js';
 export {driveDescriptor as driveV2Descriptor} from './modules/drive_v2/module.js';
 // <if expr="not is_official_build">
-export {FooProxy} from './modules/dummy/foo_proxy.js';
-export {dummyDescriptor} from './modules/dummy/module.js';
+export {FooProxy} from './modules/dummy_v2/foo_proxy.js';
+export {dummyV2Descriptor} from './modules/dummy_v2/module.js';
 // </if>
 export {InfoDialogElement} from './modules/info_dialog.js';
 export {InitializeModuleCallback, Module, ModuleDescriptor, ModuleDescriptorV2, ModuleHeight} from './modules/module_descriptor.js';

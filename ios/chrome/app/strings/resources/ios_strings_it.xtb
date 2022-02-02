@@ -82,6 +82,7 @@ Il tuo motore di ricerca è <ph name="DSE_NAME" />. Consulta le relative istruzi
 <translation id="1605658421715042784">Copia immagine</translation>
 <translation id="1608337082864370066">Cerca l'immagine copiata</translation>
 <translation id="1612730193129642006">Mostra griglia schede</translation>
+<translation id="1620510694547887537">Fotocamera</translation>
 <translation id="1644574205037202324">Cronologia</translation>
 <translation id="1650222530560417226">Tocca il pulsante "Inizia registrazione" per raccogliere i log della console JavaScript e gli errori di tutte le schede. I log verranno raccolti e archiviati unicamente in memoria fino alla chiusura della pagina o finché non toccherai "Interrompi registrazione".</translation>
 <translation id="1657011748321897393">Condivisione non riuscita perché non sei collegato alla rete.</translation>
@@ -94,7 +95,6 @@ Il tuo motore di ricerca è <ph name="DSE_NAME" />. Consulta le relative istruzi
 <translation id="1690731385917361335">Nessun elemento</translation>
 <translation id="1692118695553449118">La sincronizzazione è attiva</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> selezionati</translation>
-<translation id="1726573592754903697">Gestore delle password di Google</translation>
 <translation id="1740468249224277719">Tocca due volte per installare.</translation>
 <translation id="1752547299766512813">Salva password</translation>
 <translation id="1753905327828125965">Più visitati</translation>
@@ -142,6 +142,7 @@ Il tuo motore di ricerca è <ph name="DSE_NAME" />. Consulta le relative istruzi
 <translation id="2271351792809375263">Usa le password salvate su Chrome in altre app sul tuo dispositivo</translation>
 <translation id="2273327106802955778">Menu Altro</translation>
 <translation id="2286505070150039482">Testo evidenziato</translation>
+<translation id="2299218006564889602">Le tue password vengono criptate sul dispositivo prima di essere salvate in Gestore delle password di Google.</translation>
 <translation id="2302742851632557585">Cambia password sul sito web</translation>
 <translation id="2316709634732130529">Utilizza la password suggerita</translation>
 <translation id="2320166752086256636">Nascondi tastiera</translation>
@@ -246,6 +247,7 @@ Consulta le istruzioni del tuo motore di ricerca per eliminare la tua cronologia
 <translation id="3184767182050912705">Sblocca con <ph name="BIOMETRIC_AUTHENITCATION_TYPE" /></translation>
 <translation id="3207960819495026254">Aggiunto ai preferiti</translation>
 <translation id="3224641773458703735">Per esportare le password devi innanzitutto impostare un passcode sul dispositivo.</translation>
+<translation id="3227137524299004712">Microfono</translation>
 <translation id="3230318355092723906">Quando la sincronizzazione è disattivata, puoi trovare ancora tutti i tuoi preferiti, la cronologia, le password e altre impostazioni su questo dispositivo. Le eventuali modifiche apportate non verranno sincronizzate con il tuo account.</translation>
 <translation id="3240426699337459095">Link copiato</translation>
 <translation id="3244271242291266297">MM</translation>
@@ -422,7 +424,6 @@ Per cambiare questa impostazione, <ph name="BEGIN_LINK" />reimposta la sincroniz
 <translation id="4901778704868714008">Salva…</translation>
 <translation id="4904877109095351937">Segna come già letti</translation>
 <translation id="4908869848243824489">Discover di Google</translation>
-<translation id="4930268273022498155">Elimina i dati esistenti. Puoi recuperarli tornando all'account <ph name="USER_EMAIL1" />.</translation>
 <translation id="4930714375720679147">Attiva</translation>
 <translation id="4941089862236492464">Spiacenti, si è verificato un problema di condivisione.</translation>
 <translation id="4944543191714094452">Trova nella pagina…</translation>
@@ -502,7 +503,9 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="575902488528307720">Cerca immagine</translation>
 <translation id="5781453543752460388">Aggiungi a Foto</translation>
 <translation id="5782227691023083829">Traduzione in corso...</translation>
+<translation id="5802829331520313983">Configura…</translation>
 <translation id="5803566855766646066">Vuoi eliminare questa nuova carta?</translation>
+<translation id="5804241973901381774">Autorizzazioni</translation>
 <translation id="5812974770859303494">Aggiungi a…</translation>
 <translation id="5816228676161003208">In questo modo puoi eseguire ricerche più veloci con la voce.</translation>
 <translation id="581659025233126501">Attiva la sincronizzazione</translation>
@@ -518,6 +521,7 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="5896576662943111387">Realizzato per iOS</translation>
 <translation id="5897956970858271241">Visita il link copiato</translation>
 <translation id="5899314093904173337">Per condividere i contenuti con le persone qui vicino, chiedi loro di scansionare questo codice QR con la fotocamera o con un'app scanner QR</translation>
+<translation id="5902639236448164449">Gestisci le autorizzazioni del sito per <ph name="URL" />. Queste autorizzazioni verranno reimpostate quando chiudi la scheda.</translation>
 <translation id="5911030830365207728">Google Traduttore</translation>
 <translation id="5913600720976431809">Opzioni per tradurre la pagina</translation>
 <translation id="5938160824633642847">Il dispositivo è quasi pieno. Libera spazio e riprova.</translation>
@@ -544,6 +548,7 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="6066301408025741299">Tocca per annullare.</translation>
 <translation id="60829778314739003">Accetta e continua</translation>
 <translation id="6084848228346514841">Seleziona schede</translation>
+<translation id="6103540626693881831">Crittografia on-device</translation>
 <translation id="6108923351542677676">Configurazione in corso…</translation>
 <translation id="6119050551270742952">Pagina web corrente in incognito</translation>
 <translation id="6122191549521593678">Online</translation>
@@ -567,7 +572,6 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="6284652193729350524">Proponi di tradurre dalla lingua <ph name="LANGUAGE" /></translation>
 <translation id="6293101329759844770">Per attivare Navigazione sicura, apri <ph name="BEGIN_LINK" />Servizi Google<ph name="END_LINK" /> e tocca Navigazione sicura.</translation>
 <translation id="6321526113093607004">Aggiungi ai preferiti</translation>
-<translation id="6324528485781869530">Cambia account di sincronizzazione</translation>
 <translation id="6324669097367352121">Impostazioni accesso</translation>
 <translation id="6337234675334993532">Crittografia</translation>
 <translation id="633809752005859102">Si è verificato un problema. Stiamo cercando una soluzione.</translation>
@@ -611,6 +615,7 @@ Cerca di usare una password univoca per ogni sito.</translation>
 <translation id="6524918542306337007">Modalità di navigazione in incognito non disponibile</translation>
 <translation id="6537746030088321027">example.com</translation>
 <translation id="6561262006871132942">Aumenta lo zoom</translation>
+<translation id="6583087784430677195">Per disattivare la funzionalità, apri le <ph name="BEGIN_LINK" />Impostazioni<ph name="END_LINK" /> e vai a Riempimento automatico password.</translation>
 <translation id="6585618849026997638">Puoi tornare a una pagina che ritieni importante aggiungendola ai preferiti</translation>
 <translation id="6603393121510733479">La tua organizzazione ha disattivato la navigazione privata.
 <ph name="BEGIN_LINK" />Scopri di più<ph name="END_LINK" /></translation>
@@ -762,6 +767,7 @@ I siti possono utilizzare i cookie per conoscere la tua attività di navigazione
 <translation id="797413074872316787">Attiva la sincronizzazione per sincronizzare e personalizzare tutti i dispositivi.</translation>
 <translation id="7978018860671536736">3. Tocca Riempimento automatico password</translation>
 <translation id="7982789257301363584">Rete</translation>
+<translation id="7987685713885608670">Per maggiore sicurezza, cripta le password sul dispositivo prima che vengano salvate in Gestore delle password di Google.</translation>
 <translation id="7993619969781047893">Le funzionalità su alcuni siti potrebbero non essere disponibili</translation>
 <translation id="800361585186029508">Consente di aprire gli URL inseriti in Google Chrome.</translation>
 <translation id="802154636333426148">Download non riuscito</translation>

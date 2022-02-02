@@ -30,6 +30,7 @@
 #include "base/types/pass_key.h"
 #include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
+#include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/core/animation/animatable.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -44,7 +45,7 @@
 #include "third_party/blink/renderer/core/dom/whitespace_attacher.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/region_capture_crop_id.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -318,11 +319,16 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
   // This variant will not update the potentially invalid attributes. To be used
   // when not interested in style attribute or one of the SVG attributes.
   AttributeCollection AttributesWithoutUpdate() const;
+  // Similar to AttributesWithoutUpdate(), but with only the style attribute
+  // exempt (ie., SVG attributes are always synchronized, for simplicity).
+  // The style attribute is special because it is so frequently updated from
+  // JavaScript and also easily identifiable (it is a single attribute).
+  AttributeCollection AttributesWithoutStyleUpdate() const;
 
   void scrollIntoView(const V8UnionBooleanOrScrollIntoViewOptions* arg);
   void scrollIntoView(bool align_to_top = true);
   void scrollIntoViewWithOptions(const ScrollIntoViewOptions*);
-  void ScrollIntoViewNoVisualUpdate(const ScrollIntoViewOptions*);
+  void ScrollIntoViewNoVisualUpdate(mojom::blink::ScrollIntoViewParamsPtr);
   void scrollIntoViewIfNeeded(bool center_if_needed = true);
 
   int OffsetLeft();
@@ -688,9 +694,11 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
   void focus();
   void focus(const FocusOptions*);
 
-  void UpdateFocusAppearance(SelectionBehaviorOnFocus);
-  virtual void UpdateFocusAppearanceWithOptions(SelectionBehaviorOnFocus,
-                                                const FocusOptions*);
+  void UpdateSelectionOnFocus(SelectionBehaviorOnFocus);
+  // This function is called after SetFocused(true) before dispatching 'focus'
+  // event, or is called just after a layout after changing <input> type.
+  virtual void UpdateSelectionOnFocus(SelectionBehaviorOnFocus,
+                                      const FocusOptions*);
   virtual void blur();
 
   // Whether this element can receive focus at all. Most elements are not
@@ -890,6 +898,8 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
     return StyleShouldForceLegacyLayout() || ShouldForceLegacyLayoutForChild();
   }
 
+  void ResetForceLegacyLayoutForPrinting();
+
   virtual void BuildPendingResource() {}
 
   void SetCustomElementDefinition(CustomElementDefinition*);
@@ -1021,11 +1031,6 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
 
   void NotifyInlineStyleMutation();
 
-  // Returns true if this element should composite due to a document transition.
-  // See third_party/blink/renderer/core/document_transition/README.md for more
-  // information.
-  bool ShouldCompositeForDocumentTransition() const;
-
   // For undo stack cleanup
   bool HasUndoStack() const;
   void SetHasUndoStack(bool);
@@ -1048,6 +1053,10 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
       const Vector<AtomicString>& document_transition_tags);
   void RebuildTransitionPseudoLayoutTree(
       const Vector<AtomicString>& document_transition_tags);
+
+  // Returns true if the element has the 'inert' attribute, forcing itself and
+  // all its subtree to be inert.
+  bool IsInertRoot();
 
  protected:
   const ElementData* GetElementData() const { return element_data_.Get(); }
@@ -1278,6 +1287,7 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
 
   void SynchronizeAllAttributes() const;
   void SynchronizeAttribute(const QualifiedName&) const;
+  void SynchronizeAllAttributesExceptStyle() const;
 
   void UpdateId(const AtomicString& old_id, const AtomicString& new_id);
   void UpdateId(TreeScope&,
@@ -1329,7 +1339,7 @@ class CORE_EXPORT Element : public ContainerNode, public Animatable {
       AtomicString name,
       WTF::AtomicStringTable::WeakResult hint) const;
 
-  void CancelFocusAppearanceUpdate();
+  void CancelSelectionAfterLayout();
   virtual int DefaultTabIndex() const;
 
   const ComputedStyle* VirtualEnsureComputedStyle(
@@ -1459,7 +1469,6 @@ struct DowncastTraits<Element> {
   static bool AllowFrom(const Node& node) { return node.IsElementNode(); }
 };
 
-
 inline bool IsDisabledFormControl(const Node* node) {
   auto* element = DynamicTo<Element>(node);
   return element && element->IsDisabledFormControl();
@@ -1501,6 +1510,13 @@ inline AttributeCollection Element::Attributes() const {
 inline AttributeCollection Element::AttributesWithoutUpdate() const {
   if (!GetElementData())
     return AttributeCollection();
+  return GetElementData()->Attributes();
+}
+
+inline AttributeCollection Element::AttributesWithoutStyleUpdate() const {
+  if (!GetElementData())
+    return AttributeCollection();
+  SynchronizeAllAttributesExceptStyle();
   return GetElementData()->Attributes();
 }
 

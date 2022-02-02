@@ -176,22 +176,11 @@ class CORE_EXPORT NGBlockNode : public NGLayoutInputNode {
       NGBaselineAlgorithmType baseline_algorithm_type =
           NGBaselineAlgorithmType::kInlineBlock);
 
-  void InsertIntoLegacyPositionedObjects() const;
+  void InsertIntoLegacyPositionedObjectsOf(LayoutBlock*) const;
 
   // Write back resolved margins to legacy.
   void StoreMargins(const NGConstraintSpace&, const NGBoxStrut& margins);
   void StoreMargins(const NGPhysicalBoxStrut& margins);
-
-  // Add a column layout result to a list. Columns are essentially
-  // LayoutObject-less, but we still need to keep the fragments generated
-  // somewhere.
-  void AddColumnResult(scoped_refptr<const NGLayoutResult>,
-                       const NGBlockBreakToken* incoming_break_token) const;
-  // Add a column layout result to this node.
-  void AddColumnResult(scoped_refptr<const NGLayoutResult>) const;
-  // Replace an existing column layout result with a new one.
-  void ReplaceColumnResult(scoped_refptr<const NGLayoutResult>,
-                           const NGPhysicalBoxFragment& old_fragment) const;
 
   static bool CanUseNewLayout(const LayoutBox&);
   bool CanUseNewLayout() const;
@@ -241,6 +230,10 @@ class CORE_EXPORT NGBlockNode : public NGLayoutInputNode {
                     const NGConstraintSpace&,
                     const NGBlockBreakToken*,
                     scoped_refptr<const NGLayoutResult>) const;
+
+  // Update the layout results vector in LayoutBox with the new result.
+  void StoreResultInLayoutBox(scoped_refptr<const NGLayoutResult>,
+                              const NGBlockBreakToken*) const;
 
   // After we run the layout algorithm, this function copies back the geometry
   // data to the layout box.

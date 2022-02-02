@@ -8,7 +8,7 @@ import android.content.Context;
 import android.view.View;
 
 import org.chromium.base.Callback;
-import org.chromium.chrome.browser.ActivityTabProvider;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.autofill_assistant.onboarding.OnboardingCoordinatorFactory;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -36,13 +36,14 @@ class TestingAutofillAssistantModuleEntryProvider extends AutofillAssistantModul
         public MockAutofillAssistantActionHandler(Context context,
                 BottomSheetController bottomSheetController,
                 BrowserControlsStateProvider browserControls, View rootView,
-                ActivityTabProvider activityTabProvider,
-                AssistantDependenciesFactory dependenciesFactory) {
-            super(new OnboardingCoordinatorFactory(context, bottomSheetController, browserControls,
-                          rootView,
-                          dependenciesFactory.createStaticDependencies().getAccessibilityUtil(),
-                          dependenciesFactory.createStaticDependencies().getInfoPageUtil()),
-                    activityTabProvider, dependenciesFactory);
+                Supplier<WebContents> webContentsSupplier,
+                AssistantStaticDependencies staticDependencies) {
+            super(new OnboardingCoordinatorFactory(context, bottomSheetController,
+                          ()
+                                  -> new AssistantBrowserControlsChrome(browserControls),
+                          rootView, staticDependencies.getAccessibilityUtil(),
+                          staticDependencies.createInfoPageUtil()),
+                    webContentsSupplier, staticDependencies);
         }
 
         @Override
@@ -61,11 +62,6 @@ class TestingAutofillAssistantModuleEntryProvider extends AutofillAssistantModul
     /** Mock module entry. */
     static class MockAutofillAssistantModuleEntry implements AutofillAssistantModuleEntry {
         @Override
-        public AssistantDependenciesFactory createDependenciesFactory() {
-            return new AssistantDependenciesFactoryChrome();
-        }
-
-        @Override
         public AssistantOnboardingHelper createOnboardingHelper(
                 WebContents webContents, AssistantDependencies dependencies) {
             return null;
@@ -75,10 +71,10 @@ class TestingAutofillAssistantModuleEntryProvider extends AutofillAssistantModul
         public AutofillAssistantActionHandler createActionHandler(Context context,
                 BottomSheetController bottomSheetController,
                 BrowserControlsStateProvider browserControls, View rootView,
-                ActivityTabProvider activityTabProvider,
-                AssistantDependenciesFactory dependenciesFactory) {
+                Supplier<WebContents> webContentsSupplier,
+                AssistantStaticDependencies staticDependencies) {
             return new MockAutofillAssistantActionHandler(context, bottomSheetController,
-                    browserControls, rootView, activityTabProvider, dependenciesFactory);
+                    browserControls, rootView, webContentsSupplier, staticDependencies);
         }
     }
 

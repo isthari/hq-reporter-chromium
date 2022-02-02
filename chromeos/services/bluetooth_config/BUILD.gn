@@ -66,6 +66,7 @@ static_library("bluetooth_config") {
     "//components/session_manager/core",
     "//components/user_manager",
     "//device/bluetooth",
+    "//device/bluetooth/public/cpp",
     "//mojo/public/cpp/bindings",
   ]
 }
@@ -164,7 +165,7 @@ source_set("unit_tests") {
     "//ash/constants",
     "//base",
     "//base/test:test_support",
-    "//chromeos/services/bluetooth_config/public/cpp:unit_tests",
+    "//chromeos/services/bluetooth_config/public/cpp",
     "//components/session_manager/core",
     "//components/sync_preferences:test_support",
     "//components/user_manager:test_support",

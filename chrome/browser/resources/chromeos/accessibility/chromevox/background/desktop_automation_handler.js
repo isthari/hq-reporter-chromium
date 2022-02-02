@@ -8,6 +8,7 @@
 
 goog.provide('DesktopAutomationHandler');
 
+goog.require('AutoScrollHandler');
 goog.require('AutomationObjectConstructorInstaller');
 goog.require('BaseAutomationHandler');
 goog.require('ChromeVoxState');
@@ -310,6 +311,10 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
       return;
     }
 
+    if (!AutoScrollHandler.getInstance().onFocusEventNavigation(node)) {
+      return;
+    }
+
     // Update the focused root url, which gets used as part of focus recovery.
     this.lastRootUrl_ = node.root.docUrl || '';
 
@@ -507,7 +512,9 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
               .deepEquivalent);
 
       // Sync ChromeVox range with selection.
-      ChromeVoxState.instance.setCurrentRange(selectedRange);
+      if (!ChromeVoxState.isReadingContinuously) {
+        ChromeVoxState.instance.setCurrentRange(selectedRange);
+      }
     }
     this.textEditHandler_.onEvent(evt);
   }

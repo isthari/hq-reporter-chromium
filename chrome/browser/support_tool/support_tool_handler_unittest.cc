@@ -53,7 +53,10 @@ class TestDataCollector : public DataCollector {
   const PIIMap& GetDetectedPII() override { return pii_map_; }
 
   void CollectDataAndDetectPII(
-      DataCollectorDoneCallback on_data_collected_callback) override {
+      DataCollectorDoneCallback on_data_collected_callback,
+      scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
+      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container)
+      override {
     // Add fake PII for testing and return error to the callback if required.
     PrepareDataCollectionOutput(std::move(on_data_collected_callback));
   }
@@ -61,6 +64,8 @@ class TestDataCollector : public DataCollector {
   void ExportCollectedDataWithPII(
       std::set<feedback::PIIType> pii_types_to_keep,
       base::FilePath target_directory,
+      scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
+      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container,
       DataCollectorDoneCallback on_exported_callback) override {
     on_exported_callback = base::BindPostTask(
         base::ThreadTaskRunnerHandle::Get(), std::move(on_exported_callback));
@@ -77,7 +82,8 @@ class TestDataCollector : public DataCollector {
   // `callback`. Adds errors when running `callback` if this.error_ is true.
   void PrepareDataCollectionOutput(DataCollectorDoneCallback callback) {
     if (error_) {
-      std::move(callback).Run(SupportToolError::kTestDataCollectorError);
+      std::move(callback).Run(SupportToolError(
+          SupportToolErrorCode::kDataCollectorError, /*error_message=*/""));
     } else {
       pii_map_[feedback::PIIType::kUIHierarchyWindowTitles].insert(name_);
       std::move(callback).Run(absl::nullopt);
@@ -89,7 +95,8 @@ class TestDataCollector : public DataCollector {
   void WriteFileForTesting(base::FilePath target_directory,
                            DataCollectorDoneCallback callback) {
     if (error_) {
-      std::move(callback).Run(SupportToolError::kTestDataCollectorError);
+      std::move(callback).Run(SupportToolError(
+          SupportToolErrorCode::kDataCollectorError, /*error_message=*/""));
     } else {
       base::FilePath target_file = target_directory.AppendASCII(name_);
       base::WriteFile(target_file, kTestDataToWriteOnFile);
@@ -251,12 +258,14 @@ TEST_F(SupportToolHandlerTest, ErrorMessageOnCollectData) {
   EXPECT_FALSE(detected_pii.empty());
   // Check if the error message returned contains the expected result.
   EXPECT_FALSE(errors.empty());
-  // SupportToolError::kTestDataCollectorError should be present in the errors
+  // SupportToolErrorCode::kDataCollectorError should be present in the errors
   // returned.
   size_t expected_size = 1;
   EXPECT_EQ(errors.size(), expected_size);
-  EXPECT_NE(errors.find(SupportToolError::kTestDataCollectorError),
-            errors.end());
+  EXPECT_NE(
+      errors.find(SupportToolError(SupportToolErrorCode::kDataCollectorError,
+                                   /*error_message=*/"")),
+      errors.end());
 }
 
 TEST_F(SupportToolHandlerTest, ErrorMessageOnExportSupportData) {
@@ -284,12 +293,14 @@ TEST_F(SupportToolHandlerTest, ErrorMessageOnExportSupportData) {
   // Check the error message.
   std::set<SupportToolError> errors = test_future.Get();
   EXPECT_FALSE(errors.empty());
-  // SupportToolError::kTestDataCollectorError should be present in the errors
+  // SupportToolErrorCode::kDataCollectorError should be present in the errors
   // returned.
   size_t expected_size = 1;
   EXPECT_EQ(errors.size(), expected_size);
-  EXPECT_NE(errors.find(SupportToolError::kTestDataCollectorError),
-            errors.end());
+  EXPECT_NE(
+      errors.find(SupportToolError(SupportToolErrorCode::kDataCollectorError,
+                                   /*error_message=*/"")),
+      errors.end());
 
   // SupportToolHandler will archive the data into a .zip archive.
   target_path = target_path.AddExtension(FILE_PATH_LITERAL(".zip"));

@@ -586,9 +586,22 @@ bool ComputedStyle::CachedPseudoElementStylesDependOnFontMetrics() const {
 }
 
 const ComputedStyle* ComputedStyle::AddCachedPseudoElementStyle(
-    scoped_refptr<const ComputedStyle> pseudo) const {
+    scoped_refptr<const ComputedStyle> pseudo,
+    PseudoId pseudo_id,
+    const AtomicString& pseudo_argument) const {
   DCHECK(pseudo);
-  DCHECK_GT(pseudo->StyleType(), kPseudoIdNone);
+
+  // Confirm that the styles being cached are for the (PseudoId,argument) that
+  // the caller intended (and presumably had checked was not present).
+  DCHECK_EQ(static_cast<unsigned>(pseudo->StyleType()),
+            static_cast<unsigned>(pseudo_id));
+  DCHECK_EQ(pseudo->PseudoArgument(), pseudo_argument);
+
+  // The pseudo style cache assumes that only one entry will be added for any
+  // any given (PseudoId,argument). Adding more than one entry is a bug, even
+  // if the styles being cached are equal.
+  DCHECK(!GetCachedPseudoElementStyle(pseudo->StyleType(),
+                                      pseudo->PseudoArgument()));
 
   const ComputedStyle* result = pseudo.get();
 
@@ -675,9 +688,7 @@ StyleDifference ComputedStyle::VisualInvalidationDiff(
   // property inside this function anyway.
 
   StyleDifference diff;
-  if ((!diff.NeedsReshape() || !diff.NeedsFullLayout() ||
-       !diff.NeedsPaintInvalidation()) &&
-      DiffNeedsReshapeAndFullLayoutAndPaintInvalidation(*this, other)) {
+  if (DiffNeedsReshapeAndFullLayoutAndPaintInvalidation(*this, other)) {
     diff.SetNeedsReshape();
     diff.SetNeedsFullLayout();
     diff.SetNeedsPaintInvalidation();
@@ -1055,12 +1066,13 @@ void ComputedStyle::UpdatePropertySpecificDifferences(
       HasCurrentBackdropFilterAnimation() !=
           other.HasCurrentBackdropFilterAnimation() ||
       SubtreeWillChangeContents() != other.SubtreeWillChangeContents() ||
+      WillChangeScrollPosition() != other.WillChangeScrollPosition() ||
+      WillChangeProperties() != other.WillChangeProperties() ||
       BackfaceVisibility() != other.BackfaceVisibility() ||
       UsedTransformStyle3D() != other.UsedTransformStyle3D() ||
       ContainsPaint() != other.ContainsPaint() ||
       IsOverflowVisibleAlongBothAxes() !=
           other.IsOverflowVisibleAlongBothAxes() ||
-      WillChangeProperties() != other.WillChangeProperties() ||
       !BackdropFilterDataEquivalent(other) ||
       PotentialCompositingReasonsFor3DTransformChanged(other)) {
     diff.SetCompositingReasonsChanged();
@@ -2476,8 +2488,10 @@ LayoutRectOutsets ComputedStyle::BoxDecorationOutsets() const {
   DCHECK(HasVisualOverflowingEffect());
   LayoutRectOutsets outsets;
 
-  if (const ShadowList* box_shadow = BoxShadow())
-    outsets = LayoutRectOutsets(box_shadow->RectOutsetsIncludingOriginal());
+  if (const ShadowList* box_shadow = BoxShadow()) {
+    outsets =
+        EnclosingLayoutRectOutsets(box_shadow->RectOutsetsIncludingOriginal());
+  }
 
   if (HasBorderImageOutsets())
     outsets.Unite(BorderImageOutsets());

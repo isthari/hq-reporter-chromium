@@ -27,13 +27,9 @@
 #if defined(ARCH_CPU_X86_64)
 #include "chrome/renderer/performance_manager/mechanisms/userspace_swap_impl_chromeos.h"
 #endif  // defined(ARCH_CPU_X86_64)
-#if BUILDFLAG(USE_TCMALLOC)
-#include "chrome/common/performance_manager/mojom/tcmalloc.mojom.h"
-#include "chrome/renderer/performance_manager/mechanisms/tcmalloc_tunables_impl.h"
-#endif  // BUILDFLAG(USE_TCMALLOC)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "chrome/renderer/font_prewarmer.h"
 #endif
 
@@ -81,12 +77,6 @@ void ExposeChromeRendererInterfacesToBrowser(
   }
 #endif  // defined(ARCH_CPU_X86_64)
 
-#if BUILDFLAG(USE_TCMALLOC)
-  binders->Add(
-      base::BindRepeating(
-          &performance_manager::mechanism::TcmallocTunablesImpl::Create),
-      base::SequencedTaskRunnerHandle::Get());
-#endif  // BUILDFLAG(USE_TCMALLOC)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
@@ -94,7 +84,7 @@ void ExposeChromeRendererInterfacesToBrowser(
                base::SequencedTaskRunnerHandle::Get());
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   binders->Add(base::BindRepeating(&FontPrewarmer::Bind),
                base::SequencedTaskRunnerHandle::Get());
 #endif

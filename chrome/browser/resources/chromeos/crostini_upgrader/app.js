@@ -106,6 +106,12 @@ Polymer({
       value: '',
     },
 
+    /** @private */
+    precheckStatus_: {
+      type: Number,
+      value: chromeos.crostiniUpgrader.mojom.UpgradePrecheckStatus.OK,
+    },
+
     /**
      * Enable the html template to use State.
      * @private
@@ -236,7 +242,6 @@ Polymer({
   onActionButtonClick_() {
     switch (this.state_) {
       case State.SUCCEEDED:
-      case State.RESTORE_SUCCEEDED:
         BrowserProxy.getInstance().handler.launch();
         this.closePage_();
         break;
@@ -253,6 +258,8 @@ Polymer({
       case State.OFFER_RESTORE:
         this.startRestore_();
         break;
+      default:
+        assertNotReached();
     }
   },
 
@@ -265,6 +272,10 @@ Polymer({
       case State.UPGRADING:
         this.state_ = State.CANCELING;
         BrowserProxy.getInstance().handler.cancel();
+        break;
+      case State.RESTORE_SUCCEEDED:
+        BrowserProxy.getInstance().handler.launch();
+        this.closePage_();
         break;
       case State.PRECHECKS_FAILED:
       case State.UPGRADE_ERROR:
@@ -352,6 +363,18 @@ Polymer({
         this.isState_(this.state_, State.SUCCEEDED));
   },
 
+  getLogMessage_(state, file_name) {
+    switch (state) {
+      case State.SUCCEEDED:
+        return loadTimeData.getStringF('logFileMessageSuccess', file_name);
+      case State.UPGRADE_ERROR:
+      case State.OFFER_RESTORE:
+        return loadTimeData.getStringF('logFileMessageError', file_name);
+      default:
+        return '';
+    }
+  },
+
   /**
    * @param {State} state
    * @return {boolean}
@@ -363,7 +386,6 @@ Polymer({
       case State.PRECHECKS_FAILED:
       case State.SUCCEEDED:
       case State.OFFER_RESTORE:
-      case State.RESTORE_SUCCEEDED:
         return true;
     }
     return false;
@@ -463,6 +485,8 @@ Polymer({
     switch (state) {
       case State.SUCCEEDED:
       case State.RESTORE_SUCCEEDED:
+      case State.UPGRADE_ERROR:
+      case State.ERROR:
         return loadTimeData.getString('close');
       case State.PROMPT:
         return loadTimeData.getString('notNow');
@@ -476,7 +500,7 @@ Polymer({
    * @return {string}
    * @private
    */
-  getProgressMessage_(state) {
+  getProgressMessage_(state, precheckStatus) {
     let messageId = null;
     switch (state) {
       case State.PROMPT:
@@ -489,7 +513,7 @@ Polymer({
         messageId = 'backupSucceededMessage';
         break;
       case State.PRECHECKS_FAILED:
-        switch (this.precheckStatus_) {
+        switch (precheckStatus) {
           case chromeos.crostiniUpgrader.mojom.UpgradePrecheckStatus
               .NETWORK_FAILURE:
             messageId = 'precheckNoNetwork';
@@ -540,11 +564,8 @@ Polymer({
       case State.BACKUP_SUCCEEDED:
       case State.RESTORE_SUCCEEDED:
       case State.PRECHECKS_FAILED:
-        return 'img-square-illustration';
-      case State.OFFER_RESTORE:
-      case State.UPGRADE_ERROR:
       case State.ERROR:
-        return 'img-square-error-illustration';
+        return 'img-square-illustration';
     }
     return 'img-rect-illustration';
   },
@@ -560,8 +581,6 @@ Polymer({
       case State.RESTORE_SUCCEEDED:
         return 'images/success_illustration.svg';
       case State.PRECHECKS_FAILED:
-      case State.OFFER_RESTORE:
-      case State.UPGRADE_ERROR:
       case State.ERROR:
         return 'images/error_illustration.png';
     }
@@ -575,8 +594,8 @@ Polymer({
    */
   hideIllustration_(state) {
     switch (state) {
-      case State.BACKUP:
-      case State.UPGRADING:
+      case State.OFFER_RESTORE:
+      case State.UPGRADE_ERROR:
         return true;
     }
     return false;

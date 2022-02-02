@@ -12,20 +12,20 @@ namespace prefs {
 const char kCredentialsEnableAutosignin[] = "credentials_enable_autosignin";
 const char kCredentialsEnableService[] = "credentials_enable_service";
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 const char kCurrentMigrationVersionToGoogleMobileServices[] =
     "current_migration_version_to_google_mobile_services";
 
 const char kTimeOfLastMigrationAttempt[] = "time_of_last_migration_attempt";
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 const char kOsPasswordBlank[] = "password_manager.os_password_blank";
 const char kOsPasswordLastChanged[] =
     "password_manager.os_password_last_changed";
 #endif
 
-#if defined(OS_APPLE)
+#if BUILDFLAG(IS_APPLE)
 const char kKeychainMigrationStatus[] = "password_manager.keychain_migration";
 #endif
 
@@ -56,6 +56,9 @@ const char kPasswordHashDataList[] = "profile.password_hash_data_list";
 
 const char kPasswordLeakDetectionEnabled[] =
     "profile.password_manager_leak_detection";
+
+const char kPasswordDismissCompromisedAlertEnabled[] =
+    "profile.password_dismiss_compromised_alert";
 
 const char kProfileStoreDateLastUsedForFilling[] =
     "password_manager.profile_store_date_last_used_for_filling";

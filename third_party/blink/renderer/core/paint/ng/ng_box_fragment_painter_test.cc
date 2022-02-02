@@ -81,10 +81,9 @@ TEST_P(NGBoxFragmentPainterTest, ScrollHitTestOrder) {
       ContentPaintChunks(),
       ElementsAre(
           VIEW_SCROLLING_BACKGROUND_CHUNK_COMMON,
-          IsPaintChunk(
-              1, 1,
-              PaintChunk::Id(scroller.Layer()->Id(), DisplayItem::kLayerChunk),
-              scroller.FirstFragment().LocalBorderBoxProperties()),
+          IsPaintChunk(1, 1,
+                       PaintChunk::Id(scroller.Id(), kBackgroundChunkType),
+                       scroller.FirstFragment().LocalBorderBoxProperties()),
           IsPaintChunk(
               1, 1,
               PaintChunk::Id(root_fragment.Id(), DisplayItem::kScrollHitTest),
@@ -122,8 +121,7 @@ TEST_P(NGBoxFragmentPainterTest, AddUrlRects) {
 
   GetDocument().View()->PaintOutsideOfLifecycle(
       builder->Context(),
-      kGlobalPaintNormalPhase | kGlobalPaintAddUrlMetadata |
-          kGlobalPaintFlattenCompositingLayers,
+      PaintFlag::kAddUrlMetadata | PaintFlag::kOmitCompositingInfo,
       CullRect::Infinite());
 
   auto record = builder->EndRecording();
@@ -181,7 +179,7 @@ TEST_P(NGBoxFragmentPainterTest, SelectionTablePainting) {
   auto* builder = MakeGarbageCollected<PaintRecordBuilder>();
   GetDocument().View()->PaintOutsideOfLifecycle(
       builder->Context(),
-      kGlobalPaintSelectionDragImageOnly | kGlobalPaintFlattenCompositingLayers,
+      PaintFlag::kSelectionDragImageOnly | PaintFlag::kOmitCompositingInfo,
       CullRect::Infinite());
 
   auto record = builder->EndRecording();

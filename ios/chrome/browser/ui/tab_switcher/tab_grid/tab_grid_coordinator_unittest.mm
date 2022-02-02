@@ -97,8 +97,10 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
         AuthenticationServiceFactory::GetInstance(),
         base::BindRepeating(
             &AuthenticationServiceFake::CreateAuthenticationService));
+    test_cbs_builder.AddTestingFactory(
+        ios::BookmarkModelFactory::GetInstance(),
+        ios::BookmarkModelFactory::GetDefaultFactory());
     chrome_browser_state_ = test_cbs_builder.Build();
-    chrome_browser_state_->CreateBookmarkModel(true);
 
     bookmark_model_ = ios::BookmarkModelFactory::GetForBrowserState(
         chrome_browser_state_.get());
@@ -108,7 +110,8 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
 
     AddAgentsToBrowser(browser_.get(), scene_state_);
 
-    incognito_browser_ = std::make_unique<TestBrowser>();
+    incognito_browser_ = std::make_unique<TestBrowser>(
+        chrome_browser_state_->GetOffTheRecordChromeBrowserState());
     AddAgentsToBrowser(incognito_browser_.get(), scene_state_);
 
     UIWindow* window = GetAnyKeyWindow();

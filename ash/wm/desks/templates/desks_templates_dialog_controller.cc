@@ -10,6 +10,7 @@
 #include "ash/wm/desks/templates/desks_templates_grid_view.h"
 #include "ash/wm/desks/templates/desks_templates_icon_container.h"
 #include "ash/wm/desks/templates/desks_templates_item_view.h"
+#include "ash/wm/desks/templates/desks_templates_metrics_util.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "base/bind.h"
@@ -148,7 +149,6 @@ void DesksTemplatesDialogController::ShowUnsupportedAppsDialog(
   unsupported_apps_callback_ = std::move(callback);
   unsupported_apps_template_ = std::move(desk_template);
 
-  DesksTemplatesIconContainer* icon_container = nullptr;
   auto dialog =
       views::Builder<DesksTemplatesDialog>()
           .SetTitleText(IDS_ASH_DESKS_TEMPLATES_UNSUPPORTED_APPS_DIALOG_TITLE)
@@ -179,16 +179,18 @@ void DesksTemplatesDialogController::ShowUnsupportedAppsDialog(
                               kTextColorPrimary))
                   .SetText(l10n_util::GetStringUTF16(
                       IDS_ASH_DESKS_TEMPLATES_UNSUPPORTED_APPS_DIALOG_HEADER)),
-              views::Builder<DesksTemplatesIconContainer>().CopyAddressTo(
-                  &icon_container))
+              views::Builder<DesksTemplatesIconContainer>()
+                  .PopulateIconContainerFromWindows(unsupported_apps))
           .Build();
-  icon_container->PopulateIconContainerFromWindows(unsupported_apps);
   CreateDialogWidget(std::move(dialog), root_window);
+  RecordUnsupportedAppDialogShowHistogram();
 }
 
 void DesksTemplatesDialogController::ShowReplaceDialog(
     aura::Window* root_window,
-    const std::u16string& template_name) {
+    const std::u16string& template_name,
+    base::OnceClosure on_accept_callback,
+    base::OnceClosure on_cancel_callback) {
   auto dialog = views::Builder<DesksTemplatesDialog>()
                     .SetTitleText(IDS_ASH_DESKS_TEMPLATES_REPLACE_DIALOG_TITLE)
                     .SetConfirmButtonText(
@@ -199,6 +201,8 @@ void DesksTemplatesDialogController::ShowReplaceDialog(
                     .SetDescriptionAccessibleName(l10n_util::GetStringFUTF16(
                         IDS_ASH_DESKS_TEMPLATES_REPLACE_DIALOG_DESCRIPTION,
                         template_name))
+                    .SetAcceptCallback(std::move(on_accept_callback))
+                    .SetCancelCallback(std::move(on_cancel_callback))
                     .Build();
   CreateDialogWidget(std::move(dialog), root_window);
 }

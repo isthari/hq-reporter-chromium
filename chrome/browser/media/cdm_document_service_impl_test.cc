@@ -114,7 +114,7 @@ class CdmDocumentServiceImplTest : public ChromeRenderViewHostTestHarness {
                                 base::UnguessableToken::Create()));
 
     DictionaryPrefUpdate update(user_prefs, prefs::kMediaCdmOriginData);
-    base::DictionaryValue* dict = update.Get();
+    base::Value* dict = update.Get();
     const std::string serialized_origin =
         web_contents()->GetMainFrame()->GetLastCommittedOrigin().Serialize();
     dict->SetKey(serialized_origin, std::move(entry));

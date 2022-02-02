@@ -352,6 +352,18 @@ source_set("wayland") {
 
   deps += [ ":wayland_proxy" ]
 
+  if (use_glib) {
+    sources += [
+      "host/wayland_event_watcher_glib.cc",
+      "host/wayland_event_watcher_glib.h",
+    ]
+  } else {
+    sources += [
+      "host/wayland_event_watcher_fdwatch.cc",
+      "host/wayland_event_watcher_fdwatch.h",
+    ]
+  }
+
   configs += [ "//third_party/khronos:khronos_headers" ]
 }
 
@@ -434,6 +446,8 @@ source_set("test_support") {
     "test/test_viewporter.h",
     "test/test_wayland_server_thread.cc",
     "test/test_wayland_server_thread.h",
+    "test/test_wp_pointer_gestures.cc",
+    "test/test_wp_pointer_gestures.h",
     "test/test_xdg_popup.cc",
     "test/test_xdg_popup.h",
     "test/test_zcr_text_input_extension.cc",
@@ -464,6 +478,7 @@ source_set("test_support") {
     "//third_party/wayland-protocols:gtk_primary_selection_protocol",
     "//third_party/wayland-protocols:linux_dmabuf_protocol",
     "//third_party/wayland-protocols:linux_explicit_synchronization_protocol",
+    "//third_party/wayland-protocols:pointer_gestures_protocol",
     "//third_party/wayland-protocols:presentation_time_protocol",
     "//third_party/wayland-protocols:primary_selection_protocol",
     "//third_party/wayland-protocols:text_input_extension_protocol",
@@ -484,6 +499,7 @@ source_set("wayland_unittests") {
     "host/wayland_connection_unittest.cc",
     "host/wayland_data_drag_controller_unittest.cc",
     "host/wayland_event_source_unittest.cc",
+    "host/wayland_exchange_data_provider_unittest.cc",
     "host/wayland_input_method_context_unittest.cc",
     "host/wayland_keyboard_unittest.cc",
     "host/wayland_pointer_unittest.cc",
@@ -494,6 +510,7 @@ source_set("wayland_unittests") {
     "host/wayland_window_manager_unittests.cc",
     "host/wayland_window_unittest.cc",
     "host/wayland_zaura_shell_unittest.cc",
+    "host/wayland_zwp_pointer_gestures_unittest.cc",
     "test/wayland_drag_drop_test.cc",
     "test/wayland_drag_drop_test.h",
     "test/wayland_test.cc",

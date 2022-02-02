@@ -558,6 +558,12 @@ int WorkerOrWorkletGlobalScope::GetOutstandingThrottledLimit() const {
   return 2;
 }
 
+String WorkerOrWorkletGlobalScope::GetAcceptLanguages() const {
+  // TODO(crbug.com/1286059): Turn this CHECK into a DCHECK when the investigation is done.
+  CHECK(web_worker_fetch_context_);
+  return web_worker_fetch_context_->GetAcceptLanguages();
+}
+
 void WorkerOrWorkletGlobalScope::Trace(Visitor* visitor) const {
   visitor->Trace(inside_settings_resource_fetcher_);
   visitor->Trace(resource_fetchers_);

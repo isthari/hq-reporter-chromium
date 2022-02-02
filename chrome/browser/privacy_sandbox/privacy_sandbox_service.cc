@@ -12,18 +12,20 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/federated_learning/floc_id_provider.h"
-#include "chrome/common/chrome_features.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/federated_learning/features/features.h"
 #include "components/prefs/pref_service.h"
+#include "components/privacy_sandbox/privacy_sandbox_features.h"
 #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
+#include "content/public/browser/interest_group_manager.h"
 #include "content/public/common/content_features.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/features.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -111,14 +113,18 @@ PrivacySandboxService::PrivacySandboxService(
     policy::PolicyService* policy_service,
     syncer::SyncService* sync_service,
     signin::IdentityManager* identity_manager,
-    federated_learning::FlocIdProvider* floc_id_provider)
+    federated_learning::FlocIdProvider* floc_id_provider,
+    content::InterestGroupManager* interest_group_manager,
+    profile_metrics::BrowserProfileType profile_type)
     : privacy_sandbox_settings_(privacy_sandbox_settings),
       cookie_settings_(cookie_settings),
       pref_service_(pref_service),
       policy_service_(policy_service),
       sync_service_(sync_service),
       identity_manager_(identity_manager),
-      floc_id_provider_(floc_id_provider) {
+      floc_id_provider_(floc_id_provider),
+      interest_group_manager_(interest_group_manager),
+      profile_type_(profile_type) {
   DCHECK(privacy_sandbox_settings_);
   DCHECK(pref_service_);
   DCHECK(cookie_settings_);
@@ -146,6 +152,24 @@ PrivacySandboxService::PrivacySandboxService(
 }
 
 PrivacySandboxService::~PrivacySandboxService() = default;
+
+PrivacySandboxService::DialogType
+PrivacySandboxService::GetRequiredDialogType() {
+  // Only consult feature parameters
+  // TODO(crbug.com/1286276): Implement additional behavior.
+  if (privacy_sandbox::kPrivacySandboxSettings3ForceShowConsent.Get())
+    return DialogType::kConsent;
+
+  if (privacy_sandbox::kPrivacySandboxSettings3ForceShowNotice.Get())
+    return DialogType::kNotice;
+
+  return DialogType::kNone;
+}
+
+void PrivacySandboxService::DialogActionOccur(
+    PrivacySandboxService::DialogAction action) {
+  // TODO(crbug.com/1286276): Not yet implemented.
+}
 
 std::u16string PrivacySandboxService::GetFlocDescriptionForDisplay() const {
   return l10n_util::GetPluralStringFUTF16(
@@ -199,17 +223,8 @@ std::u16string PrivacySandboxService::GetFlocResetExplanationForDisplay()
 }
 
 std::u16string PrivacySandboxService::GetFlocStatusForDisplay() const {
-  const bool floc_feature_enabled = base::FeatureList::IsEnabled(
-      blink::features::kInterestCohortAPIOriginTrial);
-  const bool floc_setting_enabled = privacy_sandbox_settings_->IsFlocAllowed();
-  if (floc_setting_enabled) {
-    return floc_feature_enabled
-               ? l10n_util::GetStringUTF16(
-                     IDS_PRIVACY_SANDBOX_FLOC_STATUS_ACTIVE)
-               : l10n_util::GetStringUTF16(
-                     IDS_PRIVACY_SANDBOX_FLOC_STATUS_ELIGIBLE_NOT_ACTIVE);
-  }
-
+  // FLoC always disabled while OT not active.
+  // TODO(crbug.com/1287951): Perform cleanup / adjustment as required.
   return l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_STATUS_NOT_ACTIVE);
 }
 
@@ -254,6 +269,18 @@ void PrivacySandboxService::OnPrivacySandboxPrefChanged() {
   // but performing it on every pref change achieves the same user visible
   // behavior, and is much simpler.
   ResetFlocId(/*user_initiated=*/false);
+}
+
+void PrivacySandboxService::GetFledgeJoiningEtldPlusOneForDisplay(
+    base::OnceCallback<void(std::vector<std::string>)> callback) {
+  if (!interest_group_manager_) {
+    std::move(callback).Run({});
+    return;
+  }
+
+  interest_group_manager_->GetAllInterestGroupJoiningOrigins(base::BindOnce(
+      &PrivacySandboxService::ConvertFledgeJoiningTopFramesForDisplay,
+      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void PrivacySandboxService::Shutdown() {
@@ -393,6 +420,10 @@ void PrivacySandboxService::RecordPrivacySandboxHistogram(
 }
 
 void PrivacySandboxService::LogPrivacySandboxState() {
+  // Do not record metrics for non-regular profiles.
+  if (profile_type_ != profile_metrics::BrowserProfileType::kRegular)
+    return;
+
   // Check policy status first.
   std::string default_cookie_setting_provider;
   auto default_cookie_setting = cookie_settings_->GetDefaultCookieSetting(
@@ -465,4 +496,37 @@ void PrivacySandboxService::LogPrivacySandboxState() {
               kPSDisabledAllowAll);
     }
   }
+}
+
+void PrivacySandboxService::ConvertFledgeJoiningTopFramesForDisplay(
+    base::OnceCallback<void(std::vector<std::string>)> callback,
+    std::vector<url::Origin> top_frames) {
+  std::set<std::string> display_entries;
+  for (const auto& origin : top_frames) {
+    // Prefer to display the associated eTLD+1, if there is one.
+    auto etld_plus_one = net::registry_controlled_domains::GetDomainAndRegistry(
+        origin, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+    if (etld_plus_one.length() > 0) {
+      display_entries.emplace(std::move(etld_plus_one));
+      continue;
+    }
+
+    // The next best option is a host, which may be an IP address or an eTLD
+    // itself (e.g. github.io).
+    // TODO(crbug.com/1286276): SetFledgeJoiningAllowed expects a non-empty
+    // eTLD+1 and so is more restrictive than what is allowed here. The logic
+    // there should be made to match this, as the user must be able to block
+    // whatever is displayed.
+    if (origin.host().length() > 0) {
+      display_entries.emplace(origin.host());
+      continue;
+    }
+
+    // Other types of top-frame origins (file, opaque) do not support FLEDGE.
+    NOTREACHED();
+  }
+  // TODO(crbug.com/1286276): Enforce a friendlier ordering instead of just
+  // whatever the database gives back.
+  std::move(callback).Run(
+      std::vector<std::string>{display_entries.begin(), display_entries.end()});
 }

@@ -56,7 +56,7 @@ void DevToolsSettings::Register(const std::string& name,
       !already_synced_value) {
     DictionaryPrefUpdate insert_update(profile_->GetPrefs(),
                                        dictionary_to_insert_into);
-    insert_update.Get()->SetKey(name, base::Value(*settings_value));
+    insert_update.Get()->SetStringKey(name, *settings_value);
   }
 
   DictionaryPrefUpdate remove_update(profile_->GetPrefs(),
@@ -103,7 +103,7 @@ void DevToolsSettings::Set(const std::string& name, const std::string& value) {
 
   DictionaryPrefUpdate update(profile_->GetPrefs(),
                               GetDictionaryNameForSettingsName(name));
-  update.Get()->SetKey(name, base::Value(value));
+  update.Get()->SetStringKey(name, value);
 }
 
 void DevToolsSettings::Remove(const std::string& name) {

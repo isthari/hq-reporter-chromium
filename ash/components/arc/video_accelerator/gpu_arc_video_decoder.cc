@@ -17,7 +17,7 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "media/base/decode_status.h"
+#include "media/base/decoder_status.h"
 #include "media/base/media_util.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
@@ -53,13 +53,17 @@ GpuArcVideoDecoder::~GpuArcVideoDecoder() {
   // Invalidate all weak pointers to stop incoming callbacks.
   weak_this_factory_.InvalidateWeakPtrs();
 
-  // The number of active instances should always be larger than zero. But if a
-  // bug causes an underflow we will permanently be unable to create new
-  // decoders, so an extra check is performed here (see b/173700103).
-  if (decoder_ && num_instances_ > 0) {
-    num_instances_--;
+  if (decoder_) {
+    // Destroy |decoder_| now in case it needs to use *|this| during tear-down.
+    decoder_.reset();
+
+    // The number of active instances should always be larger than zero. But if
+    // a bug causes an underflow we will permanently be unable to create new
+    // decoders, so an extra check is performed here (see b/173700103).
+    if (num_instances_ > 0) {
+      num_instances_--;
+    }
   }
-  decoder_.reset();
 
   client_video_frames_.clear();
   video_frame_pool_.reset();
@@ -86,14 +90,13 @@ void GpuArcVideoDecoder::Initialize(
 
   if (decoder_) {
     VLOGF(1) << "Re-initialization is not allowed";
-    OnInitializeDone(
-        media::Status(media::StatusCode::kDecoderInitializationFailed));
+    OnInitializeDone(media::DecoderStatus::Codes::kFailed);
     return;
   }
 
   if (num_instances_ >= kMaxConcurrentInstances) {
     VLOGF(1) << "Maximum concurrent instances reached: " << num_instances_;
-    OnInitializeDone(media::Status(media::StatusCode::kDecoderCreationFailed));
+    OnInitializeDone(media::DecoderStatus::Codes::kFailedToCreateDecoder);
     return;
   }
 
@@ -106,7 +109,7 @@ void GpuArcVideoDecoder::Initialize(
 
   if (!decoder_) {
     VLOGF(1) << "Failed to create video decoder";
-    OnInitializeDone(media::Status(media::StatusCode::kDecoderCreationFailed));
+    OnInitializeDone(media::DecoderStatus::Codes::kFailedToCreateDecoder);
     return;
   }
   num_instances_++;
@@ -157,7 +160,7 @@ void GpuArcVideoDecoder::Decode(arc::mojom::DecoderBufferPtr buffer,
   mojom::BufferPtr& buffer_ptr = buffer->get_buffer();
   base::ScopedFD fd = buffer_ptr->handle_fd.TakeFD();
   if (!fd.is_valid()) {
-    OnError(FROM_HERE, media::Status(media::StatusCode::kInvalidArgument));
+    OnError(media::DecoderStatus::Codes::kInvalidArgument);
     return;
   }
   DVLOGF(4) << "timestamp: " << buffer_ptr->timestamp << ", fd: " << fd.get();
@@ -179,7 +182,7 @@ void GpuArcVideoDecoder::Decode(arc::mojom::DecoderBufferPtr buffer,
       CreateDecoderBuffer(std::move(fd), buffer_ptr->offset, buffer_ptr->size);
   if (!decoder_buffer) {
     VLOGF(1) << "Failed to create decoder buffer from fd";
-    OnError(FROM_HERE, media::Status(media::StatusCode::kInvalidArgument));
+    OnError(media::DecoderStatus::Codes::kInvalidArgument);
     return;
   }
 
@@ -230,28 +233,24 @@ void GpuArcVideoDecoder::Reset(ResetCallback callback) {
                                base::Unretained(this), std::move(callback)));
 }
 
-void GpuArcVideoDecoder::OnInitializeDone(media::Status status) {
-  DVLOGF(4) << "status: " << status.code();
+void GpuArcVideoDecoder::OnInitializeDone(media::DecoderStatus status) {
+  DVLOGF(4) << "status: " << static_cast<int>(status.code());
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  // Report initialization status to UMA.
-  base::UmaHistogramEnumeration("Media.GpuArcVideoDecoder.InitializeResult",
-                                status.code());
 
   std::move(init_callback_).Run(status);
 }
 
 void GpuArcVideoDecoder::OnDecodeDone(DecodeCallback callback,
-                                      media::Status status) {
-  DVLOGF(4) << "status: " << status.code();
+                                      media::DecoderStatus status) {
+  DVLOGF(4) << "status: " << static_cast<int>(status.code());
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!status.is_ok() && (status.code() != media::StatusCode::kAborted)) {
+  if (!status.is_ok() && status != media::DecoderStatus::Codes::kAborted) {
     std::move(callback).Run(status.code());
     return;
   }
 
-  std::move(callback).Run(media::DecodeStatus::OK);
+  std::move(callback).Run(media::DecoderStatus::Codes::kOk);
 }
 
 void GpuArcVideoDecoder::OnFrameReady(scoped_refptr<media::VideoFrame> frame) {
@@ -263,7 +262,7 @@ void GpuArcVideoDecoder::OnFrameReady(scoped_refptr<media::VideoFrame> frame) {
       video_frame_pool_->GetVideoFrameId(frame.get());
   if (!video_frame_id) {
     VLOGF(1) << "Failed to get video frame id.";
-    OnError(FROM_HERE, media::Status(media::StatusCode::kInvalidArgument));
+    OnError(media::DecoderStatus::Codes::kInvalidArgument);
     return;
   }
 
@@ -291,7 +290,7 @@ void GpuArcVideoDecoder::OnResetDone() {
 
   if (!reset_callback_) {
     VLOGF(1) << "Unexpected OnResetDone() callback received from VD";
-    OnError(FROM_HERE, media::Status(media::StatusCode::kInvalidArgument));
+    OnError(media::DecoderStatus::Codes::kInvalidArgument);
     return;
   }
 
@@ -308,8 +307,7 @@ void GpuArcVideoDecoder::OnRequestVideoFrames() {
   client_video_frames_.clear();
 }
 
-void GpuArcVideoDecoder::OnError(base::Location location,
-                                 const media::Status& status) {
+void GpuArcVideoDecoder::OnError(media::DecoderStatus status) {
   VLOGF(1) << "error: " << static_cast<int>(status.code());
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -323,7 +321,7 @@ void GpuArcVideoDecoder::OnError(base::Location location,
 
   error_state_ = true;
   if (client_) {
-    client_->OnError(status);
+    client_->OnError(std::move(status));
   }
 
   // Abort all pending requests.
@@ -360,7 +358,7 @@ void GpuArcVideoDecoder::HandleDecodeRequest(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (error_state_) {
-    std::move(callback).Run(media::DecodeStatus::DECODE_ERROR);
+    std::move(callback).Run(media::DecoderStatus::Codes::kFailed);
     return;
   }
   if (!decoder_) {
@@ -383,7 +381,7 @@ void GpuArcVideoDecoder::HandleResetRequest(ResetCallback callback) {
 
   if (!decoder_) {
     VLOGF(1) << "VD not initialized";
-    OnError(FROM_HERE, media::Status(media::StatusCode::kInvalidArgument));
+    OnError(media::DecoderStatus::Codes::kInvalidArgument);
     return;
   }
 

@@ -360,7 +360,7 @@ TEST_P(PaintLayerScrollableAreaTest, SelectElementPromotionTest) {
   element->setAttribute("class", "composited");
   UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(IsComposited(element->GetLayoutObject()));
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // <select> implementation is different and not scrollable on Android.
   EXPECT_FALSE(UsesCompositedScrolling(element->GetLayoutObject()));
 #else
@@ -752,6 +752,9 @@ TEST_P(PaintLayerScrollableAreaTest, ScrollWith3DPreserveParent) {
         height: 200px;
         width: 200px;
         background: white;
+        /* TODO(crbug.com/1256990): This is to work around the issue of
+           unexpected effect node on a non-self-painting PaintLayer. */
+        position: relative;
       }
     </style>
     <div style='transform-style: preserve-3d;'>
@@ -1471,6 +1474,38 @@ TEST_P(PaintLayerScrollableAreaTest,
     }
     EXPECT_TRUE(found_subscroller_scrollbar);
   }
+}
+
+TEST_P(PaintLayerScrollableAreaTest,
+       ResizeSmallerToBeScrollableWithResizerAndStackedChild) {
+  USE_NON_OVERLAY_SCROLLBARS();
+
+  SetBodyInnerHTML(R"HTML(
+    <div id="scroller"
+         style="overflow: auto; width: 150px; height: 100px; resize: both">
+      <div style="width: 149px; height: 98px; position: relative"></div>
+    </div>
+  )HTML");
+
+  auto* scroller = GetDocument().getElementById("scroller");
+  auto* scrollable_area = scroller->GetLayoutBox()->GetScrollableArea();
+  ASSERT_TRUE(scrollable_area);
+  EXPECT_FALSE(scrollable_area->HasScrollbar());
+  // The resizer needs to be painted above the stacked child.
+  EXPECT_TRUE(scrollable_area->HasOverlayOverflowControls());
+  EXPECT_TRUE(
+      scroller->GetLayoutBox()->Layer()->NeedsReorderOverlayOverflowControls());
+
+  // Shrink the scroller, and it becomes scrollable.
+  scroller->SetInlineStyleProperty(CSSPropertyID::kWidth, "140px");
+  UpdateAllLifecyclePhasesForTest();
+  ASSERT_TRUE(scrollable_area->HasScrollbar());
+  ASSERT_FALSE(scrollable_area->HorizontalScrollbar()->IsOverlayScrollbar());
+  // Because there is non-overlay scrollbar, the resizer on longer overlaps
+  // with the contents, so no need to overlay.
+  EXPECT_FALSE(scrollable_area->HasOverlayOverflowControls());
+  EXPECT_FALSE(
+      scroller->GetLayoutBox()->Layer()->NeedsReorderOverlayOverflowControls());
 }
 
 }  // namespace blink

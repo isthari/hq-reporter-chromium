@@ -367,10 +367,10 @@ TEST_F(PrimaryAccountManagerTest, GaiaIdMigration) {
                            AccountTrackerService::MIGRATION_NOT_STARTED);
   ListPrefUpdate update(client_prefs, prefs::kAccountInfo);
   update->ClearList();
-  auto dict = std::make_unique<base::DictionaryValue>();
-  dict->SetString("account_id", email);
-  dict->SetString("email", email);
-  dict->SetString("gaia", gaia_id);
+  base::Value dict(base::Value::Type::DICTIONARY);
+  dict.SetStringKey("account_id", email);
+  dict.SetStringKey("email", email);
+  dict.SetStringKey("gaia", gaia_id);
   update->Append(std::move(dict));
 
   account_tracker()->ResetForTesting();
@@ -400,10 +400,10 @@ TEST_F(PrimaryAccountManagerTest, GaiaIdMigrationCrashInTheMiddle) {
                            AccountTrackerService::MIGRATION_NOT_STARTED);
   ListPrefUpdate update(client_prefs, prefs::kAccountInfo);
   update->ClearList();
-  auto dict = std::make_unique<base::DictionaryValue>();
-  dict->SetString("account_id", email);
-  dict->SetString("email", email);
-  dict->SetString("gaia", gaia_id);
+  base::Value dict(base::Value::Type::DICTIONARY);
+  dict.SetStringKey("account_id", email);
+  dict.SetStringKey("email", email);
+  dict.SetStringKey("gaia", gaia_id);
   update->Append(std::move(dict));
 
   account_tracker()->ResetForTesting();
@@ -433,9 +433,9 @@ TEST_F(PrimaryAccountManagerTest, GaiaIdMigration_ForceAllAccounts) {
                            AccountTrackerService::MIGRATION_NOT_STARTED);
   ListPrefUpdate update(client_prefs, prefs::kAccountInfo);
   update->ClearList();
-  auto dict = std::make_unique<base::DictionaryValue>();
-  dict->SetString("account_id", email);
-  dict->SetString("email", email);
+  base::Value dict(base::Value::Type::DICTIONARY);
+  dict.SetStringKey("account_id", email);
+  dict.SetStringKey("email", email);
   update->Append(std::move(dict));
 
   account_tracker()->ResetForTesting();

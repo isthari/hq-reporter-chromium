@@ -26,6 +26,7 @@ import("//build/config/chromecast_build.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/compiler/compiler.gni")
 import("//build/config/dcheck_always_on.gni")
+import("//build/config/ios/config.gni")
 import("//build/config/logging.gni")
 import("//build/config/nacl/config.gni")
 import("//build/config/profiling/profiling.gni")
@@ -98,6 +99,14 @@ if (is_fuchsia) {
   import("//third_party/fuchsia-sdk/sdk/build/fidl_library.gni")
 }
 
+# TODO(crbug.com/1280708): Switch to enable_rust after we have NaCl support.
+build_rust_json_parser = toolchain_has_rust
+
+buildflag_header("parsing_buildflags") {
+  header = "parsing_buildflags.h"
+  flags = [ "BUILD_RUST_JSON_PARSER=$build_rust_json_parser" ]
+}
+
 config("memory_tagging") {
   if (current_cpu == "arm64" && is_clang &&
       (is_linux || is_chromeos || is_android || is_fuchsia)) {
@@ -156,6 +165,12 @@ config("perfetto_config") {
       "BASE_USE_PERFETTO_CLIENT_LIBRARY=1",
     ]
   }
+}
+
+buildflag_header("ios_cronet_buildflags") {
+  header = "ios_cronet_buildflags.h"
+  header_dir = "base/message_loop"
+  flags = [ "CRONET_BUILD=$is_cronet_build" ]
 }
 
 # Base and everything it depends on should be a static library rather than
@@ -342,7 +357,6 @@ mixed_component("base") {
     "hash/hash.h",
     "hash/legacy_hash.cc",
     "hash/legacy_hash.h",
-    "ignore_result.h",
     "immediate_crash.h",
     "json/json_common.h",
     "json/json_file_value_serializer.cc",
@@ -411,8 +425,6 @@ mixed_component("base") {
     "memory/shared_memory_tracker.cc",
     "memory/shared_memory_tracker.h",
     "memory/singleton.h",
-    "memory/tagging.cc",
-    "memory/tagging.h",
     "memory/unsafe_shared_memory_pool.cc",
     "memory/unsafe_shared_memory_pool.h",
     "memory/unsafe_shared_memory_region.cc",
@@ -697,8 +709,6 @@ mixed_component("base") {
     "task/sequence_manager/lazily_deallocated_deque.h",
     "task/sequence_manager/lazy_now.cc",
     "task/sequence_manager/lazy_now.h",
-    "task/sequence_manager/real_time_domain.cc",
-    "task/sequence_manager/real_time_domain.h",
     "task/sequence_manager/sequence_manager.cc",
     "task/sequence_manager/sequence_manager.h",
     "task/sequence_manager/sequence_manager_impl.cc",
@@ -842,6 +852,7 @@ mixed_component("base") {
     "threading/simple_thread.h",
     "threading/thread.cc",
     "threading/thread.h",
+    "threading/thread_checker.cc",
     "threading/thread_checker.h",
     "threading/thread_checker_impl.cc",
     "threading/thread_checker_impl.h",
@@ -1274,14 +1285,23 @@ mixed_component("base") {
       "ios/ns_range.h",
       "ios/scoped_critical_action.h",
       "ios/scoped_critical_action.mm",
-      "message_loop/message_pump_io_ios.cc",
-      "message_loop/message_pump_io_ios.h",
       "native_library_ios.mm",
       "process/launch_ios.cc",
       "process/process_metrics_ios.cc",
       "profiler/module_cache_mac.cc",
       "profiler/stack_sampler_ios.cc",
     ]
+    if (is_cronet_build) {
+      sources += [
+        "message_loop/message_pump_io_ios.cc",
+        "message_loop/message_pump_io_ios.h",
+      ]
+    } else {
+      sources += [
+        "message_loop/message_pump_kqueue.cc",
+        "message_loop/message_pump_kqueue.h",
+      ]
+    }
 
     if (ios_stack_profiler_enabled) {
       sources += [
@@ -1402,18 +1422,31 @@ mixed_component("base") {
   # module, to avoid increasing Chrome's executable size.
   assert_no_deps = [ ":native_unwinder_android" ]
 
-  # TODO(crbug.com/1280708): Switch to enable_rust after we have NaCl support.
-  if (toolchain_has_rust) {
+  if (build_rust_json_parser) {
     rs_crate_root = "lib.rs"
+    rs_deps = [
+      "//third_party/rust/serde/v1:lib",
+      "//third_party/rust/serde_jsonrc/v0_1:lib",
+    ]
     rs_sources = [
+      "json/json_parser.rs",
+      "json/mod.rs",
       "lib.rs",
       "rs_glue/mod.rs",
       "values.rs",
+      "values_deserialization.rs",
     ]
-    rs_cxx_bindings = [ "rs_glue/mod.rs" ]
+    rs_cxx_bindings = [
+      "rs_glue/mod.rs",
+      "json/json_parser.rs",
+    ]
     sources += [
       "rs_glue/values_glue.cc",
       "rs_glue/values_glue.h",
+    ]
+    sources -= [
+      "json/json_parser.cc",
+      "json/json_parser.h",
     ]
   }
 
@@ -1425,8 +1458,10 @@ mixed_component("base") {
     ":clang_profiling_buildflags",
     ":debugging_buildflags",
     ":feature_list_buildflags",
+    ":ios_cronet_buildflags",
     ":logging_buildflags",
     ":orderfile_buildflags",
+    ":parsing_buildflags",
     ":profiler_buildflags",
     ":sanitizer_buildflags",
     ":synchronization_buildflags",
@@ -1482,10 +1517,7 @@ mixed_component("base") {
       ]
     }
 
-    if (use_allocator == "tcmalloc") {
-      sources += [ "allocator/allocator_shim_default_dispatch_to_tcmalloc.cc" ]
-      deps += [ "//base/allocator:tcmalloc" ]
-    } else if (use_allocator == "none") {
+    if (use_allocator == "none") {
       if (is_android) {
         sources += [ "allocator/allocator_shim_default_dispatch_to_linker_wrapped_symbols.cc" ]
       }
@@ -1726,6 +1758,8 @@ mixed_component("base") {
       "files/file_util_fuchsia.cc",
       "files/file_util_posix.cc",
       "files/memory_mapped_file_posix.cc",
+      "fuchsia/build_info.cc",
+      "fuchsia/build_info.h",
       "fuchsia/default_job.cc",
       "fuchsia/default_job.h",
       "fuchsia/file_utils.cc",
@@ -1817,6 +1851,7 @@ mixed_component("base") {
     ]
 
     deps += [
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.buildinfo",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.media",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sys",
       "//third_party/fuchsia-sdk/sdk/pkg/async-default",
@@ -2027,6 +2062,8 @@ mixed_component("base") {
         "allocator/partition_allocator/starscan/stats_reporter.h",
         "allocator/partition_allocator/starscan/write_protector.cc",
         "allocator/partition_allocator/starscan/write_protector.h",
+        "allocator/partition_allocator/tagging.cc",
+        "allocator/partition_allocator/tagging.h",
         "allocator/partition_allocator/thread_cache.cc",
         "allocator/partition_allocator/thread_cache.h",
         "allocator/partition_allocator/yield_processor.h",
@@ -2757,6 +2794,7 @@ test("base_perftests") {
   data_deps = [
     # Needed for isolate script to execute.
     "//testing:run_perf_test",
+    "//testing/buildbot/filters:base_perftests_filters",
   ]
 
   if (is_android) {
@@ -2999,7 +3037,6 @@ source_set("arm_bti_testfunctions") {
 
 test("base_unittests") {
   sources = [
-    "allocator/tcmalloc_unittest.cc",
     "as_const_unittest.cc",
     "at_exit_unittest.cc",
     "atomicops_unittest.cc",
@@ -3090,6 +3127,7 @@ test("base_unittests") {
     "i18n/string_search_unittest.cc",
     "i18n/time_formatting_unittest.cc",
     "i18n/timezone_unittest.cc",
+    "i18n/transliterator_unittest.cc",
     "immediate_crash_unittest.cc",
     "json/json_parser_unittest.cc",
     "json/json_reader_unittest.cc",
@@ -3329,6 +3367,10 @@ test("base_unittests") {
     "vlog_unittest.cc",
   ]
 
+  if (build_rust_json_parser) {
+    sources -= [ "json/json_parser_unittest.cc" ]
+  }
+
   defines = []
 
   deps = [
@@ -3363,7 +3405,7 @@ test("base_unittests") {
   }
 
   if (!is_ios) {
-    sources += [ "memory/tagging_unittest.cc" ]
+    sources += [ "allocator/partition_allocator/tagging_unittest.cc" ]
   }
 
   public_deps = [ ":base_unittests_bundle_data" ]
@@ -3589,8 +3631,13 @@ test("base_unittests") {
     sources += [
       "ios/device_util_unittest.mm",
       "ios/weak_nsobject_unittest.mm",
-      "message_loop/message_pump_io_ios_unittest.cc",
     ]
+
+    if (is_cronet_build) {
+      sources += [ "message_loop/message_pump_io_ios_unittest.cc" ]
+    } else {
+      sources += [ "message_loop/message_pump_kqueue_unittest.cc" ]
+    }
 
     # ios does not use test_launcher to run gtests.
     sources -= [
@@ -3700,6 +3747,7 @@ test("base_unittests") {
     sources += [
       "files/dir_reader_posix_unittest.cc",
       "files/file_descriptor_watcher_posix_unittest.cc",
+      "fuchsia/build_info_unittest.cc",
       "fuchsia/file_utils_unittest.cc",
       "fuchsia/filtered_service_directory_unittest.cc",
       "fuchsia/fuchsia_logging_unittest.cc",
@@ -3724,6 +3772,7 @@ test("base_unittests") {
       ":test_interface_impl",
       ":test_log_listener_safe",
       ":testfidl",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.buildinfo",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.intl",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.logger",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.mem",
@@ -3734,8 +3783,16 @@ test("base_unittests") {
       "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
     ]
 
-    additional_manifest_fragments =
-        [ "//build/config/fuchsia/test/test_logger_capabilities.test-cmx" ]
+    # TODO(crbug.com/1256502): Switch back to CFv2 and delete the .test-cmx once
+    # the bug is fixed.
+    use_cfv2 = false
+    if (use_cfv2) {
+      additional_manifest_fragments =
+          [ "//build/config/fuchsia/test/logger.shard.test-cml" ]
+    } else {
+      additional_manifest_fragments =
+          [ "//build/config/fuchsia/test/test_logger_capabilities.test-cmx" ]
+    }
   }
 
   if (!is_fuchsia && !is_ios) {
@@ -3897,6 +3954,7 @@ if (is_android) {
       "android/java/src/org/chromium/base/FeatureList.java",
       "android/java/src/org/chromium/base/Features.java",
       "android/java/src/org/chromium/base/FieldTrialList.java",
+      "android/java/src/org/chromium/base/FileUtils.java",
       "android/java/src/org/chromium/base/ImportantFileWriterAndroid.java",
       "android/java/src/org/chromium/base/IntStringCallback.java",
       "android/java/src/org/chromium/base/JNIUtils.java",
@@ -4198,6 +4256,7 @@ if (is_android) {
       "android/javatests/src/org/chromium/base/task/SequencedTaskRunnerImplTest.java",
       "android/javatests/src/org/chromium/base/task/SingleThreadTaskRunnerImplTest.java",
       "android/javatests/src/org/chromium/base/task/TaskRunnerImplTest.java",
+      "android/javatests/src/org/chromium/base/test/metrics/HistogramTestRuleTest.java",
       "android/javatests/src/org/chromium/base/util/GarbageCollectionTestUtilsTest.java",
     ]
 
@@ -4251,6 +4310,7 @@ if (is_android) {
       "test/android/javatests/src/org/chromium/base/test/TestTraceEvent.java",
       "test/android/javatests/src/org/chromium/base/test/UiThreadStatement.java",
       "test/android/javatests/src/org/chromium/base/test/UiThreadTest.java",
+      "test/android/javatests/src/org/chromium/base/test/metrics/HistogramTestRule.java",
       "test/android/javatests/src/org/chromium/base/test/params/BaseJUnit4RunnerDelegate.java",
       "test/android/javatests/src/org/chromium/base/test/params/BlockJUnit4RunnerDelegate.java",
       "test/android/javatests/src/org/chromium/base/test/params/MethodParamAnnotationRule.java",
@@ -4270,6 +4330,7 @@ if (is_android) {
       "test/android/javatests/src/org/chromium/base/test/util/AdvancedMockContext.java",
       "test/android/javatests/src/org/chromium/base/test/util/AnnotationProcessingUtils.java",
       "test/android/javatests/src/org/chromium/base/test/util/AnnotationRule.java",
+      "test/android/javatests/src/org/chromium/base/test/util/ApplicationContextWrapper.java",
       "test/android/javatests/src/org/chromium/base/test/util/ApplicationTestUtils.java",
       "test/android/javatests/src/org/chromium/base/test/util/Batch.java",
       "test/android/javatests/src/org/chromium/base/test/util/CallbackHelper.java",

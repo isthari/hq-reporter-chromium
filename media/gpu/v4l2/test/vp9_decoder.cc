@@ -156,6 +156,9 @@ std::unique_ptr<Vp9Decoder> Vp9Decoder::Create(
   LOG(INFO) << "Ivf file header: " << file_header.width << " x "
             << file_header.height;
 
+  // TODO(stevecho): might need to consider using more than 1 file descriptor
+  // (fd) & buffer with the output queue for 4K60 requirement.
+  // https://buganizer.corp.google.com/issues/202214561#comment31
   auto OUTPUT_queue = std::make_unique<V4L2Queue>(
       V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, kDriverCodecFourcc,
       gfx::Size(file_header.width, file_header.height), /*num_planes=*/1,
@@ -371,7 +374,21 @@ void Vp9Decoder::SetupFrameParams(
   FillV4L2VP9SegmentationParams(segm_params, &v4l2_frame_params->seg);
 }
 
-Vp9Decoder::Result Vp9Decoder::DecodeNextFrame() {
+bool Vp9Decoder::CopyFrameData(const Vp9FrameHeader& frame_hdr,
+                               std::unique_ptr<V4L2Queue>& queue) {
+  LOG_ASSERT(queue->num_buffers() == 1)
+      << "Only 1 buffer is expected to be used for OUTPUT queue for now.";
+
+  LOG_ASSERT(queue->num_planes() == 1)
+      << "Number of planes is expected to be 1 for OUTPUT queue.";
+
+  scoped_refptr<MmapedBuffer> buffer = queue->GetBuffer(0);
+
+  return memcpy(static_cast<uint8_t*>(buffer->mmaped_planes()[0].start_addr),
+                frame_hdr.data, frame_hdr.frame_size);
+}
+
+Vp9Decoder::Result Vp9Decoder::DecodeNextFrame(const int frame_number) {
   gfx::Size size;
   Vp9FrameHeader frame_hdr{};
 
@@ -388,6 +405,15 @@ Vp9Decoder::Result Vp9Decoder::DecodeNextFrame() {
     case Vp9Parser::kOk:
       break;
   }
+
+  if (!CopyFrameData(frame_hdr, OUTPUT_queue_))
+    LOG(FATAL) << "Failed to copy the frame data into the V4L2 buffer.";
+
+  LOG_ASSERT(OUTPUT_queue_->num_buffers() == 1)
+      << "Too many buffers in OUTPUT queue. It is currently designed to "
+         "support only 1 request at a time.";
+
+  OUTPUT_queue_->GetBuffer(0)->set_frame_number(frame_number);
 
   if (!v4l2_ioctl_->QBuf(OUTPUT_queue_, 0))
     LOG(ERROR) << "VIDIOC_QBUF failed for OUTPUT queue.";
@@ -408,6 +434,9 @@ Vp9Decoder::Result Vp9Decoder::DecodeNextFrame() {
   if (!v4l2_ioctl_->DQBuf(CAPTURE_queue_, &index))
     LOG(ERROR) << "VIDIOC_DQBUF failed for CAPTURE queue.";
 
+  RefreshReferenceSlots(frame_hdr.refresh_frame_flags,
+                        CAPTURE_queue_->GetBuffer(index));
+
   if (!v4l2_ioctl_->DQBuf(OUTPUT_queue_, &index))
     LOG(ERROR) << "VIDIOC_DQBUF failed for OUTPUT queue.";
 
@@ -415,8 +444,6 @@ Vp9Decoder::Result Vp9Decoder::DecodeNextFrame() {
   // needed when forward probabilities update is used. With new VP9 API landing
   // in kernel 5.17, VIDIOC_G_EXT_CTRLS ioctl call is no longer needed, see:
   // https://lwn.net/Articles/855419/
-
-  // TODO(stevecho): call RefreshReferenceSlots() once decoded buffer is ready.
 
   if (!v4l2_ioctl_->MediaRequestIocReinit(OUTPUT_queue_))
     LOG(ERROR) << "MEDIA_REQUEST_IOC_REINIT failed.";

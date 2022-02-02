@@ -93,7 +93,8 @@ IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest, CreateFromScriptAndDestroy) {
   EXPECT_TRUE(fenced_frame_root_node->IsInFencedFrameTree());
 
   EXPECT_TRUE(ExecJs(primary_rfh.get(),
-                     "document.querySelector('fencedframe').remove();"));
+                     "const ff = document.querySelector('fencedframe');\
+                     ff.remove();"));
   ASSERT_TRUE(fenced_frame_rfh.WaitUntilRenderFrameDeleted());
 
   EXPECT_TRUE(primary_rfh->GetFencedFrames().empty());
@@ -235,7 +236,7 @@ IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest, CrossOriginMessagePost) {
 IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest,
                        DocumentOnLoadCompletedInPrimaryMainFrame) {
   // Initialize a MockWebContentsObserver to ensure that
-  // DocumentAvailableInMainFrame is only invoked for primary main
+  // DocumentOnLoadCompletedInPrimaryMainFrame is only invoked for primary main
   // RenderFrameHosts.
   testing::NiceMock<MockWebContentsObserver> web_contents_observer(
       web_contents());
@@ -262,6 +263,74 @@ IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest,
   FrameTreeNode* fenced_frame_root_node =
       inner_fenced_frame_rfh->frame_tree_node();
   EXPECT_FALSE(fenced_frame_root_node->IsLoading());
+}
+
+// Test that when the documents inside the fenced frame tree are loading,
+// WebContentsObserver::PrimaryMainDocumentElementAvailable is not invoked for
+// fenced frames as it is only invoked for primary main frames.
+IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest,
+                       PrimaryMainDocumentElementAvailable) {
+  // Initialize a MockWebContentsObserver to ensure that
+  // PrimaryMainDocumentElementAvailable is only invoked for primary main
+  // RenderFrameHosts.
+  testing::NiceMock<MockWebContentsObserver> web_contents_observer(
+      web_contents());
+  testing::InSequence s;
+
+  // Navigate to an initial primary page. This should result in invoking
+  // PrimaryMainDocumentElementAvailable once.
+  EXPECT_CALL(web_contents_observer, PrimaryMainDocumentElementAvailable())
+      .Times(1);
+  EXPECT_TRUE(NavigateToURL(shell(), embedded_test_server()->GetURL(
+                                         "fencedframe.test", "/title1.html")));
+  RenderFrameHostImplWrapper primary_rfh(primary_main_frame_host());
+
+  // Once the fenced frame completes loading, it shouldn't result in
+  // invoking PrimaryMainDocumentElementAvailable.
+  EXPECT_CALL(web_contents_observer, PrimaryMainDocumentElementAvailable())
+      .Times(0);
+  const GURL fenced_frame_url = embedded_test_server()->GetURL(
+      "fencedframe.test", "/fenced_frames/title1.html");
+  RenderFrameHostImplWrapper inner_fenced_frame_rfh(
+      fenced_frame_test_helper().CreateFencedFrame(primary_rfh.get(),
+                                                   fenced_frame_url));
+  FrameTreeNode* fenced_frame_root_node =
+      inner_fenced_frame_rfh->frame_tree_node();
+  EXPECT_FALSE(fenced_frame_root_node->IsLoading());
+}
+
+// Test that a fenced-frame does not perform any of the Android main-frame
+// viewport behaviors like zoom-out-to-fit-content or parsing the viewport
+// <meta>.
+IN_PROC_BROWSER_TEST_F(FencedFrameBrowserTest, ViewportSettings) {
+  const GURL top_level_url = embedded_test_server()->GetURL(
+      "fencedframe.test", "/fenced_frames/viewport.html");
+  EXPECT_TRUE(NavigateToURL(shell(), top_level_url));
+
+  RenderFrameHostImplWrapper primary_rfh(primary_main_frame_host());
+  std::vector<FencedFrame*> fenced_frames = primary_rfh->GetFencedFrames();
+  ASSERT_EQ(1ul, fenced_frames.size());
+  FencedFrame* fenced_frame = fenced_frames.back();
+
+  fenced_frame->WaitForDidStopLoadingForTesting();
+
+  // Ensure various dimensions and properties in the fenced frame
+  // match the dimensions of the <fencedframe> in the parent and do
+  // not take into account the <meta name="viewport"> in the
+  // fenced-frame page.
+  EXPECT_EQ(
+      EvalJs(fenced_frame->GetInnerRoot(), "window.innerWidth").ExtractInt(),
+      314);
+  EXPECT_EQ(
+      EvalJs(fenced_frame->GetInnerRoot(), "window.innerHeight").ExtractInt(),
+      271);
+  EXPECT_EQ(EvalJs(fenced_frame->GetInnerRoot(),
+                   "document.documentElement.clientWidth")
+                .ExtractInt(),
+            314);
+  EXPECT_EQ(EvalJs(fenced_frame->GetInnerRoot(), "window.visualViewport.scale")
+                .ExtractDouble(),
+            1.0);
 }
 
 namespace {

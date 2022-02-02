@@ -6,11 +6,13 @@
 
 #include <memory>
 
+#include "ash/constants/ash_pref_names.h"
 #include "ash/quick_pair/common/account_key_failure.h"
 #include "ash/quick_pair/common/constants.h"
 #include "ash/quick_pair/common/device.h"
 #include "ash/quick_pair/common/fast_pair/fast_pair_metrics.h"
 #include "ash/quick_pair/common/logging.h"
+#include "ash/quick_pair/common/mock_quick_pair_browser_delegate.h"
 #include "ash/quick_pair/common/pair_failure.h"
 #include "ash/quick_pair/common/protocol.h"
 #include "ash/quick_pair/pairing/fake_retroactive_pairing_detector.h"
@@ -26,6 +28,9 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
+#include "components/prefs/pref_registry.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/testing_pref_service.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "device/bluetooth/test/mock_bluetooth_device.h"
@@ -102,6 +107,14 @@ class FakeMetricBluetoothAdapter
                                                         new_paired_status);
   }
 
+  bool IsPresent() const override { return true; }
+
+  device::BluetoothAdapter::LowEnergyScanSessionHardwareOffloadingStatus
+  GetLowEnergyScanSessionHardwareOffloadingStatus() override {
+    return device::BluetoothAdapter::
+        LowEnergyScanSessionHardwareOffloadingStatus::kSupported;
+  }
+
  private:
   ~FakeMetricBluetoothAdapter() = default;
 };
@@ -139,6 +152,12 @@ class QuickPairMetricsLoggerTest : public testing::Test {
         kTestMetadataId, kTestAddress, Protocol::kFastPairSubsequent);
     retroactive_device_ = base::MakeRefCounted<Device>(
         kTestMetadataId, kTestAddress, Protocol::kFastPairRetroactive);
+
+    browser_delegate_ = std::make_unique<MockQuickPairBrowserDelegate>();
+    ON_CALL(*browser_delegate_, GetActivePrefService())
+        .WillByDefault(testing::Return(&pref_service_));
+    pref_service_.registry()->RegisterBooleanPref(ash::prefs::kFastPairEnabled,
+                                                  /*default_value=*/true);
 
     metrics_logger_ = std::make_unique<QuickPairMetricsLogger>(
         scanner_broker_.get(), pairer_broker_.get(), ui_broker_.get(),
@@ -182,6 +201,21 @@ class QuickPairMetricsLoggerTest : public testing::Test {
       case Protocol::kFastPairSubsequent:
         mock_ui_broker_->NotifyDiscoveryAction(
             subsequent_device_, DiscoveryAction::kDismissedByUser);
+        break;
+      case Protocol::kFastPairRetroactive:
+        break;
+    }
+  }
+
+  void SimulateDiscoveryUiLearnMorePressed(Protocol protocol) {
+    switch (protocol) {
+      case Protocol::kFastPairInitial:
+        mock_ui_broker_->NotifyDiscoveryAction(initial_device_,
+                                               DiscoveryAction::kLearnMore);
+        break;
+      case Protocol::kFastPairSubsequent:
+        mock_ui_broker_->NotifyDiscoveryAction(subsequent_device_,
+                                               DiscoveryAction::kLearnMore);
         break;
       case Protocol::kFastPairRetroactive:
         break;
@@ -367,6 +401,9 @@ class QuickPairMetricsLoggerTest : public testing::Test {
   scoped_refptr<Device> initial_device_;
   scoped_refptr<Device> subsequent_device_;
   scoped_refptr<Device> retroactive_device_;
+
+  std::unique_ptr<MockQuickPairBrowserDelegate> browser_delegate_;
+  TestingPrefServiceSimple pref_service_;
 
   MockScannerBroker* mock_scanner_broker_ = nullptr;
   MockPairerBroker* mock_pairer_broker_ = nullptr;
@@ -1753,6 +1790,230 @@ TEST_F(QuickPairMetricsLoggerTest, LogPairSuccess_Retroactive) {
   histogram_tester().ExpectTotalCount(kFastPairPairResultMetricInitial, 0);
   histogram_tester().ExpectTotalCount(kFastPairPairResultMetricSubsequent, 0);
   histogram_tester().ExpectTotalCount(kFastPairPairResultMetricRetroactive, 1);
+}
+
+TEST_F(QuickPairMetricsLoggerTest, DiscoveryLearnMorePressed_Initial) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_ConnectPressed_Initial) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiConnectPressed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_DismissedByUser_Initial) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiDismissedByUser(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_Dismissed_Initial) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiDismissed(Protocol::kFastPairInitial);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricInitial,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            1);
+}
+
+TEST_F(QuickPairMetricsLoggerTest, DiscoveryLearnMorePressed_Subsequent) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_ConnectPressed_Subsequent) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiConnectPressed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_DismissedByUser_Subsequent) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiDismissedByUser(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            0);
+}
+
+TEST_F(QuickPairMetricsLoggerTest,
+       LogDiscoveryUiLearnMorePressed_Dismissed_Subsequent) {
+  SimulateDiscoveryUiLearnMorePressed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  SimulateDiscoveryUiDismissed(Protocol::kFastPairSubsequent);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::kDiscoveryUiLearnMorePressed),
+            1);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiConnectPressedAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedByUserAfterLearnMorePressed),
+            0);
+  EXPECT_EQ(histogram_tester().GetBucketCount(
+                kFastPairEngagementFlowMetricSubsequent,
+                FastPairEngagementFlowEvent::
+                    kDiscoveryUiDismissedAfterLearnMorePressed),
+            1);
 }
 
 }  // namespace quick_pair

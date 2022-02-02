@@ -17,9 +17,9 @@ class Profile;
 
 namespace app_list {
 
-// An answer result from the Omnibox provider. Answer results have are displayed
-// as cards at the top of the categorical search launcher, so are separated in
-// the UI from other Omnibox results.
+// An answer result from the Omnibox provider. Answer results are displayed as
+// cards at the top of the categorical search launcher, so are separated in the
+// UI from other Omnibox results.
 class OmniboxAnswerResult : public ChromeSearchResult,
                             public BitmapFetcherDelegate {
  public:
@@ -40,11 +40,15 @@ class OmniboxAnswerResult : public ChromeSearchResult,
 
  private:
   void UpdateIcon();
+  // Updates title and details for the productivity launcher.
   void UpdateTitleAndDetails();
+  // Updates title and details for the classic launcher.
+  void UpdateClassicTitleAndDetails();
 
   void FetchImage(const GURL& url);
 
   bool IsCalculatorResult() const;
+  bool IsWeatherResult() const;
 
   Profile* profile_;
   AppListControllerDelegate* list_controller_;

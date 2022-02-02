@@ -800,6 +800,157 @@ TEST_F(AppListSyncableServiceTest, InitialMergeAndUpdate_BadData) {
   ASSERT_TRUE(GetSyncItem(kItemId));
 }
 
+TEST_F(AppListSyncableServiceTest, HandlesItemWithNonExistantFolderId) {
+  const std::string kFolderItemId = "folder_item_id";
+  const std::string kItemId = GenerateId("item_id");
+  const std::string kNonInstalledItemId = GenerateId("not_installed_item_id");
+
+  syncer::SyncDataList sync_list;
+  sync_list.push_back(CreateAppRemoteData(kItemId, "item_name", kFolderItemId,
+                                          "ordinal", "pinordinal"));
+  sync_list.push_back(CreateAppRemoteData(kNonInstalledItemId, "item_name",
+                                          kFolderItemId, "ordinal2",
+                                          "pinordinal"));
+
+  app_list_syncable_service()->MergeDataAndStartSyncing(
+      syncer::APP_LIST, sync_list,
+      std::make_unique<syncer::FakeSyncChangeProcessor>(),
+      std::make_unique<syncer::SyncErrorFactoryMock>());
+  content::RunAllTasksUntilIdle();
+
+  scoped_refptr<extensions::Extension> app = MakeApp(
+      "Test app", kItemId, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app.get());
+
+  // Verify that the item install does not crash - the app is moved to the root
+  // apps grid.
+  ASSERT_TRUE(GetSyncItem(kItemId));
+  AppListModelUpdater* model_updater = GetModelUpdater();
+  ChromeAppListItem* installed_item = model_updater->FindItem(kItemId);
+  ASSERT_TRUE(installed_item);
+  EXPECT_EQ("", installed_item->folder_id());
+}
+
+TEST_F(AppListSyncableServiceTest, AddingFolderChildItemWithInvalidPosition) {
+  const std::string kFolderItemId = "folder_item_id";
+  const std::string kItemId = GenerateId("item_id");
+  const std::string kNonInstalledItemId = GenerateId("not_installed_item_id");
+
+  syncer::SyncDataList sync_list;
+  sync_list.push_back(CreateAppRemoteData(
+      kFolderItemId, "folder_item_name", "", "ordinal", "pinordinal",
+      sync_pb::AppListSpecifics_AppListItemType_TYPE_FOLDER));
+  sync_list.push_back(CreateAppRemoteData(kItemId, "item_name", kFolderItemId,
+                                          "$$invalid_ordinal$$", "pinordinal"));
+  sync_list.push_back(CreateAppRemoteData(kNonInstalledItemId, "item_name",
+                                          kFolderItemId, "ordinal",
+                                          "pinordinal"));
+
+  app_list_syncable_service()->MergeDataAndStartSyncing(
+      syncer::APP_LIST, sync_list,
+      std::make_unique<syncer::FakeSyncChangeProcessor>(),
+      std::make_unique<syncer::SyncErrorFactoryMock>());
+  content::RunAllTasksUntilIdle();
+
+  scoped_refptr<extensions::Extension> app = MakeApp(
+      "Test app", kItemId, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app.get());
+
+  ASSERT_TRUE(GetSyncItem(kItemId));
+  AppListModelUpdater* model_updater = GetModelUpdater();
+  ChromeAppListItem* installed_item = model_updater->FindItem(kItemId);
+  ASSERT_TRUE(installed_item);
+  EXPECT_EQ(kFolderItemId, installed_item->folder_id());
+}
+
+TEST_F(AppListSyncableServiceTest,
+       AddingFolderChildItemWithSiblingWithInvalidPosition) {
+  const std::string kFolderItemId = "folder_item_id";
+  const std::string kItemId1 = GenerateId("item_id_1");
+  const std::string kItemId2 = GenerateId("item_id_2");
+
+  syncer::SyncDataList sync_list;
+  sync_list.push_back(CreateAppRemoteData(
+      kFolderItemId, "folder_item_name", "", "ordinal", "pinordinal",
+      sync_pb::AppListSpecifics_AppListItemType_TYPE_FOLDER));
+  sync_list.push_back(CreateAppRemoteData(kItemId1, "item1_name", kFolderItemId,
+                                          "ordinal1", "pinordinal1"));
+  sync_list.push_back(CreateAppRemoteData(kItemId2, "item2_name", kFolderItemId,
+                                          "$$invalid_ordinal$$",
+                                          "pinordinal2"));
+
+  app_list_syncable_service()->MergeDataAndStartSyncing(
+      syncer::APP_LIST, sync_list,
+      std::make_unique<syncer::FakeSyncChangeProcessor>(),
+      std::make_unique<syncer::SyncErrorFactoryMock>());
+  content::RunAllTasksUntilIdle();
+
+  scoped_refptr<extensions::Extension> app_2 = MakeApp(
+      "Test app", kItemId2, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app_2.get());
+
+  ASSERT_TRUE(GetSyncItem(kItemId2));
+  AppListModelUpdater* model_updater = GetModelUpdater();
+  ChromeAppListItem* item_2 = model_updater->FindItem(kItemId2);
+  ASSERT_TRUE(item_2);
+  EXPECT_EQ(kFolderItemId, item_2->folder_id());
+
+  scoped_refptr<extensions::Extension> app_1 = MakeApp(
+      "Test app", kItemId1, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app_1.get());
+
+  ASSERT_TRUE(GetSyncItem(kItemId1));
+  ChromeAppListItem* item_1 = model_updater->FindItem(kItemId1);
+  ASSERT_TRUE(item_1);
+  EXPECT_EQ(kFolderItemId, item_1->folder_id());
+
+  ASSERT_TRUE(GetSyncItem(kItemId2));
+  item_2 = model_updater->FindItem(kItemId2);
+  ASSERT_TRUE(item_2);
+  EXPECT_EQ(kFolderItemId, item_2->folder_id());
+}
+
+TEST_F(AppListSyncableServiceTest, SyncFolderMoveWithInvalidOrdinalInfo) {
+  const std::string kFolderItemId = "folder_item_id";
+  const std::string kItemId1 = GenerateId("item_id_1");
+  const std::string kItemId2 = GenerateId("item_id_2");
+
+  scoped_refptr<extensions::Extension> app_2 = MakeApp(
+      "Test app", kItemId2, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app_2.get());
+
+  scoped_refptr<extensions::Extension> app_1 = MakeApp(
+      "Test app", kItemId1, extensions::Extension::WAS_INSTALLED_BY_DEFAULT);
+  InstallExtension(app_1.get());
+
+  syncer::SyncDataList sync_list;
+  sync_list.push_back(CreateAppRemoteData(
+      kFolderItemId, "folder_item_name", "", "ordinal", "pinordinal",
+      sync_pb::AppListSpecifics_AppListItemType_TYPE_FOLDER));
+  sync_list.push_back(CreateAppRemoteData(kItemId1, "item1_name", kFolderItemId,
+                                          "ordinal1", "pinordinal1"));
+  sync_list.push_back(CreateAppRemoteData(kItemId2, "item2_name", kFolderItemId,
+                                          "$$invalid_ordinal$$",
+                                          "pinordinal2"));
+
+  app_list_syncable_service()->MergeDataAndStartSyncing(
+      syncer::APP_LIST, sync_list,
+      std::make_unique<syncer::FakeSyncChangeProcessor>(),
+      std::make_unique<syncer::SyncErrorFactoryMock>());
+  content::RunAllTasksUntilIdle();
+
+  ASSERT_TRUE(GetSyncItem(kItemId1));
+  AppListModelUpdater* model_updater = GetModelUpdater();
+  ChromeAppListItem* item_1 = model_updater->FindItem(kItemId1);
+  ASSERT_TRUE(item_1);
+  EXPECT_EQ(kFolderItemId, item_1->folder_id());
+
+  ASSERT_TRUE(GetSyncItem(kItemId2));
+  ChromeAppListItem* item_2 = model_updater->FindItem(kItemId2);
+  ASSERT_TRUE(item_2);
+  EXPECT_EQ(kFolderItemId, item_2->folder_id());
+}
+
 TEST_F(AppListSyncableServiceTest, PruneEmptySyncFolder) {
   // Add a folder item and two items that are parented to the folder item.
   const std::string kFolderItemId = GenerateId("folder_item_id");
@@ -3095,7 +3246,9 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
                                           model_updater);
   folder_item3->SetChromeIsFolder(true);
   ItemTestApi(folder_item3.get()).SetPosition(position);
-  // Use an empty folder name.
+  // Use an empty folder name. Note that empty folder name will be interpreted
+  // as "Unnamed" during sorting, which is the same as the name showing to the
+  // users.
   ItemTestApi(folder_item3.get()).SetName("");
   app_list_syncable_service()->AddItem(std::move(folder_item3));
 
@@ -3103,7 +3256,7 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
   app_list_syncable_service()->SetAppListPreferredOrder(
       ash::AppListSortOrder::kNameAlphabetical);
   EXPECT_EQ(GetOrderedNamesFromSyncableService(),
-            std::vector<std::string>({"", "Folder1", "Folder2"}));
+            std::vector<std::string>({"Folder1", "Folder2", ""}));
 
   // Install a new app.
   const std::string kNewAppId = CreateNextAppId(GenerateId("app_id"));
@@ -3113,7 +3266,7 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
 
   // Verify that the app is placed after folders.
   EXPECT_EQ(GetOrderedNamesFromSyncableService(),
-            std::vector<std::string>({"", "Folder1", "Folder2", "B"}));
+            std::vector<std::string>({"Folder1", "Folder2", "", "B"}));
 
   // Verify that the entropy is zero.
   EXPECT_TRUE(cc::MathUtil::IsWithinEpsilon(
@@ -3128,13 +3281,13 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
 
   // Verify that the app is placed after folders.
   EXPECT_EQ(GetOrderedNamesFromSyncableService(),
-            std::vector<std::string>({"", "Folder1", "Folder2", "B", "C"}));
+            std::vector<std::string>({"Folder1", "Folder2", "", "B", "C"}));
 
   // Change folders' names so that folders are out of order.
   ChangeItemName(kFolderItemId1, "Folder2");
   ChangeItemName(kFolderItemId2, "Folder1");
   EXPECT_EQ(GetOrderedNamesFromSyncableService(),
-            std::vector<std::string>({"", "Folder2", "Folder1", "B", "C"}));
+            std::vector<std::string>({"Folder2", "Folder1", "", "B", "C"}));
 
   // There is one folder item out of order so the entropy should be 1/5 = 0.2.
   EXPECT_TRUE(cc::MathUtil::IsWithinEpsilon(
@@ -3148,7 +3301,7 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
   InstallExtension(app3.get());
   EXPECT_EQ(
       GetOrderedNamesFromSyncableService(),
-      std::vector<std::string>({"", "Folder2", "Folder1", "B", "C", "D"}));
+      std::vector<std::string>({"Folder2", "Folder1", "", "B", "C", "D"}));
 
   // Install the forth app. Verify that the new item is inserted between a
   // folder and an app.
@@ -3158,7 +3311,7 @@ TEST_F(ProductivityLauncherAppListSyncableServiceTest,
   InstallExtension(app4.get());
   EXPECT_EQ(
       GetOrderedNamesFromSyncableService(),
-      std::vector<std::string>({"", "Folder2", "Folder1", "A", "B", "C", "D"}));
+      std::vector<std::string>({"Folder2", "Folder1", "", "A", "B", "C", "D"}));
 }
 
 // Verifies that the new app's position maintains the launcher sort order among

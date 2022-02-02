@@ -373,10 +373,12 @@ void NGBoxFragmentPainter::Paint(const PaintInfo& paint_info) {
   if (PhysicalFragment().IsHiddenForPaint())
     return;
   if (PhysicalFragment().IsPaintedAtomically() &&
-      !box_fragment_.HasSelfPaintingLayer())
+      !box_fragment_.HasSelfPaintingLayer() &&
+      paint_info.phase != PaintPhase::kOverlayOverflowControls) {
     PaintAllPhasesAtomically(paint_info);
-  else
+  } else {
     PaintInternal(paint_info);
+  }
 }
 
 void NGBoxFragmentPainter::PaintInternal(const PaintInfo& paint_info) {
@@ -448,9 +450,8 @@ void NGBoxFragmentPainter::PaintInternal(const PaintInfo& paint_info) {
 
   if (original_phase != PaintPhase::kSelfBlockBackgroundOnly &&
       original_phase != PaintPhase::kSelfOutlineOnly &&
-      // For now all scrollers with overlay overflow controls are
-      // self-painting layers, so we don't need to traverse descendants
-      // here.
+      // kOverlayOverflowControls is for the current object itself, so we don't
+      // need to traverse descendants here.
       original_phase != PaintPhase::kOverlayOverflowControls) {
     if (original_phase == PaintPhase::kMask ||
         !box_fragment_.GetLayoutObject()->IsBox()) {
@@ -521,7 +522,7 @@ bool NGBoxFragmentPainter::ShouldRecordHitTestData(
 
   // Hit test data are only needed for compositing. This flag is used for for
   // printing and drag images which do not need hit testing.
-  if (paint_info.GetGlobalPaintFlags() & kGlobalPaintFlattenCompositingLayers)
+  if (paint_info.ShouldOmitCompositingInfo())
     return false;
 
   // If an object is not visible, it does not participate in hit testing.
@@ -1750,7 +1751,7 @@ void NGBoxFragmentPainter::PaintTextClipMask(const PaintInfo& paint_info,
                                              const PhysicalOffset& paint_offset,
                                              bool object_has_multiple_boxes) {
   PaintInfo mask_paint_info(paint_info.context, CullRect(mask_rect),
-                            PaintPhase::kTextClip, kGlobalPaintNormalPhase, 0);
+                            PaintPhase::kTextClip);
   mask_paint_info.SetFragmentID(paint_info.FragmentID());
   if (!object_has_multiple_boxes) {
     PaintObject(mask_paint_info, paint_offset);

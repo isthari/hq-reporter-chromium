@@ -144,11 +144,11 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, OmniboxPasteAndGo) {
 }
 
 // This test is flaky on MacOS with ASAN or DBG. https://crbug.com/1173317
-#if defined(OS_MAC) && (defined(ADDRESS_SANITIZER) || !defined(NDEBUG))
+#if BUILDFLAG(IS_MAC) && (defined(ADDRESS_SANITIZER) || !defined(NDEBUG))
 #define MAYBE_AnchorLinkClick DISABLED_AnchorLinkClick
 #else
 #define MAYBE_AnchorLinkClick AnchorLinkClick
-#endif  // OS_MAC && (ADDRESS_SANITIZER || !NDEBUG)
+#endif  // BUILDFLAG(IS_MAC) && (defined(ADDRESS_SANITIZER) || !defined(NDEBUG))
 IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest,
                        MAYBE_AnchorLinkClick) {
   WaitForTestSystemAppInstall();
@@ -597,7 +597,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
 
   // Wait for System Apps to be installed on both user profiles.
   auto* user_manager = user_manager::UserManager::Get();
-  Profile* profile1 = chromeos::ProfileHelper::Get()->GetProfileByUser(
+  Profile* profile1 = ash::ProfileHelper::Get()->GetProfileByUser(
       user_manager->FindUser(account_id1_));
   WaitForSystemWebAppInstall(profile1);
 
@@ -606,7 +606,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
   ash::UserAddingScreen::Get()->Start();
   AddUser(account_id2_);
   base::RunLoop().RunUntilIdle();
-  Profile* profile2 = chromeos::ProfileHelper::Get()->GetProfileByUser(
+  Profile* profile2 = ash::ProfileHelper::Get()->GetProfileByUser(
       user_manager->FindUser(account_id2_));
   WaitForSystemWebAppInstall(profile2);
   // Set user 1 to be active.
@@ -651,7 +651,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
 
   // Wait for System Apps to be installed on both user profiles.
   auto* user_manager = user_manager::UserManager::Get();
-  Profile* profile1 = chromeos::ProfileHelper::Get()->GetProfileByUser(
+  Profile* profile1 = ash::ProfileHelper::Get()->GetProfileByUser(
       user_manager->FindUser(account_id1_));
   WaitForSystemWebAppInstall(profile1);
 
@@ -660,7 +660,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
   ash::UserAddingScreen::Get()->Start();
   AddUser(account_id2_);
   base::RunLoop().RunUntilIdle();
-  Profile* profile2 = chromeos::ProfileHelper::Get()->GetProfileByUser(
+  Profile* profile2 = ash::ProfileHelper::Get()->GetProfileByUser(
       user_manager->FindUser(account_id2_));
   WaitForSystemWebAppInstall(profile2);
 
@@ -676,7 +676,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
     content::WebContents* web_contents =
         apps::AppServiceProxyFactory::GetForProfile(profile2)
             ->BrowserAppLauncher()
-            ->LaunchAppWithParams(std::move(launch_params));
+            ->LaunchAppWithParamsForTesting(std::move(launch_params));
     EXPECT_EQ(web_contents, nullptr);
   }
 
@@ -689,7 +689,7 @@ IN_PROC_BROWSER_TEST_F(SystemWebAppManagerMultiDesktopLaunchBrowserTest,
     content::WebContents* web_contents =
         apps::AppServiceProxyFactory::GetForProfile(profile1)
             ->BrowserAppLauncher()
-            ->LaunchAppWithParams(std::move(launch_params));
+            ->LaunchAppWithParamsForTesting(std::move(launch_params));
     EXPECT_NE(web_contents, nullptr);
   }
 }
@@ -726,7 +726,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppLaunchProfileBrowserTest,
                        LaunchFromSignInProfile) {
   WaitForTestSystemAppInstall();
 
-  Profile* signin_profile = chromeos::ProfileHelper::GetSigninProfile();
+  Profile* signin_profile = ash::ProfileHelper::GetSigninProfile();
 
   EXPECT_EQ(1U, chrome::GetTotalBrowserCount());
 

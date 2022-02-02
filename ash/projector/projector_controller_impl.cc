@@ -7,6 +7,7 @@
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_metrics.h"
 #include "ash/projector/projector_metadata_controller.h"
+#include "ash/projector/projector_metrics.h"
 #include "ash/projector/projector_ui_controller.h"
 #include "ash/public/cpp/projector/projector_client.h"
 #include "ash/public/cpp/projector/projector_new_screencast_precondition.h"
@@ -28,7 +29,7 @@ namespace {
 
 // String format of the screencast name.
 constexpr char kScreencastPathFmtStr[] =
-    "Screencast %d-%02d-%02d %02d.%02d.%02d";
+    "Recording %d-%02d-%02d %02d.%02d.%02d";
 
 // Create directory. Returns true if saving succeeded, or false otherwise.
 bool CreateDirectory(const base::FilePath& path) {
@@ -147,8 +148,24 @@ void ProjectorControllerImpl::OnTranscription(
 }
 
 void ProjectorControllerImpl::OnTranscriptionError() {
+  is_speech_recognition_on_ = false;
+
+  ProjectorUiController::ShowFailureNotification(
+      IDS_ASH_PROJECTOR_FAILURE_MESSAGE_TRANSCRIPTION);
+
   CaptureModeController::Get()->EndVideoRecording(
       EndRecordingReason::kProjectorTranscriptionError);
+}
+
+void ProjectorControllerImpl::OnSpeechRecognitionStopped() {
+  if (projector_session_->screencast_container_path()) {
+    // Finish saving the screencast if the container is available. The container
+    // might be unavailable if fail in creating the directory.
+    SaveScreencast();
+  }
+
+  is_speech_recognition_on_ = false;
+  projector_session_->Stop();
 }
 
 bool ProjectorControllerImpl::IsEligible() const {
@@ -248,6 +265,8 @@ void ProjectorControllerImpl::OnRecordingStarted(bool is_in_projector_mode) {
 
   StartSpeechRecognition();
   metadata_controller_->OnRecordingStarted();
+
+  RecordCreationFlowMetrics(ProjectorCreationFlow::kRecordingStarted);
 }
 
 void ProjectorControllerImpl::OnRecordingEnded(bool is_in_projector_mode) {
@@ -258,8 +277,6 @@ void ProjectorControllerImpl::OnRecordingEnded(bool is_in_projector_mode) {
 
   DCHECK(projector_session_->is_active());
 
-  StopSpeechRecognition();
-
   // TODO(b/197152209): move closing selfie cam to ProjectorUiController.
   if (client_->IsSelfieCamVisible())
     client_->CloseSelfieCam();
@@ -268,17 +285,13 @@ void ProjectorControllerImpl::OnRecordingEnded(bool is_in_projector_mode) {
   if (ui_controller_)
     ui_controller_->CloseToolbar();
 
-  if (projector_session_->screencast_container_path()) {
-    // Finish saving the screencast if the container is available. The container
-    // might be unavailable if fail in creating the directory.
-    SaveScreencast();
-  }
+  MaybeStopSpeechRecognition();
 
-  projector_session_->Stop();
-
-  // At this point, the screencast might not synced to Drive yet.  Open
-  // Projector App which showing the Gallery view by default.
+  // At this point, the screencast might not synced to Drive yet. Open
+  // Projector App which shows the Gallery view by default.
   client_->OpenProjectorApp();
+
+  RecordCreationFlowMetrics(ProjectorCreationFlow::kRecordingEnded);
 }
 
 void ProjectorControllerImpl::OnRecordingStartAborted() {
@@ -294,6 +307,10 @@ void ProjectorControllerImpl::OnRecordingStartAborted() {
   }
 
   projector_session_->Stop();
+
+  client_->OpenProjectorApp();
+
+  RecordCreationFlowMetrics(ProjectorCreationFlow::kRecordingAborted);
 }
 
 void ProjectorControllerImpl::OnLaserPointerPressed() {
@@ -320,7 +337,9 @@ bool ProjectorControllerImpl::IsAnnotatorEnabled() {
 }
 
 void ProjectorControllerImpl::OnNewScreencastPreconditionChanged() {
-  client_->OnNewScreencastPreconditionChanged(GetNewScreencastPrecondition());
+  // `client_` could be not available in unit tests.
+  if (client_)
+    client_->OnNewScreencastPreconditionChanged(GetNewScreencastPrecondition());
 }
 
 void ProjectorControllerImpl::SetProjectorUiControllerForTest(
@@ -361,13 +380,15 @@ void ProjectorControllerImpl::StartSpeechRecognition() {
   is_speech_recognition_on_ = true;
 }
 
-void ProjectorControllerImpl::StopSpeechRecognition() {
-  if (ProjectorController::AreExtendedProjectorFeaturesDisabled())
+void ProjectorControllerImpl::MaybeStopSpeechRecognition() {
+  if (ProjectorController::AreExtendedProjectorFeaturesDisabled() ||
+      !is_speech_recognition_on_) {
+    OnSpeechRecognitionStopped();
     return;
+  }
 
   DCHECK(speech_recognition_availability_ ==
          SpeechRecognitionAvailability::kAvailable);
-  DCHECK(is_speech_recognition_on_);
   DCHECK_NE(client_, nullptr);
   client_->StopSpeechRecognition();
   is_speech_recognition_on_ = false;

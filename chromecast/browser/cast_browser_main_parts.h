@@ -12,12 +12,11 @@
 #include "build/buildflag.h"
 #include "chromecast/browser/display_configurator_observer.h"
 #include "chromecast/chromecast_buildflags.h"
-#include "components/memory_pressure/multi_source_memory_pressure_monitor.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/common/main_function_params.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/timer/timer.h"
 #endif
 
@@ -36,7 +35,6 @@ class ViewsDelegate;
 
 namespace chromecast {
 class CastFeatureUpdateObserver;
-class CastSystemMemoryPressureEvaluatorAdjuster;
 class CastWebService;
 class DisplaySettingsManager;
 class ServiceConnector;
@@ -149,7 +147,7 @@ class CastBrowserMainParts : public content::BrowserMainParts {
   std::unique_ptr<DisplaySettingsManager> display_settings_manager_;
   std::unique_ptr<AccessibilityServiceImpl> accessibility_service_;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void StartPeriodicCrashReportUpload();
   void OnStartPeriodicCrashReportUpload();
   scoped_refptr<base::SequencedTaskRunner> crash_reporter_runner_;
@@ -159,12 +157,6 @@ class CastBrowserMainParts : public content::BrowserMainParts {
   // Tracks all media pipeline backends.
   std::unique_ptr<media::MediaPipelineBackendManager>
       media_pipeline_backend_manager_;
-#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
-  std::unique_ptr<memory_pressure::MultiSourceMemoryPressureMonitor>
-      memory_pressure_monitor_;
-#endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
-  CastSystemMemoryPressureEvaluatorAdjuster*
-      cast_system_memory_pressure_evaluator_adjuster_;
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   std::unique_ptr<extensions::ExtensionsClient> extensions_client_;
@@ -174,16 +166,16 @@ class CastBrowserMainParts : public content::BrowserMainParts {
   std::unique_ptr<PrefService> user_pref_service_;
 #endif
 
-#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(USE_OZONE)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
   std::unique_ptr<WaylandServerController> wayland_server_controller_;
 #endif
 
   std::unique_ptr<CastFeatureUpdateObserver> feature_update_observer_;
 
-#if defined(USE_AURA) && !defined(OS_FUCHSIA)
+#if defined(USE_AURA) && !BUILDFLAG(IS_FUCHSIA)
   // Only used when running with --enable-ui-devtools.
   std::unique_ptr<CastUIDevTools> ui_devtools_;
-#endif  // defined(USE_AURA) && !defined(OS_FUCHSIA)
+#endif  // defined(USE_AURA) && !BUILDFLAG(IS_FUCHSIA)
 };
 
 }  // namespace shell

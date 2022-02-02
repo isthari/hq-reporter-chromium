@@ -7,7 +7,6 @@
 #include "base/guid.h"
 #include "base/rand_util.h"
 #include "base/time/time.h"
-#include "content/browser/attribution_reporting/attribution_policy.h"
 #include "content/browser/attribution_reporting/attribution_utils.h"
 
 namespace content {
@@ -24,12 +23,12 @@ AttributionStorageDelegateImpl::AttributionStorageDelegateImpl(bool debug_mode)
 }
 
 int AttributionStorageDelegateImpl::GetMaxAttributionsPerSource(
-    StorableSource::SourceType source_type) const {
+    CommonSourceInfo::SourceType source_type) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   switch (source_type) {
-    case StorableSource::SourceType::kNavigation:
+    case CommonSourceInfo::SourceType::kNavigation:
       return 3;
-    case StorableSource::SourceType::kEvent:
+    case CommonSourceInfo::SourceType::kEvent:
       return 1;
   }
 }
@@ -71,12 +70,6 @@ AttributionStorageDelegateImpl::GetRateLimits(
   }
 }
 
-uint64_t AttributionStorageDelegateImpl::GetFakeEventSourceTriggerData() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return AttributionPolicy().SanitizeTriggerData(
-      base::RandUint64(), StorableSource::SourceType::kEvent);
-}
-
 base::TimeDelta
 AttributionStorageDelegateImpl::GetDeleteExpiredSourcesFrequency() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -90,7 +83,7 @@ AttributionStorageDelegateImpl::GetDeleteExpiredRateLimitsFrequency() const {
 }
 
 base::Time AttributionStorageDelegateImpl::GetReportTime(
-    const StorableSource& source,
+    const CommonSourceInfo& source,
     base::Time trigger_time) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // If in debug mode, the report should be sent immediately.
@@ -101,6 +94,22 @@ base::Time AttributionStorageDelegateImpl::GetReportTime(
 
 base::GUID AttributionStorageDelegateImpl::NewReportID() const {
   return base::GUID::GenerateRandomV4();
+}
+
+absl::optional<AttributionStorage::Delegate::OfflineReportDelayConfig>
+AttributionStorageDelegateImpl::GetOfflineReportDelayConfig() const {
+  if (debug_mode_)
+    return absl::nullopt;
+
+  // Add uniform random noise in the range of [0, 1 minutes] to the report time.
+  // TODO(https://crbug.com/1075600): This delay is very conservative. Consider
+  // increasing this delay once we can be sure reports are still sent at
+  // reasonable times, and not delayed for many browser sessions due to short
+  // session up-times.
+  return OfflineReportDelayConfig{
+      .min = base::Minutes(0),
+      .max = base::Minutes(1),
+  };
 }
 
 }  // namespace content

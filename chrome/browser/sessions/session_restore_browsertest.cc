@@ -9,6 +9,7 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/containers/adapters.h"
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -94,6 +95,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/bindings_policy.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
@@ -103,16 +105,13 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/features.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/gfx/color_palette.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "components/app_restore/features.h"
-#endif
-
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
 
@@ -530,10 +529,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, NoSessionRestoreNewWindowChromeOS) {
   // page for this test, to verify that session restore does not occur.
   Profile* profile = browser()->profile();
   SessionStartupPref current_pref = SessionStartupPref::GetStartupPref(profile);
-  if (full_restore::features::IsFullRestoreEnabled()) {
-    SessionStartupPref pref(SessionStartupPref::DEFAULT);
-    SessionStartupPref::SetStartupPref(profile, pref);
-  }
+  SessionStartupPref pref(SessionStartupPref::DEFAULT);
+  SessionStartupPref::SetStartupPref(profile, pref);
 
   GURL url(ui_test_utils::GetTestUrl(
       base::FilePath(base::FilePath::kCurrentDirectory),
@@ -687,7 +684,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
 }
 
 // Flaky on Linux. https://crbug.com/537592.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_WindowWithOneTab DISABLED_WindowWithOneTab
 #else
 #define MAYBE_WindowWithOneTab WindowWithOneTab
@@ -758,7 +755,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, IncognitotoNonIncognito) {
   ASSERT_TRUE(new_browser);
   EXPECT_EQ(url, new_browser->tab_strip_model()->GetWebContentsAt(0)->GetURL());
 }
-#endif  // !OS_CHROMEOS
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -779,7 +776,7 @@ void VerifyNavigationEntries(content::NavigationController& controller,
 }  // namespace
 
 // Flaky on Lacros and Wayland. https://crbug.com/1283339
-#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_LINUX)
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
 #define MAYBE_RestoreForeignTab DISABLED_RestoreForeignTab
 #else
 #define MAYBE_RestoreForeignTab RestoreForeignTab
@@ -1630,7 +1627,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, ActiveIndexUpdatedAtInsert) {
   ASSERT_EQ(new_browser->tab_strip_model()->active_index(), 1);
 }
 
-#if !defined(OS_MAC) && !BUILDFLAG(IS_CHROMEOS_LACROS) && \
+#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_CHROMEOS_LACROS) && \
     !BUILDFLAG(IS_CHROMEOS_ASH)
 // This test doesn't apply to Mac or Lacros; see GetCommandLineForRelaunch
 // for details. It was disabled for a long time so might never have worked on
@@ -1664,7 +1661,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest,
             new_browser->tab_strip_model()->GetActiveWebContents()->GetURL());
 }
 
-#endif  // !!defined(OS_MAC) && !BUILDFLAG(IS_CHROMEOS_LACROS) &&
+#endif  // !!BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_CHROMEOS_LACROS) &&
         // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Creates two windows, closes one, restores, make sure only one window open.
@@ -1871,7 +1868,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestorePinnedSelectedTab) {
 // Regression test for crbug.com/240156. When restoring tabs with a navigation,
 // the navigation should take active tab focus.
 // Flaky on Mac. http://crbug.com/656211.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_RestoreWithNavigateSelectedTab \
   DISABLED_RestoreWithNavigateSelectedTab
 #else
@@ -2100,7 +2097,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, TabWithDownloadDoesNotGetRestored) {
 }
 
 // Test is flaky on Linux and Windows: https://crbug.com/1181867
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_LINUX) && !defined(OS_WIN)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_WIN)
 namespace {
 
 class MultiBrowserObserver : public BrowserListObserver {
@@ -2231,7 +2228,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreAllBrowsers) {
 
 // PRE_CorrectLoadingOrder is flaky on ChromeOS MSAN and Mac.
 // See http://crbug.com/493167.
-#if (BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)) || defined(OS_MAC)
+#if (BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)) || \
+    BUILDFLAG(IS_MAC)
 #define MAYBE_PRE_CorrectLoadingOrder DISABLED_PRE_CorrectLoadingOrder
 #define MAYBE_CorrectLoadingOrder DISABLED_CorrectLoadingOrder
 #else
@@ -2475,20 +2473,29 @@ IN_PROC_BROWSER_TEST_F(MultiOriginSessionRestoreTest, BackToAboutBlank1) {
   url::Origin initial_origin = url::Origin::Create(initial_url);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
   content::WebContents* old_popup = nullptr;
+  content::WebContents* tab1 = GetTab(browser(), 0);
   {
-    content::WebContents* tab1 = GetTab(browser(), 0);
+    // Open a same-origin popup.
     content::WebContentsAddedObserver popup_observer;
-    ASSERT_TRUE(ExecJs(tab1, "window.open('about:blank')"));
+    ASSERT_TRUE(ExecJs(tab1, "var w = window.open('/title2.html');"));
     old_popup = popup_observer.GetWebContents();
+    EXPECT_EQ(initial_origin,
+              old_popup->GetMainFrame()->GetLastCommittedOrigin());
+    EXPECT_TRUE(WaitForLoadStop(old_popup));
+  }
+
+  {
+    // Navigate the popup to about:blank, inheriting the opener origin. Note
+    // that we didn't immediately open the popup to about:blank to avoid making
+    // it use the initial NavigationEntry, which can't be navigated back to.
+    content::TestNavigationObserver nav_observer(old_popup);
+    ASSERT_TRUE(ExecJs(tab1, "w.location.href = 'about:blank';"));
+    nav_observer.Wait();
     EXPECT_EQ(GURL(url::kAboutBlankURL),
               old_popup->GetMainFrame()->GetLastCommittedURL());
     EXPECT_EQ(initial_origin,
               old_popup->GetMainFrame()->GetLastCommittedOrigin());
   }
-
-  // Do a document.open() so that the initial empty document's history entry
-  // won't get replaced.
-  EXPECT_TRUE(ExecJs(old_popup, "document.open();"));
 
   // Navigate the popup to another site.
   GURL other_url = embedded_test_server()->GetURL("bar.com", "/title1.html");
@@ -2731,6 +2738,11 @@ IN_PROC_BROWSER_TEST_F(MultiOriginSessionRestoreTest,
 
 // Tests that an initial NavigationEntry does not get restored.
 IN_PROC_BROWSER_TEST_F(MultiOriginSessionRestoreTest, RestoreInitialEntry) {
+  if (!blink::features::IsInitialNavigationEntryEnabled()) {
+    // This test specifically tests initial NavigationEntries, which can't be
+    // created when the InitialNavigationEntry flag is turned off.
+    return;
+  }
   GURL main_url = embedded_test_server()->GetURL("foo.com", "/title1.html");
   url::Origin main_origin = url::Origin::Create(main_url);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), main_url));
@@ -2912,13 +2924,13 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreWithIncompleteFileTest, LogsReadError) {
 
   // Ensure there is a restore event
   auto events = GetSessionServiceEvents(browser()->profile());
-  for (auto iter = events.rbegin(); iter != events.rend(); ++iter) {
+  for (const SessionServiceEvent& event : base::Reversed(events)) {
     // For normal shutdown (as this test triggers) kRestore should always occur
     // after kExit. This iterates in reverse, so that kRestore should occur
     // first.
-    ASSERT_NE(SessionServiceEventLogType::kExit, iter->type);
-    if (iter->type == SessionServiceEventLogType::kRestore) {
-      EXPECT_EQ(1, iter->data.restore.encountered_error_reading);
+    ASSERT_NE(SessionServiceEventLogType::kExit, event.type);
+    if (event.type == SessionServiceEventLogType::kRestore) {
+      EXPECT_EQ(1, event.data.restore.encountered_error_reading);
       break;
     }
   }
@@ -3209,7 +3221,7 @@ class AppSessionRestoreTest : public SessionRestoreTest {
   }
 
   web_app::AppId InstallPWA(Profile* profile, const GURL& start_url) {
-    auto web_app_info = std::make_unique<WebApplicationInfo>();
+    auto web_app_info = std::make_unique<WebAppInstallInfo>();
     web_app_info->start_url = start_url;
     web_app_info->scope = start_url.GetWithoutFilename();
     web_app_info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
@@ -3219,7 +3231,7 @@ class AppSessionRestoreTest : public SessionRestoreTest {
 };
 
 // This is disabled on mac pending http://crbug.com/1194201
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_BasicAppSessionRestore DISABLED_BasicAppSessionRestore
 #else
 #define MAYBE_BasicAppSessionRestore BasicAppSessionRestore
@@ -3300,7 +3312,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, MAYBE_BasicAppSessionRestore) {
 }
 
 // This is disabled on mac pending http://crbug.com/1194201
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_IsolatedFromBrowserRestore DISABLED_IsolatedFromBrowserRestore
 #else
 #define MAYBE_IsolatedFromBrowserRestore IsolatedFromBrowserRestore
@@ -3377,7 +3389,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest,
 // To keep the coverage from the rest of the test, we disable the failing check
 // on linux for window-maximization.
 // TODO(https://crbug.com/1255462): fails under lacros.
-#if defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_RestoreAppMinimized DISABLED_RestoreAppMinimized
 #else
 #define MAYBE_RestoreAppMinimized RestoreAppMinimized
@@ -3424,7 +3436,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, MAYBE_RestoreAppMinimized) {
   for (Browser* browser : *(BrowserList::GetInstance())) {
     if (browser->type() == Browser::Type::TYPE_APP) {
       EXPECT_TRUE(web_app::AppBrowserController::IsForWebApp(browser, app_id));
-#if !defined(OS_LINUX)
+#if !BUILDFLAG(IS_LINUX)
       EXPECT_TRUE(browser->window()->IsMinimized());
 #endif
       EXPECT_EQ(browser->tab_strip_model()->GetWebContentsAt(0)->GetURL(),
@@ -3447,7 +3459,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, MAYBE_RestoreAppMinimized) {
 // In order to keep the coverage from the rest of the test, the checks that
 // fail on linux are explicitly disabled.
 // Flaky on Lacros https://crbug.com/1256498
-#if defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_RestoreMaximizedApp DISABLED_RestoreMaximizedApp
 #else
 #define MAYBE_RestoreMaximizedApp RestoreMaximizedApp
@@ -3495,7 +3507,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, MAYBE_RestoreMaximizedApp) {
   for (Browser* browser : *(BrowserList::GetInstance())) {
     if (browser->type() == Browser::Type::TYPE_APP) {
       EXPECT_TRUE(web_app::AppBrowserController::IsForWebApp(browser, app_id));
-#if !defined(OS_LINUX)
+#if !BUILDFLAG(IS_LINUX)
       EXPECT_TRUE(browser->window()->IsMaximized());
 #endif
       EXPECT_EQ(browser->tab_strip_model()->GetWebContentsAt(0)->GetURL(),
@@ -3516,7 +3528,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, MAYBE_RestoreMaximizedApp) {
   profile_keep_alive.reset();
 }
 
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
 // This test does not make sense on mac, since when apps are opened,
 // the browser must open. This test opens an app when nothing is open,
 // then closes it. Then opens a browser to ensure the user's previous browser
@@ -3582,7 +3594,7 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest,
   keep_alive.reset();
   profile_keep_alive.reset();
 }
-#endif  //  #if !defined(OS_MAC)
+#endif  // !BUILDFLAG(IS_MAC)
 
 // This tests if an app being the last remaining window does not interfere
 // with the last browser window being restored later.
@@ -3809,4 +3821,89 @@ IN_PROC_BROWSER_TEST_F(AppSessionRestoreTest, InvokeTwoAppsThenRestore) {
 
   keep_alive.reset();
   profile_keep_alive.reset();
+}
+
+class SessionRestoreAppHistoryTest : public SessionRestoreTest {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitch(
+        switches::kEnableExperimentalWebPlatformFeatures);
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SessionRestoreAppHistoryTest,
+                       ReferrerPolicyUrlCensored) {
+  // Tests start with one browser window; navigate it to url 1.
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), GetUrl1(), WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
+  ASSERT_EQ(1, browser()->tab_strip_model()->count());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  EXPECT_EQ(GetUrl1(), contents->GetLastCommittedURL());
+
+  // Navigate the tab to url 2.
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), GetUrl2(), WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
+  ASSERT_EQ(1, browser()->tab_strip_model()->count());
+  EXPECT_EQ(GetUrl2(), contents->GetLastCommittedURL());
+
+  // Apply a referrer policy of "no-referrer" for url 2.
+  const char kNoReferrerJS[] =
+      "let meta = document.createElement('meta');"
+      "meta.name = 'referrer';"
+      "meta.content = 'no-referrer';"
+      "document.head.appendChild(meta)";
+  EXPECT_TRUE(content::ExecuteScript(contents, kNoReferrerJS));
+
+  // Navigate the tab to url 3.
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), GetUrl3(), WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
+  ASSERT_EQ(1, browser()->tab_strip_model()->count());
+  EXPECT_EQ(GetUrl3(), contents->GetLastCommittedURL());
+
+  // Ensure that url2 is censored in appHistory due to the no-referrer policy,
+  // but url1 isn't.
+  bool url1_is_censored = false;
+  bool url2_is_censored = false;
+  const char kCheckEntry1Js[] =
+      "window.domAutomationController.send("
+      "appHistory.entries()[0].url == null);";
+  const char kCheckEntry2Js[] =
+      "window.domAutomationController.send("
+      "appHistory.entries()[1].url == null);";
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(contents, kCheckEntry1Js,
+                                                   &url1_is_censored));
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(contents, kCheckEntry2Js,
+                                                   &url2_is_censored));
+  EXPECT_FALSE(url1_is_censored);
+  EXPECT_TRUE(url2_is_censored);
+
+  // Simulate an exit by shutting down the session service. If we don't do this
+  // the first window close is treated as though the user closed the window
+  // and won't be restored.
+  SessionServiceFactory::ShutdownForProfile(browser()->profile());
+
+  // Then close all the browsers and "restart" Chromium.
+  QuitBrowserAndRestore(browser());
+
+  // url2 should still be censored in appHistory after restore, url1 should not.
+  ASSERT_EQ(1u, active_browser_list_->size());
+  content::WebContents* restored_contents =
+      active_browser_list_->get(0)->tab_strip_model()->GetWebContentsAt(0);
+  EXPECT_EQ(GetUrl3(), restored_contents->GetLastCommittedURL());
+  int entries_length = 0;
+  const char kCheckEntriesLength[] =
+      "window.domAutomationController.send("
+      "appHistory.entries().length);";
+  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
+      restored_contents, kCheckEntriesLength, &entries_length));
+  EXPECT_EQ(entries_length, 3);
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      restored_contents, kCheckEntry1Js, &url1_is_censored));
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      restored_contents, kCheckEntry2Js, &url2_is_censored));
+  EXPECT_FALSE(url1_is_censored);
+  EXPECT_TRUE(url2_is_censored);
 }

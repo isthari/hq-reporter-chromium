@@ -16,6 +16,7 @@
 #include "base/rand_util.h"
 #include "base/strings/string_piece.h"
 #include "base/task/current_thread.h"
+#include "build/build_config.h"
 #include "mojo/core/broker.h"
 #include "mojo/core/broker_host.h"
 #include "mojo/core/configuration.h"
@@ -26,11 +27,11 @@
 #include "mojo/public/cpp/platform/named_platform_channel.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
-#if !defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
 #include "crypto/random.h"
 #endif
 
@@ -39,7 +40,7 @@ namespace core {
 
 namespace {
 
-#if defined(OS_NACL)
+#if BUILDFLAG(IS_NACL)
 template <typename T>
 void GenerateRandomName(T* out) {
   base::RandBytes(out, sizeof(T));
@@ -145,7 +146,7 @@ class ThreadDestructionObserver
   base::OnceClosure callback_;
 };
 
-#if !defined(OS_APPLE) && !defined(OS_NACL) && !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
 ConnectionParams CreateSyncNodeConnectionParams(
     const base::Process& target_process,
     ConnectionParams connection_params,
@@ -157,7 +158,7 @@ ConnectionParams CreateSyncNodeConnectionParams(
       target_process.IsValid() ? target_process.Duplicate() : base::Process(),
       std::move(connection_params), process_error_callback);
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // On Windows, if target_process is invalid it means it's elevated or running
   // in another session so a named pipe should be used instead.
   if (!target_process.IsValid()) {
@@ -182,7 +183,7 @@ ConnectionParams CreateSyncNodeConnectionParams(
 
   return node_connection_params;
 }
-#endif  // !defined(OS_APPLE) && !defined(OS_NACL) && !defined(OS_FUCHSIA)
+#endif  // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
 
 }  // namespace
 
@@ -232,7 +233,7 @@ void NodeController::AcceptBrokerClientInvitation(
     ConnectionParams connection_params) {
   absl::optional<PlatformHandle> broker_host_handle;
   DCHECK(!GetConfiguration().is_broker_process);
-#if !defined(OS_APPLE) && !defined(OS_NACL_SFI) && !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
   if (!connection_params.is_async()) {
     // Use the bootstrap channel for the broker and receive the node's channel
     // synchronously as the first message from the broker.
@@ -342,7 +343,7 @@ int NodeController::MergeLocalPorts(const ports::PortRef& port0,
 
 base::WritableSharedMemoryRegion NodeController::CreateSharedBuffer(
     size_t num_bytes) {
-#if !defined(OS_APPLE) && !defined(OS_NACL_SFI) && !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
   // Shared buffer creation failure is fatal, so always use the broker when we
   // have one; unless of course the embedder forces us not to.
   if (!GetConfiguration().force_direct_shared_memory_allocation && broker_)
@@ -413,7 +414,7 @@ void NodeController::SendBrokerClientInvitationOnIOThread(
     const ProcessErrorCallback& process_error_callback) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
 
-#if !defined(OS_APPLE) && !defined(OS_NACL) && !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
   Channel::HandlePolicy handle_policy = Channel::HandlePolicy::kAcceptHandles;
   ConnectionParams node_connection_params;
 
@@ -431,11 +432,11 @@ void NodeController::SendBrokerClientInvitationOnIOThread(
   scoped_refptr<NodeChannel> channel = NodeChannel::Create(
       this, std::move(node_connection_params), handle_policy, io_task_runner_,
       process_error_callback);
-#else   // !defined(OS_APPLE) && !defined(OS_NACL) && !defined(OS_FUCHSIA)
+#else   // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
   scoped_refptr<NodeChannel> channel = NodeChannel::Create(
       this, std::move(connection_params), Channel::HandlePolicy::kAcceptHandles,
       io_task_runner_, process_error_callback);
-#endif  // !defined(OS_APPLE) && !defined(OS_NACL) && !defined(OS_FUCHSIA)
+#endif  // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_NACL) && !BUILDFLAG(IS_FUCHSIA)
 
   // We set up the invitee channel with a temporary name so it can be identified
   // as a pending invitee if it writes any messages to the channel. We may start
@@ -594,7 +595,7 @@ void NodeController::AddPeer(const ports::NodeName& name,
     }
 
     if (dropped_peers_.Contains(name) && !allow_name_reuse) {
-      LOG(ERROR) << "Trying to re-add dropped peer " << name;
+      DVLOG(1) << "Trying to re-add dropped peer " << name;
       return;
     }
 
@@ -693,7 +694,7 @@ void NodeController::SendPeerEvent(const ports::NodeName& name,
   if (!event_message)
     return;
   scoped_refptr<NodeChannel> peer = GetPeerChannel(name);
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (event_message->has_handles()) {
     // If we're sending a message with handles we aren't the destination
     // node's inviter or broker (i.e. we don't know its process handle), ask
@@ -709,7 +710,7 @@ void NodeController::SendPeerEvent(const ports::NodeName& name,
       return;
     }
   }
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
   if (peer) {
     peer->SendChannelMessage(std::move(event_message));
@@ -800,10 +801,14 @@ void NodeController::BroadcastEvent(ports::ScopedEvent event) {
   DCHECK(channel_message && !channel_message->has_handles());
 
   scoped_refptr<NodeChannel> broker = GetBrokerChannel();
-  if (broker)
+  if (broker) {
     broker->Broadcast(std::move(channel_message));
-  else
+  } else if (broker_name_ == ports::kInvalidNodeName) {
+    // Do an additional check if broker_name_ is not set. It's possible that we
+    // don't have a broker channel even though we're not the broker ourselves,
+    // e.g. if this code path is called from the channel error path..
     OnBroadcast(name_, std::move(channel_message));
+  }
 }
 
 void NodeController::PortStatusChanged(const ports::PortRef& port) {
@@ -943,7 +948,7 @@ void NodeController::OnAddBrokerClient(const ports::NodeName& from_node,
       this, std::move(connection_params), Channel::HandlePolicy::kAcceptHandles,
       io_task_runner_, ProcessErrorCallback());
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // The broker must have a working handle to the client process in order to
   // properly copy other handles to and from the client.
   if (!scoped_process_handle.IsValid()) {
@@ -1065,7 +1070,7 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
     pending_broker_clients.pop();
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Have the broker relay any messages we have waiting.
   for (auto& entry : pending_relay_messages) {
     const ports::NodeName& destination = entry.first;
@@ -1197,7 +1202,7 @@ void NodeController::OnIntroduce(const ports::NodeName& from_node,
     return;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Introduced peers are never our broker nor our inviter, so we never accept
   // handles from them directly.
   constexpr auto kPeerHandlePolicy = Channel::HandlePolicy::kRejectHandles;
@@ -1256,7 +1261,7 @@ void NodeController::OnBroadcast(const ports::NodeName& from_node,
   }
 }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 void NodeController::OnRelayEventMessage(const ports::NodeName& from_node,
                                          base::ProcessHandle from_process,
                                          const ports::NodeName& destination,
@@ -1395,7 +1400,7 @@ void NodeController::AttemptShutdownIfRequested() {
 
 void NodeController::ForceDisconnectProcessForTestingOnIOThread(
     base::ProcessId process_id) {
-#if defined(OS_NACL) || defined(OS_IOS)
+#if BUILDFLAG(IS_NACL) || BUILDFLAG(IS_IOS)
   NOTREACHED();
 #else
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());

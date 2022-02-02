@@ -6,7 +6,6 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/metrics_hashes.h"
-#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/prerender_trigger_type.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -23,6 +22,8 @@ PrerenderCancelledInterface GetCancelledInterfaceType(
     return PrerenderCancelledInterface::kGamepadMonitor;
   else if (interface_name == "blink.mojom.NotificationService")
     return PrerenderCancelledInterface::kNotificationService;
+  else if (interface_name == "chrome.mojom.SyncEncryptionKeysExtension")
+    return PrerenderCancelledInterface::kSyncEncryptionKeysExtension;
   return PrerenderCancelledInterface::kUnknown;
 }
 

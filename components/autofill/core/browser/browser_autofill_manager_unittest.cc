@@ -125,7 +125,7 @@ class MockAutofillClient : public TestAutofillClient {
 
   MOCK_METHOD(bool, ShouldShowSigninPromo, (), (override));
   MOCK_METHOD(version_info::Channel, GetChannel, (), (const override));
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   MOCK_METHOD(void,
               ConfirmSaveUpiIdLocally,
               (const std::string& upi_id,
@@ -346,12 +346,12 @@ class BrowserAutofillManagerTest : public testing::Test {
 
   void SetUp() override {
     autofill_client_.SetPrefs(test::PrefServiceForTesting());
+    personal_data_.set_auto_accept_address_imports_for_testing(true);
     personal_data_.Init(/*profile_database=*/database_,
                         /*account_database=*/nullptr,
                         /*pref_service=*/autofill_client_.GetPrefs(),
                         /*local_state=*/autofill_client_.GetPrefs(),
                         /*identity_manager=*/nullptr,
-                        /*client_profile_validator=*/nullptr,
                         /*history_service=*/nullptr,
                         /*strike_database=*/nullptr,
                         /*image_fetcher=*/nullptr,
@@ -836,11 +836,11 @@ class SuggestionMatchingTest
     InitializeFeatures();
   }
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   void InitializeFeatures();
 #else
   void InitializeFeatures();
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 
   std::string MakeLabel(const std::vector<std::string>& parts);
   std::string MakeMobileLabel(const std::vector<std::string>& parts);
@@ -850,7 +850,7 @@ class SuggestionMatchingTest
   base::test::ScopedFeatureList features_;
 };
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 void SuggestionMatchingTest::InitializeFeatures() {
   if (std::get<0>(GetParam())) {
     std::string variant = std::get<1>(GetParam());
@@ -883,7 +883,7 @@ void SuggestionMatchingTest::InitializeFeatures() {
       features::kAutofillUseImprovedLabelDisambiguation,
       std::get<0>(GetParam()));
 }
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 
 std::string SuggestionMatchingTest::MakeLabel(
     const std::vector<std::string>& parts) {
@@ -910,7 +910,7 @@ class CreditCardSuggestionTest : public BrowserAutofillManagerTest,
   }
 
   int ObfuscationLength() {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     return is_keyboard_accessory_enabled_ ? 2 : 4;
 #else
     return 4;
@@ -960,7 +960,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
 
   // Different form structure.
   FormData form2;
-  form2.host_frame = test::GetLocalFrameToken();
+  form2.host_frame = test::MakeLocalFrameToken();
   form2.unique_renderer_id = test::MakeFormRendererId();
   form2.name = u"MyForm";
   form2.url = GURL("https://myform.com/form.html");
@@ -993,7 +993,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormData form2;
   FormFieldData field;
   test::CreateTestFormField("Querty", "qwerty", "", "text", &field);
-  form2.host_frame = test::GetLocalFrameToken();
+  form2.host_frame = test::MakeLocalFrameToken();
   form2.unique_renderer_id = test::MakeFormRendererId();
   form2.name = u"NonQueryable";
   form2.url = form1.url;
@@ -1021,7 +1021,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormData form2;
   FormFieldData field;
   test::CreateTestFormField("Querty", "qwerty", "", "text", &field);
-  form2.host_frame = test::GetLocalFrameToken();
+  form2.host_frame = test::MakeLocalFrameToken();
   form2.unique_renderer_id = test::MakeFormRendererId();
   form2.name = u"NonQueryable";
   form2.url = form1.url;
@@ -1476,7 +1476,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -1511,7 +1511,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field.value = u"       ";
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -1546,7 +1546,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field.value = u"____-____-____-____";
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -1581,7 +1581,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field.value = std::u16string({0x200E, 0x200F});
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -1625,7 +1625,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field.value = u"5255-66__-____-____";
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string master_card_label = std::string("08/17");
 #else
   const std::string master_card_label = std::string("Expires on 08/17");
@@ -1654,7 +1654,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   test::CreateTestFormField("Card Number", "cardnumber", "78", "text", &field);
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
 #else
   const std::string visa_label = std::string("Expires on 04/99");
@@ -1696,7 +1696,7 @@ TEST_P(CreditCardSuggestionTest, GetCreditCardSuggestions_CCNumber) {
       kArbitraryNickname + "  " +
       test::ObfuscatedCardDigitsAsUTF8("8765", obfuscation_length);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -1733,7 +1733,7 @@ TEST_P(CreditCardSuggestionTest, GetCreditCardSuggestions_NonCCNumber) {
   const std::string obfuscated_last_four_digits2 =
       test::ObfuscatedCardDigitsAsUTF8("8765", ObfuscationLength());
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // For Android, when keyboard accessary is enabled, always show obfuscated
   // last four. When keyboard accessary is not enabled (drop-down suggestion):
   // 1) if nickname feature is enabled and nickname is available, show nickname
@@ -1749,7 +1749,7 @@ TEST_P(CreditCardSuggestionTest, GetCreditCardSuggestions_NonCCNumber) {
           ? obfuscated_last_four_digits2
           : kArbitraryNickname + "  " + obfuscated_last_four_digits2;
 
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   const std::string visa_label = obfuscated_last_four_digits1;
   const std::string master_card_label = obfuscated_last_four_digits2;
 
@@ -1798,7 +1798,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   const FormFieldData& credit_card_number_field = form.fields[1];
   const std::string google_issued_card_value = base::JoinString(
       {"Plex Mastercard  ", test::ObfuscatedCardDigitsAsUTF8("4444")}, "");
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string google_issued_card_label = std::string("10/98");
 #else
   const std::string google_issued_card_label = std::string("Expires on 10/98");
@@ -1836,10 +1836,10 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormsSeen(forms);
   // Set the field being edited to the cardholder name field.
   const FormFieldData& cardholder_name_field = form.fields[0];
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   const std::string google_issued_card_label = base::JoinString(
       {"Plex Mastercard  ", test::ObfuscatedCardDigitsAsUTF8("4444")}, "");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   const std::string google_issued_card_label =
       test::ObfuscatedCardDigitsAsUTF8("4444");
 #else
@@ -1968,7 +1968,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -2004,7 +2004,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -2048,7 +2048,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label1 = std::string("10/98");
   const std::string master_card_label2 = std::string("05/99");
@@ -2150,7 +2150,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("01/11");
   const std::string master_card_label = std::string("04/55");
   const std::string amex_card_label = std::string("04/10");
@@ -2234,12 +2234,12 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
     FormFieldData field = form.fields[0];
     GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     const std::string mastercard_label =
         std::string("Mastercard  ") + test::ObfuscatedCardDigitsAsUTF8("5100");
     const std::string visa_label =
         std::string("Visa  ") + test::ObfuscatedCardDigitsAsUTF8("3456");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
     const std::string mastercard_label =
         test::ObfuscatedCardDigitsAsUTF8("5100");
     const std::string visa_label = test::ObfuscatedCardDigitsAsUTF8("3456");
@@ -2266,10 +2266,10 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
     field.value = u"B";
     GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     const std::string mastercard_label =
         std::string("Mastercard  ") + test::ObfuscatedCardDigitsAsUTF8("5100");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
     const std::string mastercard_label =
         test::ObfuscatedCardDigitsAsUTF8("5100");
 #else
@@ -2290,10 +2290,10 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
     field.value = u"Cl";
     GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     const std::string visa_label =
         std::string("Visa  ") + test::ObfuscatedCardDigitsAsUTF8("3456");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
     const std::string visa_label = test::ObfuscatedCardDigitsAsUTF8("3456");
 #else
     const std::string visa_label = std::string("Visa  ") +
@@ -2313,10 +2313,10 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
     field.value = u"Jo";
     GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     const std::string amex_label =
         std::string("Amex  ") + test::ObfuscatedCardDigitsAsUTF8("0005");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
     const std::string amex_label = test::ObfuscatedCardDigitsAsUTF8("0005");
 #else
     const std::string amex_label = std::string("Amex  ") +
@@ -2338,7 +2338,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
     field.value = u"4234";
     GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
     const std::string visa_label1 = std::string("04/10");
     const std::string visa_label2 = std::string("01/10");
 #else
@@ -2398,7 +2398,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
 
 // Sublabel is expiration date when filling card number. The second card
 // doesn't have a number so it should not be included in the suggestions.
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string amex_card_exp_label = std::string("04/99");
 #else
   const std::string amex_card_exp_label = std::string("Expires on 04/99");
@@ -2415,10 +2415,10 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field = form.fields[0];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   const std::string amex_card_label =
       std::string("Amex  ") + test::ObfuscatedCardDigitsAsUTF8("0005");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   const std::string amex_card_label = test::ObfuscatedCardDigitsAsUTF8("0005");
 #else
   const std::string amex_card_label = std::string("Amex  ") +
@@ -2480,7 +2480,7 @@ TEST_P(SuggestionMatchingTest, GetAddressAndCreditCardSuggestions) {
   test::CreateTestFormField("Card Number", "cardnumber", "", "text", &field);
   GetAutofillSuggestions(kPageID2, form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -5951,7 +5951,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
        OnLoadedServerPredictionsFromApi) {
   // First form on the page.
   FormData form;
-  form.host_frame = test::GetLocalFrameToken();
+  form.host_frame = test::MakeLocalFrameToken();
   form.unique_renderer_id = test::MakeFormRendererId();
   form.name = u"MyForm";
   form.url = GURL("https://myform.com/form.html");
@@ -5977,7 +5977,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
 
   // Second form on the page.
   FormData form2;
-  form2.host_frame = test::GetLocalFrameToken();
+  form2.host_frame = test::MakeLocalFrameToken();
   form2.unique_renderer_id = test::MakeFormRendererId();
   form2.name = u"MyForm2";
   form2.url = GURL("https://myform.com/form.html");
@@ -6352,8 +6352,6 @@ class ProfileMatchingTypesTest
     : public BrowserAutofillManagerTest,
       public ::testing::WithParamInterface<
           std::tuple<ProfileMatchingTypesTestCase,
-                     int,      // AutofillDataModel::ValidityState
-                     bool,     // AutofillDataModel::ValidationSource
                      bool>> {  // kAutofillEnableSupportForMoreStructureInNames
  protected:
   void SetUp() override {
@@ -6373,7 +6371,7 @@ class ProfileMatchingTypesTest
 };
 
 void ProfileMatchingTypesTest::InitializeFeatures() {
-  structured_names_and_addresses_ = std::get<2>(GetParam());
+  structured_names_and_addresses_ = std::get<1>(GetParam());
 
   std::vector<base::Feature> features = {
       features::kAutofillEnableSupportForMoreStructureInAddresses,
@@ -6496,22 +6494,15 @@ const ProfileMatchingTypesTestCase kProfileMatchingTypesTestCases[] = {
 };
 
 // Tests that DeterminePossibleFieldTypesForUpload finds accurate possible
-// types and validities.
+// types.
 TEST_P(ProfileMatchingTypesTest, DeterminePossibleFieldTypesForUpload) {
   // Unpack the test parameters
   const auto& test_case = std::get<0>(GetParam());
-  auto validity_state =
-      static_cast<AutofillDataModel::ValidityState>(std::get<1>(GetParam()));
-  const auto& validation_source =
-      static_cast<AutofillDataModel::ValidationSource>(std::get<2>(GetParam()));
 
   SCOPED_TRACE(base::StringPrintf(
-      "Test: input_value='%s', field_type=%s, validity_state=%d, "
-      "validation_source=%d "
-      "structured_names=%s ",
+      "Test: input_value='%s', field_type=%s, structured_names=%s ",
       test_case.input_value,
       AutofillType(*test_case.field_types.begin()).ToString().c_str(),
-      validity_state, validation_source,
       StructuredNamesAndAddresses() ? "true" : "false"));
 
   // Take the field types depending on the state of the structured names
@@ -6519,9 +6510,6 @@ TEST_P(ProfileMatchingTypesTest, DeterminePossibleFieldTypesForUpload) {
   const ServerFieldTypeSet& expected_possible_types =
       StructuredNamesAndAddresses() ? test_case.structured_field_types
                                     : test_case.field_types;
-
-  ASSERT_LE(AutofillDataModel::UNVALIDATED, validity_state);
-  ASSERT_LE(validity_state, AutofillDataModel::UNSUPPORTED);
 
   // Set up the test profiles.
   std::vector<AutofillProfile> profiles;
@@ -6542,24 +6530,6 @@ TEST_P(ProfileMatchingTypesTest, DeterminePossibleFieldTypesForUpload) {
                        "Apt. 11", "Paris", "Île de France", "75008", "FR",
                        "+33 2 49 19 70 70");
   profiles[2].set_guid("00000000-0000-0000-0000-000000000001");
-
-  // Set the validity state for the matching field type.
-  for (auto type : expected_possible_types) {
-    if (GroupTypeOfServerFieldType(type) != FieldTypeGroup::kCreditCard) {
-      for (auto& profile : profiles) {
-        ASSERT_GT(test_case.field_types.size(), 0U);
-        if (type == UNKNOWN_TYPE) {
-          // An UNKNOWN type is always UNVALIDATED
-          validity_state = AutofillDataModel::UNVALIDATED;
-        } else if (profile.IsAnInvalidPhoneNumber(type)) {
-          // A phone field is a compound field, and an invalid part makes
-          // the phone number invalid.
-          validity_state = AutofillDataModel::INVALID;
-        }
-        profile.SetValidityState(type, validity_state, validation_source);
-      }
-    }
-  }
 
   // Set up the test credit cards.
   std::vector<CreditCard> credit_cards;
@@ -6589,22 +6559,6 @@ TEST_P(ProfileMatchingTypesTest, DeterminePossibleFieldTypesForUpload) {
 
   ServerFieldTypeSet possible_types = form_structure.field(0)->possible_types();
   EXPECT_EQ(possible_types, expected_possible_types);
-
-  for (auto type : expected_possible_types) {
-    // We don't add validity states for credit card fields.
-    if (GroupTypeOfServerFieldType(type) != FieldTypeGroup::kCreditCard) {
-      ServerFieldTypeValidityStatesMap possible_types_validities =
-          form_structure.field(0)->possible_types_validities();
-      ASSERT_EQ(expected_possible_types.size(),
-                possible_types_validities.size());
-      EXPECT_NE(possible_types_validities.end(),
-                possible_types_validities.find(type));
-      EXPECT_EQ(possible_types_validities[type][0],
-                (validation_source == AutofillDataModel::SERVER)
-                    ? validity_state
-                    : AutofillDataModel::UNVALIDATED);
-    }
-  }
 }
 
 // Tests that DeterminePossibleFieldTypesForUpload is called when a form is
@@ -6657,115 +6611,6 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
 
   browser_autofill_manager_->SetExpectedSubmittedFieldTypes(expected_types);
   FormSubmitted(form);
-}
-
-// Test that the possible field types with multiple validities are determined
-// correctly.
-TEST_P(BrowserAutofillManagerStructuredProfileTest,
-       DeterminePossibleFieldTypesWithMultipleValidities) {
-  // Set up the user's profiles.
-  std::vector<AutofillProfile> profiles;
-  {
-    AutofillProfile profile;
-    test::SetProfileInfo(&profile, "Elvis", "Aaron", "Presley",
-                         "theking@gmail.com", "RCA", "3734 Elvis Presley Blvd.",
-                         "", "Memphis", "Tennessee", "38116", "US",
-                         "(234) 567-8901");
-    profile.set_guid("00000000-0000-0000-0000-000000000001");
-    profile.SetValidityState(ADDRESS_HOME_STATE, AutofillDataModel::VALID,
-                             AutofillDataModel::SERVER);
-    profiles.push_back(profile);
-  }
-  {
-    AutofillProfile profile;
-    test::SetProfileInfo(&profile, "Alice", "", "Munro", "munro@gmail.com", "",
-                         "1331 W Georgia", "", "Vancouver", "Tennessee",
-                         "V4D 4S4", "CA", "(778) 567-8901");
-    profile.set_guid("00000000-0000-0000-0000-000000000002");
-    profile.SetValidityState(ADDRESS_HOME_STATE, AutofillDataModel::INVALID,
-                             AutofillDataModel::SERVER);
-    profiles.push_back(profile);
-  }
-
-  // Set up the test cases:
-  typedef struct {
-    std::u16string input_value;
-    ServerFieldType field_type;
-    std::vector<AutofillDataModel::ValidityState> expected_validity_states;
-  } TestFieldData;
-
-  std::vector<TestFieldData> test_cases[3];
-  // Tennessee appears in both of the user's profile as ADDRESS_HOME_STATE. In
-  // the first one, it's VALID, and for the other, it's INVALID. Therefore, the
-  // possible_field_types would only include the type ADDRESS_HOME_STATE, and
-  // the corresponding validity of that type would include both VALID and
-  // INVALID.
-  test_cases[0].push_back(
-      {u"Tennessee",
-       ADDRESS_HOME_STATE,
-       {AutofillDataModel::VALID, AutofillDataModel::INVALID}});
-  // Alice appears only in the second profile as a NAME_FIRST, and it's
-  // UNVALIDATED.
-  test_cases[1].push_back(
-      {u"Alice", NAME_FIRST, {AutofillDataModel::UNVALIDATED}});
-  // An UNKNOWN type is always UNVALIDATED.
-  test_cases[2].push_back({u"What a beautiful day!",
-                           UNKNOWN_TYPE,
-                           {AutofillDataModel::UNVALIDATED}});
-
-  for (const std::vector<TestFieldData>& test_fields : test_cases) {
-    FormData form;
-    form.name = u"MyForm";
-    form.url = GURL("https://myform.com/form.html");
-    form.action = GURL("https://myform.com/submit.html");
-
-    // Create the form fields specified in the test case.
-    FormFieldData field;
-    ServerFieldTypeSet possible_types;
-    ServerFieldTypeValidityStatesMap possible_types_validities;
-    for (const TestFieldData& test_field : test_fields) {
-      test::CreateTestFormField("", "1", "", "text", &field);
-      field.value = test_field.input_value;
-      form.fields.push_back(field);
-    }
-
-    // Assign the specified predicted type for each field in the test case.
-    FormStructure form_structure(form);
-    for (size_t i = 0; i < test_fields.size(); ++i) {
-      AutofillQueryResponse::FormSuggestion::FieldSuggestion::FieldPrediction
-          prediction;
-      prediction.set_type(test_fields[i].field_type);
-      form_structure.field(i)->set_server_predictions({prediction});
-    }
-
-    BrowserAutofillManager::DeterminePossibleFieldTypesForUploadForTest(
-        profiles, {}, std::u16string(), "en-us", &form_structure);
-
-    ASSERT_EQ(test_fields.size(), form_structure.field_count());
-
-    for (size_t i = 0; i < test_fields.size(); ++i) {
-      possible_types = form_structure.field(i)->possible_types();
-      // For both cases we only expect one possible type.
-      EXPECT_EQ(1U, possible_types.size());
-      // Expect to see the field_type as the possible type.
-      EXPECT_NE(possible_types.end(),
-                possible_types.find(test_fields[i].field_type));
-
-      // Expect the same for possible_types_validities.
-      possible_types_validities =
-          form_structure.field(i)->possible_types_validities();
-      EXPECT_EQ(1U, possible_types_validities.size());
-      EXPECT_NE(possible_types_validities.end(),
-                possible_types_validities.find(test_fields[i].field_type));
-      // Check for the expected validity states for the possible type.
-      EXPECT_EQ(test_fields[i].expected_validity_states.size(),
-                possible_types_validities[test_fields[i].field_type].size());
-      for (size_t j = 0; j < test_fields[i].expected_validity_states.size();
-           ++j)
-        EXPECT_EQ(possible_types_validities[test_fields[i].field_type][j],
-                  test_fields[i].expected_validity_states[j]);
-    }
-  }
 }
 
 // Tests that DisambiguateUploadTypes makes the correct choices.
@@ -7588,7 +7433,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   // Get the suggestions for already filled credit card |number_field|.
   GetAutofillSuggestions(form, number_field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string visa_label = std::string("04/99");
   const std::string master_card_label = std::string("10/98");
 #else
@@ -7897,7 +7742,7 @@ TEST_P(CreditCardSuggestionTest,
   credit_card.SetNickname(kArbitraryNickname16);
   personal_data_.AddCreditCard(credit_card);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // When keyboard accessary is enabled, always show "7777".
   // When keyboard accessary is disabled, if nickname is valid, show "Nickname
   // ****7777", otherwise, show "Visa  ****7777".
@@ -7907,7 +7752,7 @@ TEST_P(CreditCardSuggestionTest,
           : kArbitraryNickname + "  " +
                 test::ObfuscatedCardDigitsAsUTF8("7777", ObfuscationLength());
 
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   const std::string visa_label =
       test::ObfuscatedCardDigitsAsUTF8("7777", ObfuscationLength());
 
@@ -8492,7 +8337,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   std::string label = std::string("04/99");
 #else
   std::string label = std::string("Expires on 04/99");
@@ -8513,9 +8358,9 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   field = form.fields[0];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   label = std::string("nickname  ") + test::ObfuscatedCardDigitsAsUTF8("3456");
-#elif defined(OS_IOS)
+#elif BUILDFLAG(IS_IOS)
   label = test::ObfuscatedCardDigitsAsUTF8("3456");
 #else
   label = std::string("nickname  ") + test::ObfuscatedCardDigitsAsUTF8("3456") +
@@ -9233,13 +9078,13 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(features::kAutofillSaveAndFillVPA);
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   EXPECT_CALL(autofill_client_, ConfirmSaveUpiIdLocally(test_upi_id_value, _))
       .WillOnce([](std::string upi_id,
                    base::OnceCallback<void(bool user_decision)> callback) {
         std::move(callback).Run(true);
       });
-#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
   FormData form;
   form.url = GURL("https://wwww.foo.com");
@@ -9258,7 +9103,7 @@ TEST_P(BrowserAutofillManagerStructuredProfileTest,
   form.fields[0].value = base::UTF8ToUTF16(test_upi_id_value);
   FormSubmitted(form);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   // The feature is not implemented for mobile.
   EXPECT_EQ(0, personal_data_.num_times_save_upi_id_called());
 #else
@@ -9272,9 +9117,9 @@ TEST_F(BrowserAutofillManagerTest, DontImportUpiIdWhenIncognito) {
   scoped_feature_list.InitAndEnableFeature(features::kAutofillSaveAndFillVPA);
   autofill_driver_->SetIsIncognito(true);
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   EXPECT_CALL(autofill_client_, ConfirmSaveUpiIdLocally(_, _)).Times(0);
-#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
   FormData form;
   form.url = GURL("https://wwww.foo.com");
@@ -9530,7 +9375,7 @@ TEST_F(BrowserAutofillManagerTest, PreventOverridingOfPrefilledValues) {
 }
 
 // Desktop only tests.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 class BrowserAutofillManagerTestForVirtualCardOption
     : public BrowserAutofillManagerTest {
  protected:
@@ -9968,12 +9813,8 @@ TEST_P(OnFocusOnFormFieldTest, CreditCardSuggestions_Ablation) {
 INSTANTIATE_TEST_SUITE_P(
     BrowserAutofillManagerTest,
     ProfileMatchingTypesTest,
-    testing::Combine(
-        testing::ValuesIn(kProfileMatchingTypesTestCases),
-        testing::Range(static_cast<int>(AutofillDataModel::UNVALIDATED),
-                       static_cast<int>(AutofillDataModel::UNSUPPORTED) + 1),
-        testing::Bool(),
-        testing::Bool()));
+    testing::Combine(testing::ValuesIn(kProfileMatchingTypesTestCases),
+                     testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(All, OnFocusOnFormFieldTest, testing::Bool());
 
@@ -9983,7 +9824,7 @@ INSTANTIATE_TEST_SUITE_P(,
                          BrowserAutofillManagerStructuredProfileTest,
                          testing::Bool());
 
-#if defined(OS_IOS) || defined(OS_ANDROID)
+#if BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID)
 INSTANTIATE_TEST_SUITE_P(,
                          SuggestionMatchingTest,
                          testing::Values(std::make_tuple(0, ""),
@@ -9994,7 +9835,7 @@ INSTANTIATE_TEST_SUITE_P(All,
                          SuggestionMatchingTest,
                          testing::Values(std::make_tuple(0, ""),
                                          std::make_tuple(1, "")));
-#endif  // defined(OS_IOS) || defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID)
 
 // The parameter indicates whether the AutofillKeyboardAccessory feature is
 // enabled or disabled.
@@ -10073,7 +9914,7 @@ TEST_P(BrowserAutofillManagerTestForSharingNickname,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string exp_label = std::string("04/99");
 #else
   const std::string exp_label = std::string("Expires on 04/99");
@@ -10113,7 +9954,7 @@ TEST_P(BrowserAutofillManagerTestForSharingNickname,
   FormFieldData field = form.fields[1];
   GetAutofillSuggestions(form, field);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   const std::string exp_label = std::string("04/99");
 #else
   const std::string exp_label = std::string("Expires on 04/99");

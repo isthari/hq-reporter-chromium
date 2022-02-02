@@ -354,7 +354,10 @@ static std::string GetDefaultRegion() {
       chromeos::system::StatisticsProvider::GetInstance()->GetMachineStatistic(
           chromeos::system::kRegionKey, &region_code);
   if (found_region_code) {
-    return region_code.substr(0, region_code.find("."));
+    std::string region_code_upper_case = base::ToUpperASCII(region_code);
+    std::string region_upper_case =
+        region_code_upper_case.substr(0, region_code_upper_case.find("."));
+    return region_upper_case.length() == 2 ? region_upper_case : "";
   }
   return "";
 }
@@ -377,32 +380,30 @@ base::Value DemoSession::GetCountryList() {
   const std::string current_locale = g_browser_process->GetApplicationLocale();
   bool country_selected = false;
 
-  // TODO(b/203105588): Use the new way of base::Value to create the country
-  // list.
   for (const std::string country : kSupportedCountries) {
-    base::DictionaryValue dict;
-    dict.SetString("value", country);
-    dict.SetString(
+    base::Value dict(base::Value::Type::DICTIONARY);
+    dict.SetStringKey("value", country);
+    dict.SetStringKey(
         "title", l10n_util::GetDisplayNameForCountry(country, current_locale));
     if (country == region) {
-      dict.SetBoolean("selected", true);
+      dict.SetBoolKey("selected", true);
       g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
                                                   country);
       country_selected = true;
     } else {
-      dict.SetBoolean("selected", false);
+      dict.SetBoolKey("selected", false);
     }
     country_list.Append(std::move(dict));
   }
   if (!country_selected) {
-    base::DictionaryValue countryNotSelectedDict;
-    countryNotSelectedDict.SetString("value",
-                                     DemoSession::kCountryNotSelectedId);
-    countryNotSelectedDict.SetString(
+    base::Value countryNotSelectedDict(base::Value::Type::DICTIONARY);
+    countryNotSelectedDict.SetStringKey("value",
+                                        DemoSession::kCountryNotSelectedId);
+    countryNotSelectedDict.SetStringKey(
         "title",
         l10n_util::GetStringUTF16(
             IDS_OOBE_DEMO_SETUP_PREFERENCES_SCREEN_COUNTRY_NOT_SELECTED_TITLE));
-    countryNotSelectedDict.SetBoolean("selected", true);
+    countryNotSelectedDict.SetBoolKey("selected", true);
     country_list.Append(std::move(countryNotSelectedDict));
   }
   return country_list;
@@ -617,8 +618,11 @@ void DemoSession::OnAppWindowActivated(extensions::AppWindow* app_window) {
 }
 
 void DemoSession::OnAppUpdate(const apps::AppUpdate& update) {
-  if (update.AppId() != GetHighlightsAppId())
+  if (update.AppId() != GetHighlightsAppId() ||
+      !(update.GetPriorReadiness() == apps::Readiness::kUnknown &&
+        update.GetReadiness() == apps::Readiness::kReady)) {
     return;
+  }
   Profile* profile = ProfileManager::GetActiveUserProfile();
   DCHECK(profile);
   apps::AppServiceProxyFactory::GetForProfile(profile)->LaunchAppWithParams(

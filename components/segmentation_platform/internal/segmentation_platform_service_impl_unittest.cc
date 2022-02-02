@@ -106,8 +106,8 @@ class MockServiceProxyObserver : public ServiceProxy::Observer {
 
   MOCK_METHOD(void, OnServiceStatusChanged, (bool, int), (override));
   MOCK_METHOD(void,
-              OnSegmentInfoAvailable,
-              ((const std::vector<std::pair<std::string, std::string>>&)),
+              OnClientInfoAvailable,
+              (const std::vector<ServiceProxy::ClientInfo>& client_info),
               (override));
 };
 
@@ -156,7 +156,7 @@ class SegmentationPlatformServiceImplTest : public testing::Test {
 
   virtual void SetUpPrefs() {
     DictionaryPrefUpdate update(&pref_service_, kSegmentationResultPref);
-    base::DictionaryValue* dictionary = update.Get();
+    base::Value* dictionary = update.Get();
 
     base::Value segmentation_result(base::Value::Type::DICTIONARY);
     segmentation_result.SetIntKey(
@@ -295,7 +295,7 @@ TEST_F(SegmentationPlatformServiceImplTest, InitializationFlow) {
   AssertCachedSegment(kTestSegmentationKey3, false);
 
   // ServiceProxy will load new segment info from the DB.
-  EXPECT_CALL(observer_, OnSegmentInfoAvailable(_));
+  EXPECT_CALL(observer_, OnClientInfoAvailable(_));
   task_environment_.RunUntilIdle();
   segment_db_->LoadCallback(true);
 
@@ -313,7 +313,7 @@ TEST_F(SegmentationPlatformServiceImplTest, InitializationFlow) {
              "SegmentationPlatform.Signals.ListeningCount.HistogramValue", 1));
 
   // ServiceProxy will load new segment info from the DB.
-  EXPECT_CALL(observer_, OnSegmentInfoAvailable(_));
+  EXPECT_CALL(observer_, OnClientInfoAvailable(_));
   task_environment_.RunUntilIdle();
   segment_db_->LoadCallback(true);
 #endif  // BUILDFLAG(BUILD_WITH_TFLITE_LIB)
@@ -373,7 +373,7 @@ class SegmentationPlatformServiceImplMultiClientTest
     : public SegmentationPlatformServiceImplTest {
   void SetUpPrefs() override {
     DictionaryPrefUpdate update(&pref_service_, kSegmentationResultPref);
-    base::DictionaryValue* dictionary = update.Get();
+    base::Value* dictionary = update.Get();
 
     base::Value segmentation_result(base::Value::Type::DICTIONARY);
     segmentation_result.SetIntKey(

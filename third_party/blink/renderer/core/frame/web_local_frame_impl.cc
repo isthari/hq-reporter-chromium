@@ -109,7 +109,6 @@
 #include "third_party/blink/public/mojom/portal/portal.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/public/platform/web_double_size.h"
 #include "third_party/blink/public/platform/web_isolated_world_info.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_url_error.h"
@@ -249,7 +248,6 @@
 #include "third_party/blink/renderer/platform/graphics/paint/scoped_paint_chunk_properties.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -265,7 +263,7 @@
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "third_party/blink/public/web/win/web_font_family_names.h"
 #include "third_party/blink/renderer/core/layout/layout_font_accessor_win.h"
 #endif
@@ -386,7 +384,7 @@ class ChromePrintContext : public PrintContext {
         current_height += page_size_in_pixels.width() + 1;
       }
 
-#if defined(OS_WIN) || defined(OS_MAC)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
       // Account for the disabling of scaling in spoolPage. In the context of
       // SpoolAllPagesWithBoundariesForTesting the scale HAS NOT been
       // pre-applied.
@@ -414,7 +412,7 @@ class ChromePrintContext : public PrintContext {
     float scale = printed_page_width_ / page_rect.width();
 
     AffineTransform transform;
-#if defined(OS_POSIX) && !defined(OS_MAC)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)
     transform.Scale(scale);
 #endif
     transform.Translate(static_cast<float>(-page_rect.x()),
@@ -431,8 +429,7 @@ class ChromePrintContext : public PrintContext {
     auto* builder = MakeGarbageCollected<PaintRecordBuilder>(context);
     frame_view->PaintOutsideOfLifecycle(
         builder->Context(),
-        kGlobalPaintNormalPhase | kGlobalPaintFlattenCompositingLayers |
-            kGlobalPaintAddUrlMetadata,
+        PaintFlag::kOmitCompositingInfo | PaintFlag::kAddUrlMetadata,
         CullRect(page_rect));
     {
       ScopedPaintChunkProperties scoped_paint_chunk_properties(
@@ -571,10 +568,9 @@ class PaintPreviewContext : public PrintContext {
 
     // This calls BeginRecording on |builder| with dimensions specified by the
     // CullRect.
-    GlobalPaintFlags flags =
-        kGlobalPaintNormalPhase | kGlobalPaintFlattenCompositingLayers;
+    PaintFlags flags = PaintFlag::kOmitCompositingInfo;
     if (include_linked_destinations)
-      flags |= kGlobalPaintAddUrlMetadata;
+      flags |= PaintFlag::kAddUrlMetadata;
 
     frame_view->PaintOutsideOfLifecycle(builder->Context(), flags,
                                         CullRect(bounds));
@@ -674,7 +670,7 @@ bool WebLocalFrameImpl::LastActivationWasRestricted() const {
   return GetFrame()->LastActivationWasRestricted();
 }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 WebFontFamilyNames WebLocalFrameImpl::GetWebFontFamilyNames() const {
   FontFamilyNames font_family_names;
   GetFontsUsedByFrame(*GetFrame(), font_family_names);
@@ -1372,7 +1368,7 @@ WebString WebLocalFrameImpl::SelectionAsText() const {
 
   String text = GetFrame()->Selection().SelectedText(
       TextIteratorBehavior::EmitsObjectReplacementCharacterBehavior());
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   ReplaceNewlinesWithWindowsStyleNewlines(text);
 #endif
   ReplaceNBSPWithSpace(text);
@@ -1759,6 +1755,10 @@ WebPlugin* WebLocalFrameImpl::GetPluginToPrint(
   WebPluginContainerImpl* plugin_container =
       GetPluginToPrintHelper(constrain_to_node);
   return plugin_container ? plugin_container->Plugin() : nullptr;
+}
+
+bool WebLocalFrameImpl::WillPrintSoon() {
+  return GetFrame()->GetDocument()->WillPrintSoon();
 }
 
 uint32_t WebLocalFrameImpl::PrintBegin(const WebPrintParams& print_params,
@@ -2190,9 +2190,7 @@ std::pair<RemoteFrame*, PortalToken> WebLocalFrameImpl::CreatePortal(
     HTMLPortalElement* portal,
     mojo::PendingAssociatedReceiver<mojom::blink::Portal> portal_receiver,
     mojo::PendingAssociatedRemote<mojom::blink::PortalClient> portal_client) {
-  WebRemoteFrame* portal_frame;
-  PortalToken portal_token;
-  std::tie(portal_frame, portal_token) = client_->CreatePortal(
+  auto [portal_frame, portal_token] = client_->CreatePortal(
       std::move(portal_receiver), std::move(portal_client), portal);
   return {To<WebRemoteFrameImpl>(portal_frame)->GetFrame(), portal_token};
 }
@@ -2254,10 +2252,6 @@ void WebLocalFrameImpl::CreateFrameView() {
     base_background_color = Color::kTransparent;
 
   GetFrame()->CreateView(initial_size, base_background_color);
-  if (is_main_frame) {
-    GetFrame()->View()->SetInitialViewportSize(
-        web_view->GetPageScaleConstraintsSet().InitialViewportSize());
-  }
   if (web_view->ShouldAutoResize() && GetFrame()->IsLocalRoot()) {
     GetFrame()->View()->EnableAutoSizeMode(web_view->MinAutoSize(),
                                            web_view->MaxAutoSize());
@@ -2317,6 +2311,10 @@ void WebLocalFrameImpl::DidFinish() {
     plugin->DidFinishLoading();
 
   Client()->DidFinishLoad();
+}
+
+void WebLocalFrameImpl::DidFinishLoadForPrinting() {
+  Client()->DidFinishLoadForPrinting();
 }
 
 HitTestResult WebLocalFrameImpl::HitTestResultForVisualViewportPos(
@@ -2648,7 +2646,7 @@ void WebLocalFrameImpl::ShowContextMenu(
   params.selection_rect =
       LocalRootFrameWidget()->BlinkSpaceToEnclosedDIPs(data.selection_rect);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // The Samsung Email app relies on the context menu being shown after the
   // javascript onselectionchanged is triggered.
   // See crbug.com/729488

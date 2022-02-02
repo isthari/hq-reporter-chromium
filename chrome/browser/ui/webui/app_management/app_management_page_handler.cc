@@ -11,6 +11,7 @@
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
@@ -42,12 +43,12 @@ using apps::mojom::OptionalBool;
 
 namespace {
 
-constexpr char const* kAppIdsWithHiddenMoreSettings[] = {
+const char* kAppIdsWithHiddenMoreSettings[] = {
     extensions::kWebStoreAppId,
     extension_misc::kFilesManagerAppId,
 };
 
-constexpr char const* kAppIdsWithHiddenPinToShelf[] = {
+const char* kAppIdsWithHiddenPinToShelf[] = {
     extension_misc::kChromeAppId,
     extension_misc::kLacrosAppId,
 };
@@ -179,6 +180,20 @@ void AppManagementPageHandler::GetApps(GetAppsCallback callback) {
   std::move(callback).Run(std::move(apps));
 }
 
+void AppManagementPageHandler::GetApp(const std::string& app_id,
+                                      GetAppCallback callback) {
+  app_management::mojom::AppPtr app;
+
+  apps::AppServiceProxyFactory::GetForProfile(profile_)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [this, &app](const apps::AppUpdate& update) {
+        if (update.Readiness() == apps::mojom::Readiness::kReady)
+          app = CreateUIAppPtr(update);
+      });
+
+  std::move(callback).Run(std::move(app));
+}
+
 void AppManagementPageHandler::GetExtensionAppPermissionMessages(
     const std::string& app_id,
     GetExtensionAppPermissionMessagesCallback callback) {
@@ -260,6 +275,17 @@ void AppManagementPageHandler::GetOverlappingPreferredApps(
   // apps that overlap.
   app_ids.erase(apps::kUseBrowserForLink);
   std::move(callback).Run(std::move(app_ids).extract());
+}
+
+void AppManagementPageHandler::SetWindowMode(
+    const std::string& app_id,
+    apps::mojom::WindowMode window_mode) {
+#if BUILDFLAG(IS_CHROMEOS)
+  NOTREACHED();
+#else
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->SetWindowMode(
+      app_id, std::move(window_mode));
+#endif
 }
 
 app_management::mojom::AppPtr AppManagementPageHandler::CreateUIAppPtr(

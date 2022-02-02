@@ -740,9 +740,7 @@ static void AdjustStyleForInert(ComputedStyle& style, Element* element) {
   if (!element || style.IsForcedInert())
     return;
 
-  if (RuntimeEnabledFeatures::InertAttributeEnabled() &&
-      element->FastHasAttribute(html_names::kInertAttr) &&
-      element->IsHTMLElement()) {
+  if (element->IsInertRoot()) {
     style.SetIsForcedInert();
     return;
   }
@@ -1022,6 +1020,14 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
     if (style.SpecifiesColumns() ||
         (element && element->GetDocument().Printing()))
       style.SetInsideFragmentationContextWithNondeterministicEngine(true);
+
+    // If the display type has no legacy engine implementation, it will become
+    // monolithic as far as block fragmentation is concerned, so triggering
+    // legacy layout fallback based on the ancestry will be unnecessary, and
+    // besides, bad, since it will be impossible to force this ancestor to do
+    // legacy layout.
+    if (style.DisplayTypeRequiresLayoutNG())
+      style.SetInsideFragmentationContextWithNondeterministicEngine(false);
   }
 }
 }  // namespace blink

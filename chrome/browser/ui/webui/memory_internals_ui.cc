@@ -164,13 +164,19 @@ class MemoryInternalsDOMHandler : public content::WebUIMessageHandler,
   void SaveTraceFinished(bool success);
 
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
+#if !BUILDFLAG(IS_ANDROID)
   raw_ptr<content::WebUI> web_ui_;  // The WebUI that owns us.
+#endif
 
   base::WeakPtrFactory<MemoryInternalsDOMHandler> weak_factory_{this};
 };
 
 MemoryInternalsDOMHandler::MemoryInternalsDOMHandler(content::WebUI* web_ui)
-    : web_ui_(web_ui) {}
+#if !BUILDFLAG(IS_ANDROID)
+    : web_ui_(web_ui)
+#endif
+{
+}
 
 MemoryInternalsDOMHandler::~MemoryInternalsDOMHandler() {
   if (select_file_dialog_)
@@ -239,7 +245,7 @@ void MemoryInternalsDOMHandler::HandleSaveDump(const base::ListValue* args) {
 
   AllowJavascript();
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   base::Value result("Saving...");
   FireWebUIListener("save-dump-progress", result);
 
@@ -254,8 +260,6 @@ void MemoryInternalsDOMHandler::HandleSaveDump(const base::ListValue* args) {
       base::BindOnce(&MemoryInternalsDOMHandler::SaveTraceFinished,
                      weak_factory_.GetWeakPtr()),
       false);
-
-  (void)web_ui_;  // Avoid warning about not using private web_ui_ member.
 #else
   if (select_file_dialog_)
     return;  // Currently running, wait for existing save to complete.

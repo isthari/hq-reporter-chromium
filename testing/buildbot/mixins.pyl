@@ -214,6 +214,13 @@
       },
     },
   },
+  'android_s': {
+    'swarming': {
+      'dimensions': {
+        'device_os': 'S',
+      },
+    },
+  },
   'arm64': {
     'swarming': {
       'dimensions': {
@@ -282,6 +289,7 @@
         {
           'cpu': 'x86',
           'kvm': '1',
+          'gce': '1',
           'os': 'Ubuntu-18.04',
           'pool': 'chrome.tests',
         }
@@ -331,9 +339,6 @@
   },
   'chromium-webrtc-rel-win10': {
     'perf_builder_name_alias': 'chromium-webrtc-rel-win10',
-  },
-  'chromium-webrtc-rel-win8': {
-    'perf_builder_name_alias': 'chromium-webrtc-rel-win8',
   },
   # Used for invert CQ tests selection. Adding ci_only: False to
   # test_suite_exceptions.pyl to select tests that are allowed on CQ builders.
@@ -765,7 +770,7 @@
         'cpu': 'x86-64',
         'gpu': '1002:6821',
         'hidpi': '1',
-        'os': 'Mac-12.0',
+        'os': 'Mac-12.1',
         'pool': 'chromium.tests.gpu',
         'display_attached': '1',
       },
@@ -777,7 +782,7 @@
         'cpu': 'x86-64',
         'gpu': '1002:6821',
         'hidpi': '1',
-        'os': 'Mac-11.4',
+        'os': 'Mac-12.1',
         'pool': 'chromium.tests.gpu',
         'display_attached': '1',
       },
@@ -918,6 +923,15 @@
       'dimensions': {
         'device_os': 'OPM4.171019.021.P2',
         'device_os_flavor': 'google',
+      },
+    },
+  },
+  'oriole': {
+    # Pixel 6
+    'swarming': {
+      'dimensions': {
+        'device_type': 'oriole',
+        'os': 'Android',
       },
     },
   },
@@ -1135,13 +1149,6 @@
         'gpu': '10de:1cb3-24.21.14.1195',
         'os': 'Windows-2008ServerR2-SP1',
         'pool': 'chromium.tests.gpu',
-      },
-    },
-  },
-  'win8': {
-    'swarming': {
-      'dimensions': {
-        'os': 'Windows-8.1-SP0',
       },
     },
   },

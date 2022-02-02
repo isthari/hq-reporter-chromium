@@ -1398,6 +1398,8 @@ void BluetoothAdapterBlueZ::NotifyDeviceConnectedStateChanged(
   if (is_now_connected) {
     device::BluetoothConnectionLogger::RecordDeviceConnected(
         device->GetIdentifier(), device->GetDeviceType());
+  } else {
+    device::RecordDeviceDisconnect(device->GetDeviceType());
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
@@ -2114,7 +2116,7 @@ void BluetoothAdapterBlueZ::OnConnectDeviceError(
 
 void BluetoothAdapterBlueZ::UpdateDeviceAdminPolicyFromAdminPolicyClient(
     const dbus::ObjectPath& object_path) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
   BluetoothDevice* device = GetDeviceWithPath(object_path);
 
   if (!device) {

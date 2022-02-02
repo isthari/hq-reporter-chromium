@@ -39,9 +39,10 @@ class PrivacySandboxSettings : public KeyedService {
     virtual void OnFlocDataAccessibleSinceUpdated(bool reset_compute_timer) = 0;
   };
 
-  PrivacySandboxSettings(HostContentSettingsMap* host_content_settings_map,
-                         content_settings::CookieSettings* cookie_settings,
-                         PrefService* pref_service);
+  PrivacySandboxSettings(
+      HostContentSettingsMap* host_content_settings_map,
+      scoped_refptr<content_settings::CookieSettings> cookie_settings,
+      PrefService* pref_service);
   ~PrivacySandboxSettings() override;
 
   // Returns whether FLoC is allowed at all. If false, FLoC calculations should
@@ -83,10 +84,27 @@ class PrivacySandboxSettings : public KeyedService {
                                   const url::Origin& conversion_origin,
                                   const url::Origin& reporting_origin) const;
 
+  // Sets the ability for |top_frame_etld_plus1| to join the profile to interest
+  // groups to |allowed|. This information is stored in preferences, and is made
+  // available to the API via IsFledgeJoiningAllowed(). |top_frame_etld_plus1|
+  // is DCHECK confirmed to be a non-empty, properly formed eTLD+1.
+  void SetFledgeJoiningAllowed(const std::string& top_frame_etld_plus1,
+                               bool allowed);
+
+  // Clears any FLEDGE joining block settings with creation times between
+  // |start_time| and |end_time|.
+  void ClearFledgeJoiningAllowedSettings(base::Time start_time,
+                                         base::Time end_time);
+
+  // Determines whether the user may be joined to FLEDGE interest groups on, or
+  // by, |top_frame_origin|. This is an additional check that must be
+  // combined with the more generic IsFledgeAllowed().
+  bool IsFledgeJoiningAllowed(const url::Origin& top_frame_origin) const;
+
   // Determine whether |auction_party| can register an interest group, or sell /
   // buy in an auction, on |top_frame_origin|.
   bool IsFledgeAllowed(const url::Origin& top_frame_origin,
-                       const GURL& auction_party);
+                       const url::Origin& auction_party);
 
   // Filter |auction_parties| down to those that may participate as a buyer for
   // auctions run on |top_frame_origin|. Logically equivalent to calling
@@ -129,7 +147,7 @@ class PrivacySandboxSettings : public KeyedService {
   base::ObserverList<Observer>::Unchecked observers_;
 
   raw_ptr<HostContentSettingsMap> host_content_settings_map_;
-  raw_ptr<content_settings::CookieSettings> cookie_settings_;
+  scoped_refptr<content_settings::CookieSettings> cookie_settings_;
   raw_ptr<PrefService> pref_service_;
 };
 

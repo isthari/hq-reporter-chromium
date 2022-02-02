@@ -15,7 +15,7 @@
 #include "chrome/browser/web_applications/system_web_apps/system_web_app_background_task.h"
 #include "chrome/browser/web_applications/system_web_apps/system_web_app_types.h"
 #include "chrome/browser/web_applications/web_app_id.h"
-#include "chrome/browser/web_applications/web_application_info.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "url/gurl.h"
 
@@ -42,7 +42,7 @@ url::Origin GetOrigin(const char* url);
 // their application, overriding GetWebAppInfo(), and other methods as needed.
 class SystemWebAppDelegate {
  public:
-  // When installing via a WebApplicationInfo, the url is never loaded. It's
+  // When installing via a WebAppInstallInfo, the url is never loaded. It's
   // needed only for various legacy reasons, maps for tracking state, and
   // generating the AppId and things of that nature.
   SystemWebAppDelegate(
@@ -67,8 +67,8 @@ class SystemWebAppDelegate {
   // The URL that the System App will be installed from.
   const GURL& GetInstallUrl() const { return install_url_; }
 
-  // Returns a WebApplicationInfo struct to complete installation.
-  virtual std::unique_ptr<WebApplicationInfo> GetWebAppInfo() const = 0;
+  // Returns a WebAppInstallInfo struct to complete installation.
+  virtual std::unique_ptr<WebAppInstallInfo> GetWebAppInfo() const = 0;
 
   // If specified, the apps in |uninstall_and_replace| will have their data
   // migrated to this System App.

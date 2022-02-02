@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -59,7 +60,6 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/containers/contains.h"
-#include "base/ignore_result.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -314,9 +314,9 @@ class SplitViewControllerTest : public AshTestBase {
     // on the next frame presented after animation stops. Wait for the next
     // frame with a 100ms timeout for the report, regardless of whether there
     // is a next frame.
-    ignore_result(ui::WaitForNextFrameToBePresented(
+    std::ignore = ui::WaitForNextFrameToBePresented(
         Shell::GetPrimaryRootWindow()->layer()->GetCompositor(),
-        base::Milliseconds(100)));
+        base::Milliseconds(100));
 
     {
       SCOPED_TRACE(trace + std::string(".Enter"));
@@ -650,6 +650,25 @@ TEST_F(SplitViewControllerTest, WindowActivationTest) {
   EXPECT_EQ(split_view_controller()->right_window(), window3.get());
   EXPECT_EQ(split_view_controller()->state(),
             SplitViewController::State::kBothSnapped);
+}
+
+// Test that if the overview mode is active in clamshell mode, the window with
+// |kUnresizableSnappedSizeKey| property can be snapped with size constraints.
+TEST_F(SplitViewControllerTest, SnapWindowWithUnresizableSnapProperty) {
+  UpdateDisplay("800x600");
+  const gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window(CreateWindow(bounds));
+  window->SetProperty(aura::client::kResizeBehaviorKey,
+                      aura::client::kResizeBehaviorNone);
+  window->SetProperty(kUnresizableSnappedSizeKey, new gfx::Size(300, 0));
+
+  // Switch to clamshell mode and enter overview mode.
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+  ToggleOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  split_view_controller()->SnapWindow(window.get(), SplitViewController::LEFT);
+  EXPECT_EQ(window->GetBoundsInScreen().width(), 300);
 }
 
 // Tests that if split view mode and overview mode are active at the same time,
@@ -1762,6 +1781,32 @@ TEST_F(SplitViewControllerTest, SnapWindowWithMinimumSizeTest) {
   EXPECT_TRUE(split_view_controller()->CanSnapWindow(window1.get()));
   delegate->set_minimum_size(gfx::Size(396, 0));
   EXPECT_FALSE(split_view_controller()->CanSnapWindow(window1.get()));
+}
+
+// Test that |SplitViewController::CanSnapWindow| property checks that the
+// unresizable snapping condition.
+TEST_F(SplitViewControllerTest, CanSnapWindowWithUnresizableSnapProperty) {
+  UpdateDisplay("800x600");
+  const gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window(CreateWindow(bounds));
+  window->SetProperty(aura::client::kResizeBehaviorKey,
+                      aura::client::kResizeBehaviorNone);
+  EXPECT_FALSE(split_view_controller()->CanSnapWindow(window.get()));
+
+  // Clamshell mode supports unresizable snapping.
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+  window->SetProperty(kUnresizableSnappedSizeKey, new gfx::Size(300, 0));
+  EXPECT_TRUE(split_view_controller()->CanSnapWindow(window.get()));
+
+  // Tablet mode doesn't support unresizable snapping.
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  EXPECT_FALSE(split_view_controller()->CanSnapWindow(window.get()));
+
+  // If the display is too small for the unresizable snapping, it can't be
+  // snapped.
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+  UpdateDisplay("200x100");
+  EXPECT_FALSE(split_view_controller()->CanSnapWindow(window.get()));
 }
 
 // Tests that the snapped window can not be moved outside of work area when its

@@ -89,8 +89,9 @@ class ASH_EXPORT AppListControllerImpl : public AppListController,
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
-  // TODO(crbug.com/1204554): Rename to fullscreen_presenter().
-  AppListPresenterImpl* presenter() { return fullscreen_presenter_.get(); }
+  AppListPresenterImpl* fullscreen_presenter() {
+    return fullscreen_presenter_.get();
+  }
 
   // AppListController:
   void SetClient(AppListClient* client) override;
@@ -123,8 +124,10 @@ class ASH_EXPORT AppListControllerImpl : public AppListController,
   void EndDragFromShelf(AppListViewState app_list_state);
   void ProcessMouseWheelEvent(const ui::MouseWheelEvent& event);
   void ProcessScrollEvent(const ui::ScrollEvent& event);
-  void OnTemporarySortOrderChanged(
-      const absl::optional<AppListSortOrder>& new_order) override;
+  void UpdateAppListWithNewSortingOrder(
+      const absl::optional<AppListSortOrder>& new_order,
+      bool animate,
+      base::OnceClosure update_position_closure) override;
 
   // In tablet mode, takes the user to the home screen, either by ending
   // Overview Mode/Split View Mode or by minimizing the other windows. Returns

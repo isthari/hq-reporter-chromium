@@ -30,10 +30,6 @@ enum BufferingStateChangeReason;
 [Native]
 enum ChannelLayout;
 
-// See media/base/decode_status.h for descriptions.
-[Native]
-enum DecodeStatus;
-
 // See media/base/status_codes.h for descriptions.
 [Native]
 enum StatusCode;
@@ -49,10 +45,6 @@ struct MediaLogRecord;
 // See media/base/output_device_info.h for descriptions.
 [Native]
 enum OutputDeviceStatus;
-
-// See media/base/pipeline_status.h for descriptions.
-[Native]
-enum PipelineStatus;
 
 // See media/base/sample_format.h for descriptions.
 [Native]
@@ -503,6 +495,14 @@ struct Status {
 };
 
 struct EncoderStatus {
+  StatusData? internal;
+};
+
+struct DecoderStatus {
+  StatusData? internal;
+};
+
+struct PipelineStatus {
   StatusData? internal;
 };
 

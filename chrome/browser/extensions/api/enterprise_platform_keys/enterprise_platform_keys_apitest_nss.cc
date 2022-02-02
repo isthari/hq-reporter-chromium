@@ -151,7 +151,7 @@ base::FilePath GetExtensionPemFileName() {
 
 // Returns the profile into which login-screen extensions are force-installed.
 Profile* GetOriginalSigninProfile() {
-  return chromeos::ProfileHelper::GetSigninProfile()->GetOriginalProfile();
+  return ash::ProfileHelper::GetSigninProfile()->GetOriginalProfile();
 }
 
 void ImportPrivateKeyPKCS8ToSlot(const unsigned char* pkcs8_der,
@@ -373,7 +373,7 @@ class EnterprisePlatformKeysLoginScreenTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
 
-    command_line->AppendSwitch(chromeos::switches::kLoginManager);
+    command_line->AppendSwitch(ash::switches::kLoginManager);
     command_line->AppendSwitchASCII(switches::kAllowlistedExtensionID,
                                     kExtensionId);
   }

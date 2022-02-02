@@ -2670,6 +2670,54 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Blink.FedCm">
+  <owner>yigu@chromium.org</owner>
+  <owner>webid-core@google.com</owner>
+  <summary>
+    Records performance metrics for FedCM(Federated Credential Management) API.
+  </summary>
+  <metric name="Status.RequestIdToken" enum="FedCmRequestIdTokenStatus">
+    <summary>
+      Records the status of a request id token call to the FedCM API.
+    </summary>
+  </metric>
+  <metric name="Status.Revoke" enum="FedCmRevokeStatus">
+    <summary>
+      Records the status of a revoke call to the FedCM API.
+    </summary>
+  </metric>
+  <metric name="Timing.CancelOnDialog">
+    <summary>
+      Records the time (in milliseconds) from when the accounts dialog is shown
+      to when the user closes the dialog without selecting any account.
+    </summary>
+  </metric>
+  <metric name="Timing.ContinueOnDialog">
+    <summary>
+      Records the time (in milliseconds) from when the accounts dialog is shown
+      to when the user presses the Continue button.
+    </summary>
+  </metric>
+  <metric name="Timing.IdTokenResponse">
+    <summary>
+      Records the time (in milliseconds) from when the user presses the Continue
+      button to when the id token response is received.
+    </summary>
+  </metric>
+  <metric name="Timing.ShowAccountsDialog">
+    <summary>
+      Records the time (in milliseconds) from when a call to the API was made to
+      when the accounts dialog is shown.
+    </summary>
+  </metric>
+  <metric name="Timing.TurnaroundTime">
+    <summary>
+      Records the overall time (in milliseconds) from when the API is called to
+      when the id token response is received.
+    </summary>
+  </metric>
+</event>
+
 <event name="Blink.FindInPage" singular="True">
   <owner>vmpstr@chromium.org</owner>
   <owner>chrishtr@chromium.org</owner>
@@ -2925,6 +2973,11 @@ be describing additional metrics about the same event.
     <summary>
       The time spent in paint document lifecycle work, between navigation and
       First Contentful Paint, in microseconds.
+    </summary>
+  </metric>
+  <metric name="ParseStyleSheet">
+    <summary>
+      The time spent parsing style sheets.
     </summary>
   </metric>
   <metric name="PrePaint">
@@ -3953,6 +4006,16 @@ be describing additional metrics about the same event.
     <summary>
       The percentage of the main frame time used in paint. An int in the range
       [0,100].
+    </summary>
+  </metric>
+  <metric name="ParseStyleSheet">
+    <summary>
+      The time spent parsing style sheets.
+    </summary>
+  </metric>
+  <metric name="ParseStyleSheetBeginMainFrame">
+    <summary>
+      The total main frame time spent parsing style sheets.
     </summary>
   </metric>
   <metric name="PrePaint">
@@ -6815,6 +6878,9 @@ be describing additional metrics about the same event.
     </aggregation>
   </metric>
   <metric name="TotalLatencyToSwapBegin">
+    <obsolete>
+      Deprecated as of 01/2021.
+    </obsolete>
     <summary>
       The time from when the event is created in the browser to when the
       gpu-swap is started, for scroll events, in microseconds.
@@ -8900,6 +8966,9 @@ be describing additional metrics about the same event.
 </event>
 
 <event name="Intervention.DocumentWrite.ScriptBlock" singular="True">
+  <obsolete>
+    Removed 12/2021.
+  </obsolete>
   <owner>bmcquade@chromium.org</owner>
   <summary>
     Recorded for page loads where the document.write script block intervention
@@ -12005,6 +12074,9 @@ be describing additional metrics about the same event.
 </event>
 
 <event name="OfflineMeasurements">
+  <obsolete>
+    Removed M100. No longer used.
+  </obsolete>
   <owner>curranmax@chromium.org</owner>
   <summary>
     Data collected by the OfflineMeasurementsBackgroundTask. At a regular
@@ -13751,6 +13823,16 @@ be describing additional metrics about the same event.
       anytime after that happens.
     </summary>
   </metric>
+  <metric name="PaintTiming.LargestContentfulPaintBPP"
+      enum="BitsPerPixelExponential">
+    <summary>
+      Measures the ratio of image file size (in bits) to displayed pixels for
+      the LCP candidate. Bucketed into roughly exponential intervals to account
+      for the wide range of encountered values (less than 1:100000 to greater
+      than 10000:1). This metric is recorded whenever the LCP candidate is an
+      image, and omitted when it is text.
+    </summary>
+  </metric>
   <metric name="PaintTiming.LargestContentfulPaintType">
     <summary>
       Indicates that type of the LargestContentfulPaint candidate. This value is
@@ -14503,6 +14585,24 @@ be describing additional metrics about the same event.
     <summary>
       Records what the user does with a form. Recorded values correspond to the
       enum password_manager::UserAction.
+    </summary>
+  </metric>
+</event>
+
+<event name="PasswordManager.PasswordChangeTriggered">
+  <owner>selakovic@google.com</owner>
+  <owner>chrome-duplex@google.com</owner>
+  <summary>
+    Metrics related to password change. The Password Checkup in Chrome Settings
+    aims to help users find their leaked passwords. After getting list of
+    compromised passwords, user can trigger password change. On some limited
+    number of sites automated password change is available and on others only
+    manual change is available. We collect what type of password change user
+    triggered.
+  </summary>
+  <metric name="PasswordChangeType" enum="PasswordChangeType">
+    <summary>
+      Records what type of password change the user triggers.
     </summary>
   </metric>
 </event>
@@ -15678,6 +15778,9 @@ be describing additional metrics about the same event.
 </event>
 
 <event name="Previews" singular="True">
+  <obsolete>
+    Obsoleted 01/2022.
+  </obsolete>
   <owner>ryansturm@chromium.org</owner>
   <summary>
     Previews related metrics associated with a page load. See
@@ -15986,6 +16089,9 @@ be describing additional metrics about the same event.
 </event>
 
 <event name="PublicImageCompressionDataUse">
+  <obsolete>
+    Obsoleted 01/2022.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -16040,6 +16146,9 @@ be describing additional metrics about the same event.
 </event>
 
 <event name="PublicImageCompressionImageLoad">
+  <obsolete>
+    Obsoleted Jan 2022.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -16685,7 +16794,7 @@ be describing additional metrics about the same event.
   <owner>chrome-creation@google.com</owner>
   <summary>
     Event representing the user action of selecting a piece of text on a page
-    and selection the option to create a link which would contain the necessary
+    and selecting the option to create a link which would contain the necessary
     text fragment information to link back to this specific part of the page.
   </summary>
   <metric name="Error" enum="LinkGenerationError">
@@ -16697,6 +16806,28 @@ be describing additional metrics about the same event.
   <metric name="Success" enum="Boolean">
     <summary>
       Whether the generation of a link with text fragments was successful or
+      not.
+    </summary>
+  </metric>
+</event>
+
+<event name="SharedHighlights.LinkGenerated.Requested">
+  <owner>gayane@chromium.org</owner>
+  <owner>chrome-creation@google.com</owner>
+  <summary>
+    Event representing the user action of selecting a piece of text on a page
+    and selecting the option to create a link which would contain the necessary
+    text fragment information to link back to this specific part of the page.
+  </summary>
+  <metric name="Error" enum="LinkGenerationError">
+    <summary>
+      Record the type of error which prevented offering link to text to user.
+      Only recorded if the link was not offered to the user.
+    </summary>
+  </metric>
+  <metric name="Success" enum="Boolean">
+    <summary>
+      Whether the link with text fragments was successful offered to the user or
       not.
     </summary>
   </metric>

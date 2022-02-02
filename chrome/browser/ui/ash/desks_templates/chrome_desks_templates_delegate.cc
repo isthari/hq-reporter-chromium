@@ -7,8 +7,9 @@
 #include "ash/constants/app_types.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/desk_template.h"
-#include "ash/public/cpp/toast_data.h"
-#include "ash/public/cpp/toast_manager.h"
+#include "ash/public/cpp/system/toast_catalog.h"
+#include "ash/public/cpp/system/toast_data.h"
+#include "ash/public/cpp/system/toast_manager.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
 #include "base/check.h"
@@ -22,6 +23,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/desks_templates/desks_templates_client.h"
+#include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/chrome_features.h"
@@ -144,6 +146,7 @@ void ShowUnavailableAppToast(const std::vector<std::string>& unavailable_apps) {
   }
 
   ash::ToastData toast_data = {/*id=*/kAppNotAvailableTemplateToastName,
+                               ash::ToastCatalogName::kAppNotAvailable,
                                /*text=*/toast_string};
   ash::ToastManager::Get()->Show(toast_data);
 }
@@ -329,7 +332,8 @@ void ChromeDesksTemplatesDelegate::GetIconForAppId(
 }
 
 void ChromeDesksTemplatesDelegate::LaunchAppsFromTemplate(
-    std::unique_ptr<ash::DeskTemplate> desk_template) {
+    std::unique_ptr<ash::DeskTemplate> desk_template,
+    base::TimeDelta delay) {
   const auto& launch_list =
       desk_template->desk_restore_data()->app_id_to_launch_list();
   std::vector<std::string> unavailable_apps =
@@ -337,7 +341,8 @@ void ChromeDesksTemplatesDelegate::LaunchAppsFromTemplate(
   // Show app unavailable toast.
   if (!unavailable_apps.empty())
     ShowUnavailableAppToast(unavailable_apps);
-  DesksTemplatesClient::Get()->LaunchAppsFromTemplate(std::move(desk_template));
+  DesksTemplatesClient::Get()->LaunchAppsFromTemplate(std::move(desk_template),
+                                                      delay);
 }
 
 // Returns true if `window` is supported in desk templates feature.
@@ -348,4 +353,16 @@ bool ChromeDesksTemplatesDelegate::IsWindowSupportedForDeskTemplate(
 
   // Exclude incognito browser window.
   return !IsIncognitoWindow(window);
+}
+
+void ChromeDesksTemplatesDelegate::OpenFeedbackDialog(
+    const std::string& extra_diagnostics) {
+  // Shows a feedback dialog which prompts users to help us identify which
+  // template(s) and app(s) are problematic.
+  chrome::ShowFeedbackPage(
+      /*browser=*/nullptr, chrome::kFeedbackSourceDesksTemplates,
+      /*description_template=*/
+      "#DesksTemplates\n\nProblem Template(s): \nProblem App(s): ",
+      /*description_placeholder_text=*/std::string(),
+      /*category_tag=*/std::string(), extra_diagnostics);
 }

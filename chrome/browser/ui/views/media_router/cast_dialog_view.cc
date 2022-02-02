@@ -10,6 +10,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_feature.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -259,18 +260,24 @@ void CastDialogView::WindowClosing() {
 }
 
 void CastDialogView::ShowAccessCodeCastDialog() {
-  MediaCastMode preferred_cast_mode;
+  if (!controller_)
+    return;
 
-  // Select the preferred cast mode based on the current selected source.
+  CastModeSet cast_mode_set;
   switch (selected_source_) {
     case SourceType::kTab:
-      preferred_cast_mode = MediaCastMode::PRESENTATION;
+      cast_mode_set = {MediaCastMode::PRESENTATION, MediaCastMode::TAB_MIRROR};
       break;
     case SourceType::kDesktop:
-      preferred_cast_mode = MediaCastMode::DESKTOP_MIRROR;
+      cast_mode_set = {MediaCastMode::DESKTOP_MIRROR};
+      break;
+    default:
+      NOTREACHED();
       break;
   }
-  AccessCodeCastDialog::Show(preferred_cast_mode);
+
+  AccessCodeCastDialog::Show(cast_mode_set, controller_->GetInitiator(),
+                             controller_->TakeStartPresentationContext());
 }
 
 void CastDialogView::MaybeShowAccessCodeCastButton() {

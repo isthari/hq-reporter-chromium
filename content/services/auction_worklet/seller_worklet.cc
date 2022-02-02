@@ -55,12 +55,12 @@ namespace {
 //                      'https://www.another-buyer.com': {...},
 //                       ...}
 // }
-bool AppendAuctionConfig(
-    AuctionV8Helper* const v8_helper,
-    v8::Local<v8::Context> context,
-    const GURL& decision_logic_url,
-    const blink::mojom::ShareableAuctionAdConfig& shareable_auction_config,
-    std::vector<v8::Local<v8::Value>>* args) {
+bool AppendAuctionConfig(AuctionV8Helper* const v8_helper,
+                         v8::Local<v8::Context> context,
+                         const GURL& decision_logic_url,
+                         const blink::mojom::AuctionAdConfigNonSharedParams&
+                             auction_ad_config_non_shared_params,
+                         std::vector<v8::Local<v8::Value>>* args) {
   v8::Isolate* isolate = v8_helper->isolate();
   v8::Local<v8::Object> auction_config_value = v8::Object::New(isolate);
   gin::Dictionary auction_config_dict(isolate, auction_config_value);
@@ -70,42 +70,38 @@ bool AppendAuctionConfig(
     return false;
   }
 
-  if (shareable_auction_config.interest_group_buyers) {
-    if (shareable_auction_config.interest_group_buyers->is_all_buyers()) {
-      if (!auction_config_dict.Set("interestGroupBuyers", std::string("*")))
+  if (auction_ad_config_non_shared_params.interest_group_buyers) {
+    std::vector<v8::Local<v8::Value>> interest_group_buyers;
+    for (const url::Origin& buyer :
+         *auction_ad_config_non_shared_params.interest_group_buyers) {
+      v8::Local<v8::String> v8_buyer;
+      if (!v8_helper->CreateUtf8String(buyer.Serialize()).ToLocal(&v8_buyer))
         return false;
-    } else {
-      std::vector<v8::Local<v8::Value>> interest_group_buyers;
-      for (const url::Origin& buyer :
-           shareable_auction_config.interest_group_buyers->get_buyers()) {
-        v8::Local<v8::String> v8_buyer;
-        if (!v8_helper->CreateUtf8String(buyer.Serialize()).ToLocal(&v8_buyer))
-          return false;
-        interest_group_buyers.push_back(v8_buyer);
-      }
-      auction_config_dict.Set("interestGroupBuyers", interest_group_buyers);
+      interest_group_buyers.push_back(v8_buyer);
     }
+    auction_config_dict.Set("interestGroupBuyers", interest_group_buyers);
   }
 
-  if (shareable_auction_config.auction_signals.has_value() &&
+  if (auction_ad_config_non_shared_params.auction_signals.has_value() &&
       !v8_helper->InsertJsonValue(
           context, "auctionSignals",
-          shareable_auction_config.auction_signals.value(),
+          auction_ad_config_non_shared_params.auction_signals.value(),
           auction_config_value)) {
     return false;
   }
 
-  if (shareable_auction_config.seller_signals.has_value() &&
+  if (auction_ad_config_non_shared_params.seller_signals.has_value() &&
       !v8_helper->InsertJsonValue(
           context, "sellerSignals",
-          shareable_auction_config.seller_signals.value(),
+          auction_ad_config_non_shared_params.seller_signals.value(),
           auction_config_value)) {
     return false;
   }
 
-  if (shareable_auction_config.per_buyer_signals.has_value()) {
+  if (auction_ad_config_non_shared_params.per_buyer_signals.has_value()) {
     v8::Local<v8::Object> per_buyer_value = v8::Object::New(isolate);
-    for (const auto& kv : shareable_auction_config.per_buyer_signals.value()) {
+    for (const auto& kv :
+         auction_ad_config_non_shared_params.per_buyer_signals.value()) {
       if (!v8_helper->InsertJsonValue(context, kv.first.Serialize(), kv.second,
                                       per_buyer_value)) {
         return false;
@@ -127,9 +123,7 @@ SellerWorklet::SellerWorklet(
         pending_url_loader_factory,
     const GURL& decision_logic_url,
     const absl::optional<GURL>& trusted_scoring_signals_url,
-    const url::Origin& top_window_origin,
-    mojom::AuctionWorkletService::LoadSellerWorkletCallback
-        load_worklet_callback)
+    const url::Origin& top_window_origin)
     : v8_runner_(v8_helper->v8_runner()),
       v8_helper_(std::move(v8_helper)),
       debug_id_(
@@ -146,10 +140,8 @@ SellerWorklet::SellerWorklet(
                     *trusted_scoring_signals_url,
                     v8_helper_.get())
               : nullptr),
-      v8_state_(nullptr, base::OnTaskRunnerDeleter(v8_runner_)),
-      load_worklet_callback_(std::move(load_worklet_callback)) {
+      v8_state_(nullptr, base::OnTaskRunnerDeleter(v8_runner_)) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
-  DCHECK(load_worklet_callback_);
 
   v8_state_ = std::unique_ptr<V8State, base::OnTaskRunnerDeleter>(
       new V8State(v8_helper_, debug_id_, decision_logic_url, top_window_origin,
@@ -163,10 +155,6 @@ SellerWorklet::SellerWorklet(
 
 SellerWorklet::~SellerWorklet() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
-  if (load_worklet_callback_) {
-    std::move(load_worklet_callback_)
-        .Run(false /* success */, std::vector<std::string>() /* errors */);
-  }
   debug_id_->AbortDebuggerPauses();
 }
 
@@ -177,7 +165,8 @@ int SellerWorklet::context_group_id_for_testing() const {
 void SellerWorklet::ScoreAd(
     const std::string& ad_metadata_json,
     double bid,
-    blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params,
     const url::Origin& browser_signal_interest_group_owner,
     const GURL& browser_signal_render_url,
     const std::vector<GURL>& browser_signal_ad_components,
@@ -190,7 +179,8 @@ void SellerWorklet::ScoreAd(
   auto score_ad_task = score_ad_tasks_.begin();
   score_ad_task->ad_metadata_json = ad_metadata_json;
   score_ad_task->bid = bid;
-  score_ad_task->shareable_auction_config = std::move(shareable_auction_config);
+  score_ad_task->auction_ad_config_non_shared_params =
+      std::move(auction_ad_config_non_shared_params);
   score_ad_task->browser_signal_interest_group_owner =
       browser_signal_interest_group_owner;
   score_ad_task->browser_signal_render_url = browser_signal_render_url;
@@ -201,6 +191,8 @@ void SellerWorklet::ScoreAd(
       browser_signal_bidding_duration_msecs;
   score_ad_task->callback = std::move(callback);
 
+  // If `trusted_signals_request_manager_` exists, there's a trusted scoring
+  // signals URL which needs to be fetched before the auction can be run.
   if (trusted_signals_request_manager_) {
     score_ad_task->trusted_scoring_signals_request =
         trusted_signals_request_manager_->RequestScoringSignals(
@@ -211,8 +203,7 @@ void SellerWorklet::ScoreAd(
     return;
   }
 
-  OnTrustedScoringSignalsDownloaded(score_ad_task, /*result=*/nullptr,
-                                    /*error_msg=*/absl::nullopt);
+  ScoreAdIfReady(score_ad_task);
 }
 
 void SellerWorklet::SendPendingSignalsRequests() {
@@ -221,7 +212,8 @@ void SellerWorklet::SendPendingSignalsRequests() {
 }
 
 void SellerWorklet::ReportResult(
-    blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params,
     const url::Origin& browser_signal_interest_group_owner,
     const GURL& browser_signal_render_url,
     double browser_signal_bid,
@@ -229,14 +221,24 @@ void SellerWorklet::ReportResult(
     ReportResultCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
 
-  v8_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&SellerWorklet::V8State::ReportResult,
-                     base::Unretained(v8_state_.get()),
-                     std::move(shareable_auction_config),
-                     browser_signal_interest_group_owner,
-                     browser_signal_render_url, browser_signal_bid,
-                     browser_signal_desirability, std::move(callback)));
+  report_result_tasks_.emplace_front();
+
+  auto report_result_task = report_result_tasks_.begin();
+
+  report_result_task->auction_ad_config_non_shared_params =
+      std::move(auction_ad_config_non_shared_params);
+  report_result_task->browser_signal_interest_group_owner =
+      browser_signal_interest_group_owner;
+  report_result_task->browser_signal_render_url = browser_signal_render_url;
+  report_result_task->browser_signal_bid = browser_signal_bid;
+  report_result_task->browser_signal_desirability = browser_signal_desirability;
+  report_result_task->callback = std::move(callback);
+
+  // If not yet ready, need to wait for load to complete.
+  if (!IsCodeReady())
+    return;
+
+  RunReportResult(report_result_task);
 }
 
 void SellerWorklet::ConnectDevToolsAgent(
@@ -250,6 +252,9 @@ void SellerWorklet::ConnectDevToolsAgent(
 
 SellerWorklet::ScoreAdTask::ScoreAdTask() = default;
 SellerWorklet::ScoreAdTask::~ScoreAdTask() = default;
+
+SellerWorklet::ReportResultTask::ReportResultTask() = default;
+SellerWorklet::ReportResultTask::~ReportResultTask() = default;
 
 SellerWorklet::V8State::V8State(
     scoped_refptr<AuctionV8Helper> v8_helper,
@@ -277,7 +282,8 @@ void SellerWorklet::V8State::SetWorkletScript(
 void SellerWorklet::V8State::ScoreAd(
     const std::string& ad_metadata_json,
     double bid,
-    blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params,
     scoped_refptr<TrustedSignals::Result> trusted_scoring_signals,
     const url::Origin& browser_signal_interest_group_owner,
     const GURL& browser_signal_render_url,
@@ -303,7 +309,7 @@ void SellerWorklet::V8State::ScoreAd(
   args.push_back(gin::ConvertToV8(isolate, bid));
 
   if (!AppendAuctionConfig(v8_helper_.get(), context, decision_logic_url_,
-                           *shareable_auction_config, &args)) {
+                           *auction_ad_config_non_shared_params, &args)) {
     PostScoreAdCallbackToUserThread(std::move(callback), 0 /* score */,
                                     std::vector<std::string>() /* errors */);
     return;
@@ -380,12 +386,13 @@ void SellerWorklet::V8State::ScoreAd(
 }
 
 void SellerWorklet::V8State::ReportResult(
-    blink::mojom::ShareableAuctionAdConfigPtr shareable_auction_config,
+    blink::mojom::AuctionAdConfigNonSharedParamsPtr
+        auction_ad_config_non_shared_params,
     const url::Origin& browser_signal_interest_group_owner,
     const GURL& browser_signal_render_url,
     double browser_signal_bid,
     double browser_signal_desirability,
-    ReportResultCallback callback) {
+    ReportResultCallbackInternal callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(v8_sequence_checker_);
   AuctionV8Helper::FullIsolateScope isolate_scope(v8_helper_.get());
   v8::Isolate* isolate = v8_helper_->isolate();
@@ -401,7 +408,7 @@ void SellerWorklet::V8State::ReportResult(
 
   std::vector<v8::Local<v8::Value>> args;
   if (!AppendAuctionConfig(v8_helper_.get(), context, decision_logic_url_,
-                           *shareable_auction_config, &args)) {
+                           *auction_ad_config_non_shared_params, &args)) {
     PostReportResultCallbackToUserThread(
         std::move(callback), absl::nullopt /* signals_for_winner */,
         absl::nullopt /* report_url */,
@@ -492,19 +499,15 @@ void SellerWorklet::V8State::PostScoreAdCallbackToUserThread(
 }
 
 void SellerWorklet::V8State::PostReportResultCallbackToUserThread(
-    ReportResultCallback callback,
+    ReportResultCallbackInternal callback,
     absl::optional<std::string> signals_for_winner,
     absl::optional<GURL> report_url,
     std::vector<std::string> errors) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(v8_sequence_checker_);
-  // `parent` being a weak pointer takes care of the case where the
-  // SellerWorklet proper is destroyed.
   user_thread_->PostTask(
       FROM_HERE,
-      base::BindOnce(&SellerWorklet::DeliverReportResultCallbackOnUserThread,
-                     parent_, std::move(callback),
-                     std::move(signals_for_winner), std::move(report_url),
-                     std::move(errors)));
+      base::BindOnce(std::move(callback), std::move(signals_for_winner),
+                     std::move(report_url), std::move(errors)));
 }
 
 void SellerWorklet::ResumeIfPaused() {
@@ -529,21 +532,35 @@ void SellerWorklet::Start() {
 void SellerWorklet::OnDownloadComplete(WorkletLoader::Result worklet_script,
                                        absl::optional<std::string> error_msg) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
-  DCHECK(load_worklet_callback_);
   worklet_loader_.reset();
 
+  // On failure, delete `this`, as it can't do anything without a loaded script.
   bool success = worklet_script.success();
-  if (success) {
-    v8_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&SellerWorklet::V8State::SetWorkletScript,
-                                  base::Unretained(v8_state_.get()),
-                                  std::move(worklet_script)));
+  if (!success) {
+    std::move(close_pipe_callback_)
+        .Run(error_msg ? error_msg.value() : std::string());
+    // `this` should be deleted at this point.
+    return;
   }
 
-  std::vector<std::string> errors;
-  if (error_msg)
-    errors.emplace_back(std::move(error_msg).value());
-  std::move(load_worklet_callback_).Run(success, errors);
+  // The error message, if any, will be appended to all invoked ScoreAd() and
+  // ReportResult() callbacks.
+  load_script_error_msg_ = std::move(error_msg);
+
+  v8_runner_->PostTask(FROM_HERE,
+                       base::BindOnce(&SellerWorklet::V8State::SetWorkletScript,
+                                      base::Unretained(v8_state_.get()),
+                                      std::move(worklet_script)));
+
+  for (auto score_ad_task = score_ad_tasks_.begin();
+       score_ad_task != score_ad_tasks_.end(); ++score_ad_task) {
+    ScoreAdIfReady(score_ad_task);
+  }
+
+  for (auto report_result_task = report_result_tasks_.begin();
+       report_result_task != report_result_tasks_.end(); ++report_result_task) {
+    RunReportResult(report_result_task);
+  }
 }
 
 void SellerWorklet::OnTrustedScoringSignalsDownloaded(
@@ -553,15 +570,26 @@ void SellerWorklet::OnTrustedScoringSignalsDownloaded(
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
 
   task->trusted_scoring_signals_error_msg = std::move(error_msg);
+  task->trusted_scoring_signals_result = std::move(result);
   // Clean up single-use object, now that it has done its job.
   task->trusted_scoring_signals_request.reset();
+
+  ScoreAdIfReady(task);
+}
+
+void SellerWorklet::ScoreAdIfReady(ScoreAdTaskList::iterator task) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
+
+  if (task->trusted_scoring_signals_request || !IsCodeReady())
+    return;
 
   v8_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(
           &SellerWorklet::V8State::ScoreAd, base::Unretained(v8_state_.get()),
           task->ad_metadata_json, task->bid,
-          std::move(task->shareable_auction_config), std::move(result),
+          std::move(task->auction_ad_config_non_shared_params),
+          std::move(task->trusted_scoring_signals_result),
           std::move(task->browser_signal_interest_group_owner),
           std::move(task->browser_signal_render_url),
           std::move(task->browser_signal_ad_components),
@@ -576,21 +604,48 @@ void SellerWorklet::DeliverScoreAdCallbackOnUserThread(
     std::vector<std::string> errors) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
 
+  if (load_script_error_msg_)
+    errors.insert(errors.begin(), load_script_error_msg_.value());
   if (task->trusted_scoring_signals_error_msg)
     errors.insert(errors.begin(), *task->trusted_scoring_signals_error_msg);
 
-  std::move(task->callback).Run(score, std::move(errors));
+  std::move(task->callback).Run(score, errors);
   score_ad_tasks_.erase(task);
 }
 
+void SellerWorklet::RunReportResult(ReportResultTaskList::iterator task) {
+  DCHECK(IsCodeReady());
+
+  v8_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &SellerWorklet::V8State::ReportResult,
+          base::Unretained(v8_state_.get()),
+          std::move(task->auction_ad_config_non_shared_params),
+          std::move(task->browser_signal_interest_group_owner),
+          std::move(task->browser_signal_render_url), task->browser_signal_bid,
+          task->browser_signal_desirability,
+          base::BindOnce(
+              &SellerWorklet::DeliverReportResultCallbackOnUserThread,
+              weak_ptr_factory_.GetWeakPtr(), task)));
+}
+
 void SellerWorklet::DeliverReportResultCallbackOnUserThread(
-    ReportResultCallback callback,
-    absl::optional<std::string> signals_for_winner,
-    absl::optional<GURL> report_url,
+    ReportResultTaskList::iterator task,
+    const absl::optional<std::string> signals_for_winner,
+    const absl::optional<GURL> report_url,
     std::vector<std::string> errors) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(user_sequence_checker_);
-  std::move(callback).Run(std::move(signals_for_winner), std::move(report_url),
-                          std::move(errors));
+
+  if (load_script_error_msg_)
+    errors.insert(errors.begin(), load_script_error_msg_.value());
+
+  std::move(task->callback).Run(signals_for_winner, report_url, errors);
+  report_result_tasks_.erase(task);
+}
+
+bool SellerWorklet::IsCodeReady() const {
+  return (!paused_ && !worklet_loader_);
 }
 
 }  // namespace auction_worklet

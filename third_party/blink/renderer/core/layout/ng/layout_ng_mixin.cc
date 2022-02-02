@@ -359,8 +359,10 @@ void LayoutNGMixin<Base>::UpdateOutOfFlowBlockLayout() {
       container_builder.ToBoxFragment();
   // These are the unpositioned OOF descendants of the current OOF block.
   for (const auto& descendant :
-       result->PhysicalFragment().OutOfFlowPositionedDescendants())
-    descendant.Node().InsertIntoLegacyPositionedObjects();
+       result->PhysicalFragment().OutOfFlowPositionedDescendants()) {
+    descendant.Node().InsertIntoLegacyPositionedObjectsOf(
+        To<LayoutBlock>(container));
+  }
 
   const auto& fragment = result->PhysicalFragment();
   DCHECK_GT(fragment.Children().size(), 0u);
@@ -411,12 +413,15 @@ LayoutNGMixin<Base>::UpdateInFlowBlockLayout() {
       To<NGPhysicalBoxFragment>(result->PhysicalFragment());
 
   for (const auto& descendant :
-       physical_fragment.OutOfFlowPositionedDescendants())
-    descendant.Node().InsertIntoLegacyPositionedObjects();
+       physical_fragment.OutOfFlowPositionedDescendants()) {
+    descendant.Node().InsertIntoLegacyPositionedObjectsOf(
+        descendant.box->ContainingBlock());
+  }
 
   // Even if we are a layout root, our baseline may have shifted. In this
   // (rare) case, mark our containing-block for layout.
-  if (is_layout_root && previous_result) {
+  // The baseline of SVG <text> doesn't affect other boxes.
+  if (is_layout_root && previous_result && !Base::IsNGSVGText()) {
     if (To<NGPhysicalBoxFragment>(previous_result->PhysicalFragment())
             .Baseline() != physical_fragment.Baseline()) {
       if (auto* containing_block = Base::ContainingBlock()) {

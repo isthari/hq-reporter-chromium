@@ -30,6 +30,7 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/interstitials/security_interstitial_idn_test.h"
 #include "chrome/browser/password_manager/password_manager_test_base.h"
+#include "chrome/browser/password_manager/passwords_navigation_observer.h"
 #include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
@@ -964,7 +965,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest, IframeProceed) {
                      ->GetLastCommittedURL());
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #define MAYBE_IframeOptInAndReportThreatDetails \
   DISABLED_IframeOptInAndReportThreatDetails
 #else
@@ -1262,7 +1263,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
   EXPECT_EQ(url, controller.GetVisibleEntry()->GetURL());
 }
 
-#if (defined(OS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
+#if (BUILDFLAG(IS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
 // TODO(crbug.com/1132307): Address flaky timeout.
 #define MAYBE_LearnMore DISABLED_LearnMore
 #else
@@ -1480,7 +1481,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest, AllowlistUnsaved) {
   AssertNoInterstitial(true);
 }
 
-#if (defined(OS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
+#if (BUILDFLAG(IS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
 // TODO(crbug.com/1132307): Address flay failure.
 #define MAYBE_VerifyHitReportSentOnSBERAndNotIncognito \
   DISABLED_VerifyHitReportSentOnSBERAndNotIncognito
@@ -1828,7 +1829,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
 }
 
 // Check back and forward work correctly after clicking through an interstitial.
-#if (defined(OS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
+#if (BUILDFLAG(IS_MAC) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
 // TODO(crbug.com/1132307): Address flay failure.
 #define MAYBE_NavigatingBackAndForth DISABLED_NavigatingBackAndForth
 #else
@@ -2630,7 +2631,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageDelayedWarningBrowserTest,
   observer1.Wait();
 
   // Submit a password.
-  NavigationObserver observer2(contents);
+  PasswordsNavigationObserver observer2(contents);
   std::unique_ptr<BubbleObserver> prompt_observer(new BubbleObserver(contents));
   std::string fill_and_submit =
       "document.getElementById('retry_password_field').value = 'pw';"

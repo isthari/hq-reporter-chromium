@@ -7,6 +7,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
@@ -20,9 +21,12 @@
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/account_id/account_id.h"
+#include "components/app_constants/constants.h"
 #include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/icon_types.h"
+#include "components/services/app_service/public/cpp/permission.h"
 #include "components/services/app_service/public/cpp/publisher_base.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -44,6 +48,9 @@
 
 namespace {
 
+const base::Time kLastLaunchTime = base::Time::Now();
+const base::Time kInstallTime = base::Time::Now();
+
 #if !BUILDFLAG(IS_CHROMEOS_LACROS)
 scoped_refptr<extensions::Extension> MakeExtensionApp(
     const std::string& name,
@@ -64,6 +71,28 @@ scoped_refptr<extensions::Extension> MakeExtensionApp(
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+void AddArcPackage(ArcAppTest& arc_test,
+                   const std::vector<arc::mojom::AppInfoPtr>& fake_apps) {
+  for (const auto& fake_app : fake_apps) {
+    base::flat_map<arc::mojom::AppPermission, arc::mojom::PermissionStatePtr>
+        permissions;
+    permissions.emplace(arc::mojom::AppPermission::CAMERA,
+                        arc::mojom::PermissionState::New(/*granted=*/false,
+                                                         /*managed=*/false));
+    permissions.emplace(arc::mojom::AppPermission::LOCATION,
+                        arc::mojom::PermissionState::New(/*granted=*/true,
+                                                         /*managed=*/false));
+    arc::mojom::ArcPackageInfoPtr package = arc::mojom::ArcPackageInfo::New(
+        fake_app->package_name, /*package_version=*/1,
+        /*last_backup_android_id=*/1,
+        /*last_backup_time=*/1, /*sync=*/true, /*system=*/false,
+        /*vpn_provider=*/false, /*web_app_info=*/nullptr, absl::nullopt,
+        std::move(permissions));
+    arc_test.AddPackage(package->Clone());
+    arc_test.app_instance()->SendPackageAdded(package->Clone());
+  }
+}
+
 apps::mojom::AppPtr MakeMojomApp(apps::mojom::AppType app_type,
                                  const std::string& app_id,
                                  const std::string& name,
@@ -71,13 +100,52 @@ apps::mojom::AppPtr MakeMojomApp(apps::mojom::AppType app_type,
   apps::mojom::AppPtr app = apps::PublisherBase::MakeApp(
       app_type, app_id, apps::mojom::Readiness::kReady, name,
       apps::mojom::InstallReason::kUser);
-
+  app->install_source = apps::mojom::InstallSource::kSync;
   app->icon_key = apps::mojom::IconKey::New(
       /*timeline=*/1, apps::mojom::IconKey::kInvalidResourceId,
       /*icon_effects=*/0);
   return app;
 }
+
+// TODO(crbug.com/1253250): Will be removed when AppService Lacros mojom is
+// migrated to non-mojom App struct.
+apps::mojom::PermissionPtr MakeFakeMojomPermission(
+    apps::mojom::PermissionType permission_type,
+    bool bool_value) {
+  auto permission = apps::mojom::Permission::New();
+  permission->permission_type = permission_type;
+  permission->value = apps::mojom::PermissionValue::New();
+  permission->value->set_bool_value(bool_value);
+  permission->is_managed = false;
+  return permission;
+}
+
+apps::Permissions MakeFakePermissions() {
+  apps::Permissions permissions;
+  permissions.push_back(std::make_unique<apps::Permission>(
+      apps::PermissionType::kCamera,
+      std::make_unique<apps::PermissionValue>(false),
+      /*is_managed*/ false));
+  permissions.push_back(std::make_unique<apps::Permission>(
+      apps::PermissionType::kLocation,
+      std::make_unique<apps::PermissionValue>(true),
+      /*is_managed*/ false));
+  return permissions;
+}
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+bool IsEqual(const apps::Permissions& source, const apps::Permissions& target) {
+  if (source.size() != target.size()) {
+    return false;
+  }
+
+  for (int i = 0; i < static_cast<int>(source.size()); i++) {
+    if (*source[i] != *target[i]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -119,7 +187,7 @@ class PublisherTest : public extensions::ExtensionServiceTestBase {
   std::string CreateWebApp(const std::string& app_name) {
     const GURL kAppUrl("https://example.com/");
 
-    auto web_app_info = std::make_unique<WebApplicationInfo>();
+    auto web_app_info = std::make_unique<WebAppInstallInfo>();
     web_app_info->title = base::UTF8ToUTF16(app_name);
     web_app_info->start_url = kAppUrl;
     web_app_info->scope = kAppUrl;
@@ -136,10 +204,33 @@ class PublisherTest : public extensions::ExtensionServiceTestBase {
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+  void VerifyOptionalBool(absl::optional<bool> source,
+                          absl::optional<bool> target) {
+    if (source.has_value()) {
+      EXPECT_EQ(source, target);
+    }
+  }
   void VerifyApp(AppType app_type,
                  const std::string& app_id,
                  const std::string& name,
-                 apps::Readiness readiness) {
+                 apps::Readiness readiness,
+                 InstallReason install_reason,
+                 InstallSource install_source,
+                 const std::vector<std::string>& additional_search_terms,
+                 base::Time last_launch_time,
+                 base::Time install_time,
+                 const apps::Permissions& permissions,
+                 absl::optional<bool> is_platform_app = absl::nullopt,
+                 absl::optional<bool> recommendable = absl::nullopt,
+                 absl::optional<bool> searchable = absl::nullopt,
+                 absl::optional<bool> show_in_launcher = absl::nullopt,
+                 absl::optional<bool> show_in_shelf = absl::nullopt,
+                 absl::optional<bool> show_in_search = absl::nullopt,
+                 absl::optional<bool> show_in_management = absl::nullopt,
+                 absl::optional<bool> handles_intents = absl::nullopt,
+                 absl::optional<bool> allow_uninstall = absl::nullopt,
+                 absl::optional<bool> has_badge = absl::nullopt,
+                 absl::optional<bool> paused = absl::nullopt) {
     AppRegistryCache& cache =
         AppServiceProxyFactory::GetForProfile(profile())->AppRegistryCache();
 
@@ -149,6 +240,32 @@ class PublisherTest : public extensions::ExtensionServiceTestBase {
     EXPECT_EQ(name, cache.states_[app_id]->name.value());
     EXPECT_EQ(readiness, cache.states_[app_id]->readiness);
     ASSERT_TRUE(cache.states_[app_id]->icon_key.has_value());
+    EXPECT_EQ(install_reason, cache.states_[app_id]->install_reason);
+    EXPECT_EQ(install_source, cache.states_[app_id]->install_source);
+    EXPECT_EQ(additional_search_terms,
+              cache.states_[app_id]->additional_search_terms);
+    if (!last_launch_time.is_null()) {
+      EXPECT_EQ(last_launch_time, cache.states_[app_id]->last_launch_time);
+    }
+    if (!install_time.is_null()) {
+      EXPECT_EQ(install_time, cache.states_[app_id]->install_time);
+    }
+    if (!permissions.empty()) {
+      EXPECT_TRUE(IsEqual(permissions, cache.states_[app_id]->permissions));
+    }
+    VerifyOptionalBool(is_platform_app, cache.states_[app_id]->is_platform_app);
+    VerifyOptionalBool(recommendable, cache.states_[app_id]->recommendable);
+    VerifyOptionalBool(searchable, cache.states_[app_id]->searchable);
+    VerifyOptionalBool(show_in_launcher,
+                       cache.states_[app_id]->show_in_launcher);
+    VerifyOptionalBool(show_in_shelf, cache.states_[app_id]->show_in_shelf);
+    VerifyOptionalBool(show_in_search, cache.states_[app_id]->show_in_search);
+    VerifyOptionalBool(show_in_management,
+                       cache.states_[app_id]->show_in_management);
+    VerifyOptionalBool(handles_intents, cache.states_[app_id]->handles_intents);
+    VerifyOptionalBool(allow_uninstall, cache.states_[app_id]->allow_uninstall);
+    VerifyOptionalBool(has_badge, cache.states_[app_id]->has_badge);
+    VerifyOptionalBool(paused, cache.states_[app_id]->paused);
   }
 
   void VerifyAppIsRemoved(const std::string& app_id) {
@@ -169,8 +286,8 @@ TEST_F(PublisherTest, ArcAppsOnApps) {
   arc_test.SetUp(profile());
 
   // Install fake apps.
-  std::vector<arc::mojom::AppInfo> fake_apps = arc_test.fake_apps();
-  arc_test.app_instance()->SendRefreshAppList(fake_apps);
+  arc_test.app_instance()->SendRefreshAppList(arc_test.fake_apps());
+  AddArcPackage(arc_test, arc_test.fake_apps());
 
   // Verify ARC apps are added to AppRegistryCache.
   ArcAppListPrefs* prefs = ArcAppListPrefs::Get(profile());
@@ -178,8 +295,18 @@ TEST_F(PublisherTest, ArcAppsOnApps) {
   for (const auto& app_id : prefs->GetAppIds()) {
     std::unique_ptr<ArcAppListPrefs::AppInfo> app_info = prefs->GetApp(app_id);
     if (app_info) {
-      VerifyApp(AppType::kArc, app_id, app_info->name, Readiness::kReady);
-
+      VerifyApp(
+          AppType::kArc, app_id, app_info->name, Readiness::kReady,
+          app_info->sticky ? InstallReason::kSystem : InstallReason::kUser,
+          app_info->sticky ? InstallSource::kSystem : InstallSource::kPlayStore,
+          {}, app_info->last_launch_time, app_info->install_time,
+          apps::Permissions(), /*is_platform_app=*/false,
+          /*recommendable=*/true, /*searchable=*/true,
+          /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+          /*show_in_search=*/true, /*show_in_management=*/true,
+          /*handles_intents=*/true,
+          /*allow_uninstall=*/app_info->ready && !app_info->sticky,
+          /*has_badge=*/false, /*paused=*/false);
       // Simulate the app is removed.
       RemoveArcApp(app_id);
       VerifyAppIsRemoved(app_id);
@@ -195,7 +322,30 @@ TEST_F(PublisherTest, ArcAppsOnApps) {
   for (const auto& app_id : prefs->GetAppIds()) {
     std::unique_ptr<ArcAppListPrefs::AppInfo> app_info = prefs->GetApp(app_id);
     if (app_info) {
-      VerifyApp(AppType::kArc, app_id, app_info->name, Readiness::kReady);
+      VerifyApp(
+          AppType::kArc, app_id, app_info->name, Readiness::kReady,
+          app_info->sticky ? InstallReason::kSystem : InstallReason::kUser,
+          app_info->sticky ? InstallSource::kSystem : InstallSource::kPlayStore,
+          {}, app_info->last_launch_time, app_info->install_time,
+          MakeFakePermissions(), /*is_platform_app=*/false,
+          /*recommendable=*/true, /*searchable=*/true,
+          /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+          /*show_in_search=*/true, /*show_in_management=*/true,
+          /*handles_intents=*/true,
+          /*allow_uninstall=*/app_info->ready && !app_info->sticky,
+          /*has_badge=*/false, /*paused=*/false);
+
+      // Test OnAppLastLaunchTimeUpdated.
+      const base::Time before_time = base::Time::Now();
+      prefs->SetLastLaunchTime(app_id);
+      app_info = prefs->GetApp(app_id);
+      EXPECT_GE(app_info->last_launch_time, before_time);
+      VerifyApp(
+          AppType::kArc, app_id, app_info->name, Readiness::kReady,
+          app_info->sticky ? InstallReason::kSystem : InstallReason::kUser,
+          app_info->sticky ? InstallSource::kSystem : InstallSource::kPlayStore,
+          {}, app_info->last_launch_time, app_info->install_time,
+          MakeFakePermissions());
     }
   }
 
@@ -210,9 +360,20 @@ TEST_F(PublisherTest, BuiltinAppsOnApps) {
         (internal_app.icon_resource_id <= 0)) {
       continue;
     }
+    std::vector<std::string> additional_search_terms;
+    if (internal_app.searchable_string_resource_id != 0) {
+      additional_search_terms.push_back(
+          l10n_util::GetStringUTF8(internal_app.searchable_string_resource_id));
+    }
     VerifyApp(AppType::kBuiltIn, internal_app.app_id,
               l10n_util::GetStringUTF8(internal_app.name_string_resource_id),
-              Readiness::kReady);
+              Readiness::kReady, InstallReason::kSystem, InstallSource::kSystem,
+              additional_search_terms, base::Time(), base::Time(),
+              apps::Permissions(), /*is_platform_app=*/false,
+              internal_app.recommendable, internal_app.searchable,
+              internal_app.show_in_launcher, internal_app.searchable,
+              internal_app.searchable, /*show_in_management=*/false,
+              internal_app.show_in_launcher, /*allow_uninstall=*/false);
   }
 }
 
@@ -250,9 +411,21 @@ class StandaloneBrowserPublisherTest : public PublisherTest {
     StandaloneBrowserExtensionApps* chrome_apps =
         StandaloneBrowserExtensionAppsFactory::GetForProfile(profile());
     std::vector<mojom::AppPtr> apps;
-    apps.push_back(MakeMojomApp(mojom::AppType::kStandaloneBrowserChromeApp,
-                                /*app_id=*/"a",
-                                /*name=*/"TestApp", mojom::Readiness::kReady));
+    auto app = MakeMojomApp(mojom::AppType::kStandaloneBrowserChromeApp,
+                            /*app_id=*/"a",
+                            /*name=*/"TestApp", mojom::Readiness::kReady);
+    app->is_platform_app = mojom::OptionalBool::kTrue;
+    app->recommendable = apps::mojom::OptionalBool::kFalse;
+    app->searchable = apps::mojom::OptionalBool::kFalse;
+    app->show_in_launcher = apps::mojom::OptionalBool::kFalse;
+    app->show_in_shelf = apps::mojom::OptionalBool::kFalse;
+    app->show_in_search = apps::mojom::OptionalBool::kFalse;
+    app->show_in_management = apps::mojom::OptionalBool::kFalse;
+    app->handles_intents = apps::mojom::OptionalBool::kFalse;
+    app->allow_uninstall = apps::mojom::OptionalBool::kFalse;
+    app->has_badge = apps::mojom::OptionalBool::kFalse;
+    app->paused = apps::mojom::OptionalBool::kFalse;
+    apps.push_back(std::move(app));
     chrome_apps->OnApps(std::move(apps));
   }
 
@@ -260,9 +433,27 @@ class StandaloneBrowserPublisherTest : public PublisherTest {
     WebAppsCrosapi* web_apps_crosapi =
         WebAppsCrosapiFactory::GetForProfile(profile());
     std::vector<mojom::AppPtr> apps;
-    apps.push_back(MakeMojomApp(mojom::AppType::kWeb,
-                                /*app_id=*/"a",
-                                /*name=*/"TestApp", mojom::Readiness::kReady));
+    auto app = MakeMojomApp(mojom::AppType::kWeb,
+                            /*app_id=*/"a",
+                            /*name=*/"TestApp", mojom::Readiness::kReady);
+    app->additional_search_terms.push_back("TestApp");
+    app->last_launch_time = kLastLaunchTime;
+    app->install_time = kInstallTime;
+    app->permissions.push_back(MakeFakeMojomPermission(
+        apps::mojom::PermissionType::kCamera, /*bool_value=*/false));
+    app->permissions.push_back(MakeFakeMojomPermission(
+        apps::mojom::PermissionType::kLocation, /*bool_value=*/true));
+    app->recommendable = apps::mojom::OptionalBool::kTrue;
+    app->searchable = apps::mojom::OptionalBool::kTrue;
+    app->show_in_launcher = apps::mojom::OptionalBool::kTrue;
+    app->show_in_shelf = apps::mojom::OptionalBool::kTrue;
+    app->show_in_search = apps::mojom::OptionalBool::kTrue;
+    app->show_in_management = apps::mojom::OptionalBool::kTrue;
+    app->handles_intents = apps::mojom::OptionalBool::kTrue;
+    app->allow_uninstall = apps::mojom::OptionalBool::kTrue;
+    app->has_badge = apps::mojom::OptionalBool::kTrue;
+    app->paused = apps::mojom::OptionalBool::kTrue;
+    apps.push_back(std::move(app));
     web_apps_crosapi->OnApps(std::move(apps));
   }
 
@@ -272,19 +463,40 @@ class StandaloneBrowserPublisherTest : public PublisherTest {
 };
 
 TEST_F(StandaloneBrowserPublisherTest, StandaloneBrowserAppsOnApps) {
-  VerifyApp(AppType::kStandaloneBrowser, extension_misc::kLacrosAppId, "Lacros",
-            Readiness::kReady);
+  VerifyApp(AppType::kStandaloneBrowser, app_constants::kLacrosAppId, "Lacros",
+            Readiness::kReady, InstallReason::kSystem, InstallSource::kSystem,
+            {"chrome"}, base::Time(), base::Time(), apps::Permissions(),
+            /*is_platform_app=*/false,
+            /*recommendable=*/true, /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/false);
 }
 
 TEST_F(StandaloneBrowserPublisherTest, StandaloneBrowserExtensionAppsOnApps) {
   ExtensionAppsOnApps();
   VerifyApp(AppType::kStandaloneBrowserChromeApp, "a", "TestApp",
-            Readiness::kReady);
+            Readiness::kReady, InstallReason::kUser, InstallSource::kSync, {},
+            base::Time(), base::Time(), apps::Permissions(),
+            /*is_platform_app=*/true, /*recommendable=*/false,
+            /*searchable=*/false,
+            /*show_in_launcher=*/false, /*show_in_shelf=*/false,
+            /*show_in_search=*/false, /*show_in_management=*/false,
+            /*handles_intents=*/false, /*allow_uninstall=*/false,
+            /*has_badge=*/false, /*paused=*/false);
 }
 
 TEST_F(StandaloneBrowserPublisherTest, WebAppsCrosapiOnApps) {
   WebAppsCrosapiOnApps();
-  VerifyApp(AppType::kWeb, "a", "TestApp", Readiness::kReady);
+  VerifyApp(AppType::kWeb, "a", "TestApp", Readiness::kReady,
+            InstallReason::kUser, InstallSource::kSync, {"TestApp"},
+            kLastLaunchTime, kInstallTime, MakeFakePermissions(),
+            /*is_platform_app=*/false, /*recommendable=*/true,
+            /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/true,
+            /*has_badge=*/true, /*paused=*/true);
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -299,17 +511,49 @@ TEST_F(PublisherTest, ExtensionAppsOnApps) {
   // Re-init AppService to verify the init process.
   AppServiceTest app_service_test;
   app_service_test.SetUp(profile());
-  VerifyApp(AppType::kChromeApp, store->id(), store->name(), Readiness::kReady);
+  VerifyApp(AppType::kChromeApp, store->id(), store->name(), Readiness::kReady,
+            InstallReason::kDefault, InstallSource::kChromeWebStore, {},
+            base::Time(), base::Time(), apps::Permissions(),
+            /*is_platform_app=*/false, /*recommendable=*/true,
+            /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/true,
+            /*has_badge=*/false, /*paused=*/false);
 
   // Uninstall the Chrome app.
   service_->UninstallExtension(
       store->id(), extensions::UNINSTALL_REASON_FOR_TESTING, nullptr);
   VerifyApp(AppType::kChromeApp, store->id(), store->name(),
-            Readiness::kUninstalledByUser);
+            Readiness::kUninstalledByUser, InstallReason::kDefault,
+            InstallSource::kChromeWebStore, {}, base::Time(), base::Time(),
+            apps::Permissions(), /*is_platform_app=*/false,
+            /*recommendable=*/true,
+            /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/true,
+            /*has_badge=*/false, /*paused=*/false);
 
   // Reinstall the Chrome app.
   service_->AddExtension(store.get());
-  VerifyApp(AppType::kChromeApp, store->id(), store->name(), Readiness::kReady);
+  VerifyApp(AppType::kChromeApp, store->id(), store->name(), Readiness::kReady,
+            InstallReason::kDefault, InstallSource::kChromeWebStore, {},
+            base::Time(), base::Time(), apps::Permissions(),
+            /*is_platform_app=*/false, /*recommendable=*/true,
+            /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/true,
+            /*has_badge=*/false, /*paused=*/false);
+
+  // Test OnExtensionLastLaunchTimeChanged.
+  extensions::ExtensionPrefs::Get(profile())->SetLastLaunchTime(
+      store->id(), kLastLaunchTime);
+  VerifyApp(AppType::kChromeApp, store->id(), store->name(), Readiness::kReady,
+            InstallReason::kDefault, InstallSource::kChromeWebStore, {},
+            kLastLaunchTime, base::Time(), apps::Permissions(),
+            /*is_platform_app=*/false);
 }
 
 TEST_F(PublisherTest, WebAppsOnApps) {
@@ -318,7 +562,15 @@ TEST_F(PublisherTest, WebAppsOnApps) {
   AppServiceTest app_service_test_;
   app_service_test_.SetUp(profile());
 
-  VerifyApp(AppType::kWeb, app_id, kAppName, Readiness::kReady);
+  VerifyApp(AppType::kWeb, app_id, kAppName, Readiness::kReady,
+            InstallReason::kSync, InstallSource::kBrowser, {}, base::Time(),
+            base::Time(), apps::Permissions(), /*is_platform_app=*/false,
+            /*recommendable=*/true,
+            /*searchable=*/true,
+            /*show_in_launcher=*/true, /*show_in_shelf=*/true,
+            /*show_in_search=*/true, /*show_in_management=*/true,
+            /*handles_intents=*/true, /*allow_uninstall=*/true,
+            /*has_badge=*/false, /*paused=*/false);
 }
 
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)

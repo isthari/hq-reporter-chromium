@@ -18,7 +18,7 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
-#include "media/base/decode_status.h"
+#include "media/base/decoder_status.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/accelerated_video_decoder.h"
@@ -107,9 +107,11 @@ V4L2StatelessVideoDecoderBackend::V4L2StatelessVideoDecoderBackend(
     Client* const client,
     scoped_refptr<V4L2Device> device,
     VideoCodecProfile profile,
+    const VideoColorSpace& color_space,
     scoped_refptr<base::SequencedTaskRunner> task_runner)
     : V4L2VideoDecoderBackend(client, std::move(device)),
       profile_(profile),
+      color_space_(color_space),
       bitstream_id_to_timestamp_(kTimestampCacheSize),
       task_runner_(task_runner) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -328,7 +330,7 @@ void V4L2StatelessVideoDecoderBackend::SurfaceReady(
     scoped_refptr<V4L2DecodeSurface> dec_surface,
     int32_t bitstream_id,
     const gfx::Rect& visible_rect,
-    const VideoColorSpace& /* color_space */) {
+    const VideoColorSpace& color_space) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOGF(3);
 
@@ -344,6 +346,8 @@ void V4L2StatelessVideoDecoderBackend::SurfaceReady(
   base::TimeDelta timestamp = it->second;
 
   dec_surface->SetVisibleRect(visible_rect);
+  dec_surface->SetColorSpace(color_space);
+
   output_request_queue_.push(
       OutputRequest::Surface(std::move(dec_surface), timestamp));
   PumpOutputSurfaces();
@@ -422,7 +426,8 @@ bool V4L2StatelessVideoDecoderBackend::PumpDecodeTask() {
           enqueuing_timestamps_[current_decode_request_->buffer->timestamp()
                                     .InMilliseconds()] = base::TimeTicks::Now();
 
-          std::move(current_decode_request_->decode_cb).Run(DecodeStatus::OK);
+          std::move(current_decode_request_->decode_cb)
+              .Run(DecoderStatus::Codes::kOk);
           current_decode_request_ = absl::nullopt;
         }
 
@@ -498,7 +503,7 @@ void V4L2StatelessVideoDecoderBackend::PumpOutputSurfaces() {
       case OutputRequest::kFlushFence:
         DCHECK(output_request_queue_.empty());
         DVLOGF(2) << "Flush finished.";
-        std::move(flush_cb_).Run(DecodeStatus::OK);
+        std::move(flush_cb_).Run(DecoderStatus::Codes::kOk);
         resume_decode = true;
         client_->CompleteFlush();
         break;
@@ -513,7 +518,7 @@ void V4L2StatelessVideoDecoderBackend::PumpOutputSurfaces() {
 
         DCHECK(surface->video_frame());
         client_->OutputFrame(surface->video_frame(), surface->visible_rect(),
-                             request.timestamp);
+                             surface->color_space(), request.timestamp);
 
         {
           const int64_t flat_timestamp = request.timestamp.InMilliseconds();
@@ -617,7 +622,7 @@ void V4L2StatelessVideoDecoderBackend::OnStreamStopped(bool stop_input_queue) {
 }
 
 void V4L2StatelessVideoDecoderBackend::ClearPendingRequests(
-    DecodeStatus status) {
+    DecoderStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOGF(3);
 
@@ -686,33 +691,35 @@ bool V4L2StatelessVideoDecoderBackend::CreateAvd() {
     if (input_queue_->SupportsRequests()) {
       avd_ = std::make_unique<H264Decoder>(
           std::make_unique<V4L2VideoDecoderDelegateH264>(this, device_.get()),
-          profile_);
+          profile_, color_space_);
     } else {
       avd_ = std::make_unique<H264Decoder>(
           std::make_unique<V4L2VideoDecoderDelegateH264Legacy>(this,
                                                                device_.get()),
-          profile_);
+          profile_, color_space_);
     }
   } else if (profile_ >= VP8PROFILE_MIN && profile_ <= VP8PROFILE_MAX) {
     if (input_queue_->SupportsRequests()) {
       avd_ = std::make_unique<VP8Decoder>(
-          std::make_unique<V4L2VideoDecoderDelegateVP8>(this, device_.get()));
+          std::make_unique<V4L2VideoDecoderDelegateVP8>(this, device_.get()),
+          color_space_);
     } else {
       avd_ = std::make_unique<VP8Decoder>(
           std::make_unique<V4L2VideoDecoderDelegateVP8Legacy>(this,
-                                                              device_.get()));
+                                                              device_.get()),
+          color_space_);
     }
   } else if (profile_ >= VP9PROFILE_MIN && profile_ <= VP9PROFILE_MAX) {
     if (input_queue_->SupportsRequests()) {
       avd_ = std::make_unique<VP9Decoder>(
           std::make_unique<V4L2VideoDecoderDelegateVP9Chromium>(this,
                                                                 device_.get()),
-          profile_);
+          profile_, color_space_);
     } else {
       avd_ = std::make_unique<VP9Decoder>(
           std::make_unique<V4L2VideoDecoderDelegateVP9Legacy>(this,
                                                               device_.get()),
-          profile_);
+          profile_, color_space_);
     }
   } else {
     VLOGF(1) << "Unsupported profile " << GetProfileName(profile_);

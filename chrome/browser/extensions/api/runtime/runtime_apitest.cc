@@ -66,14 +66,6 @@ IN_PROC_BROWSER_TEST_P(RuntimeApiTest, ChromeRuntimeUnprivileged) {
 }
 
 IN_PROC_BROWSER_TEST_P(RuntimeApiTest, ChromeRuntimeUninstallURL) {
-  // TODO(https://crbug.com/977629): Currently, chrome.test.runWithUserGesture()
-  // doesn't support Service Worker-based extensions, so this is a workaround.
-  using ScopedUserGestureForTests =
-      ExtensionFunction::ScopedUserGestureForTests;
-  std::unique_ptr<ScopedUserGestureForTests> scoped_user_gesture;
-  if (GetParam() == ContextType::kServiceWorker)
-    scoped_user_gesture = std::make_unique<ScopedUserGestureForTests>();
-
   // Auto-confirm the uninstall dialog.
   extensions::ScopedTestDialogAutoConfirm auto_confirm(
       extensions::ScopedTestDialogAutoConfirm::ACCEPT);
@@ -159,16 +151,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, ChromeRuntimeOpenOptionsPageError) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, ChromeRuntimeGetPlatformInfo) {
-  std::unique_ptr<base::Value> result(
+  base::Value::DictStorage dict = extension_function_test_utils::ToDictionary(
       extension_function_test_utils::RunFunctionAndReturnSingleResult(
           new RuntimeGetPlatformInfoFunction(), "[]", browser()));
-  ASSERT_TRUE(result);
-  std::unique_ptr<base::DictionaryValue> dict =
-      extension_function_test_utils::ToDictionary(std::move(result));
-  ASSERT_TRUE(dict != nullptr);
-  EXPECT_TRUE(dict->HasKey("os"));
-  EXPECT_TRUE(dict->HasKey("arch"));
-  EXPECT_TRUE(dict->HasKey("nacl_arch"));
+  EXPECT_TRUE(dict.contains("os"));
+  EXPECT_TRUE(dict.contains("arch"));
+  EXPECT_TRUE(dict.contains("nacl_arch"));
 }
 
 // Tests chrome.runtime.getPackageDirectory with an app.

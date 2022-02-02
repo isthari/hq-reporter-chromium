@@ -81,7 +81,7 @@ void KioskAppLaunchError::Save(KioskAppLaunchError::Error error) {
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate dict_update(local_state,
                                    KioskAppManager::kKioskDictionaryName);
-  dict_update->SetInteger(kKeyLaunchError, static_cast<int>(error));
+  dict_update->SetIntPath(kKeyLaunchError, static_cast<int>(error));
   s_last_error = error;
 }
 
@@ -91,7 +91,7 @@ void KioskAppLaunchError::SaveCryptohomeFailure(
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate dict_update(local_state,
                                    KioskAppManager::kKioskDictionaryName);
-  dict_update->SetInteger(kKeyCryptohomeFailure, auth_failure.reason());
+  dict_update->SetIntPath(kKeyCryptohomeFailure, auth_failure.reason());
 }
 
 // static

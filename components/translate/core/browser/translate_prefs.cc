@@ -80,6 +80,64 @@ void PurgeUnsupportedLanguagesInLanguageFamily(base::StringPiece language,
   });
 }
 
+// Merge old always-translate languages from the deprecated pref to the new
+// version. Because of crbug/1291356, it's possible that on iOS the client
+// started using the new pref without properly migrating and clearing the old
+// pref. This function will avoid merging values from the old pref that seem to
+// conflict with values already present in the new pref.
+void MigrateObsoleteAlwaysTranslateLanguagesPref(PrefService* prefs) {
+  const base::Value* deprecated_dictionary = prefs->GetUserPrefValue(
+      TranslatePrefs::kPrefAlwaysTranslateListDeprecated);
+  // Migration is performed only once per client, since the deprecated pref is
+  // cleared after migration. This will make subsequent calls to migrate no-ops.
+  if (!deprecated_dictionary)
+    return;
+
+  DictionaryPrefUpdate always_translate_dictionary_update(
+      prefs, prefs::kPrefAlwaysTranslateList);
+  base::Value* always_translate_dictionary =
+      always_translate_dictionary_update.Get();
+
+  for (const auto old_language_pair : deprecated_dictionary->DictItems()) {
+    // If the old pref's language pair conflicts with any of the new pref's
+    // language pairs, where either the new pref already specifies behavior
+    // about always translating from or to the old source language, or always
+    // translating from the old target language, then skip merging this pair
+    // into the new pref.
+    const auto& new_language_pairs = always_translate_dictionary->DictItems();
+    if (std::any_of(new_language_pairs.begin(), new_language_pairs.end(),
+                    [&old_language_pair](const auto& new_language_pair) {
+                      return old_language_pair.first ==
+                                 new_language_pair.first ||
+                             old_language_pair.first ==
+                                 new_language_pair.second.GetString() ||
+                             old_language_pair.second.GetString() ==
+                                 new_language_pair.first;
+                    })) {
+      continue;
+    }
+
+    // If the old pair's source language matches any of the never-translate
+    // languages, it probably means that this source language was set to never
+    // be translated after the old pref was deprecated, so avoid this conflict.
+    const auto& never_translate_languages =
+        prefs->GetList(prefs::kBlockedLanguages)->GetList();
+    if (std::any_of(
+            never_translate_languages.begin(), never_translate_languages.end(),
+            [&old_language_pair](const base::Value& never_translate_language) {
+              return old_language_pair.first ==
+                     never_translate_language.GetString();
+            })) {
+      continue;
+    }
+
+    always_translate_dictionary->SetStringKey(
+        old_language_pair.first, old_language_pair.second.GetString());
+  }
+
+  prefs->ClearPref(TranslatePrefs::kPrefAlwaysTranslateListDeprecated);
+}
+
 }  // namespace
 
 const char TranslatePrefs::kPrefForceTriggerTranslateCount[] =
@@ -99,14 +157,14 @@ const char TranslatePrefs::kPrefTranslateAcceptedCount[] =
 const char TranslatePrefs::kPrefAlwaysTranslateListDeprecated[] =
     "translate_whitelists";
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 const char TranslatePrefs::kPrefTranslateAutoAlwaysCount[] =
     "translate_auto_always_count";
 const char TranslatePrefs::kPrefTranslateAutoNeverCount[] =
     "translate_auto_never_count";
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 const char TranslatePrefs::kPrefExplicitLanguageAskShown[] =
     "translate_explicit_language_ask_shown";
 #endif
@@ -122,6 +180,9 @@ const base::Feature kTranslateRecentTarget{"TranslateRecentTarget",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kTranslate{"Translate", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kMigrateAlwaysTranslateLanguagesFix{
+    "MigrateAlwaysTranslateLanguagesFix", base::FEATURE_DISABLED_BY_DEFAULT};
 
 TranslateLanguageInfo::TranslateLanguageInfo() = default;
 
@@ -139,6 +200,9 @@ TranslatePrefs::TranslatePrefs(PrefService* user_prefs)
       language_prefs_(std::make_unique<language::LanguagePrefs>(user_prefs)) {
   MigrateNeverPromptSites();
   ResetEmptyBlockedLanguagesToDefaults();
+
+  if (base::FeatureList::IsEnabled(kMigrateAlwaysTranslateLanguagesFix))
+    MigrateObsoleteAlwaysTranslateLanguagesPref(user_prefs);
 }
 
 TranslatePrefs::~TranslatePrefs() = default;
@@ -181,7 +245,7 @@ void TranslatePrefs::ResetToDefaults() {
   prefs_->ClearPref(kPrefTranslateAcceptedCount);
   prefs_->ClearPref(prefs::kPrefTranslateRecentTarget);
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   prefs_->ClearPref(kPrefTranslateAutoAlwaysCount);
   prefs_->ClearPref(kPrefTranslateAutoNeverCount);
 #endif
@@ -736,7 +800,7 @@ void TranslatePrefs::ResetTranslationAcceptedCount(base::StringPiece language) {
   update.Get()->SetIntKey(language, 0);
 }
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 int TranslatePrefs::GetTranslationAutoAlwaysCount(
     base::StringPiece language) const {
   const base::Value* dict =
@@ -781,9 +845,9 @@ void TranslatePrefs::ResetTranslationAutoNeverCount(
   DictionaryPrefUpdate update(prefs_, kPrefTranslateAutoNeverCount);
   update.Get()->SetIntKey(language, 0);
 }
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 bool TranslatePrefs::GetExplicitLanguageAskPromptShown() const {
   return prefs_->GetBoolean(kPrefExplicitLanguageAskShown);
 }
@@ -799,7 +863,7 @@ bool TranslatePrefs::GetAppLanguagePromptShown() const {
 void TranslatePrefs::SetAppLanguagePromptShown() {
   prefs_->SetBoolean(language::prefs::kAppLanguagePromptShown, true);
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
 void TranslatePrefs::GetLanguageList(
     std::vector<std::string>* const languages) const {
@@ -839,9 +903,9 @@ bool TranslatePrefs::CanTranslateLanguage(
 
 // static
 bool TranslatePrefs::IsDetailedLanguageSettingsEnabled() {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   return base::FeatureList::IsEnabled(language::kDetailedLanguageSettings);
-#elif defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX)
+#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
   return base::FeatureList::IsEnabled(
       language::kDesktopDetailedLanguageSettings);
 #else
@@ -926,7 +990,7 @@ void TranslatePrefs::RegisterProfilePrefs(
   registry->RegisterListPref(translate::prefs::kBlockedLanguages,
                              TranslatePrefs::GetDefaultBlockedLanguages(),
                              user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   registry->RegisterDictionaryPref(
       kPrefTranslateAutoAlwaysCount,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
@@ -935,7 +999,7 @@ void TranslatePrefs::RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   registry->RegisterBooleanPref(
       kPrefExplicitLanguageAskShown, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
@@ -975,6 +1039,7 @@ void TranslatePrefs::MigrateNeverPromptSites() {
 
 // static
 void TranslatePrefs::MigrateObsoleteProfilePrefs(PrefService* profile_prefs) {
+  // TODO(crbug/1291356): Remove this method.
   const base::Value* deprecated_always_translate_list =
       profile_prefs->GetUserPrefValue(kPrefAlwaysTranslateListDeprecated);
   if (deprecated_always_translate_list &&
@@ -986,6 +1051,7 @@ void TranslatePrefs::MigrateObsoleteProfilePrefs(PrefService* profile_prefs) {
 
 // static
 void TranslatePrefs::ClearObsoleteProfilePrefs(PrefService* profile_prefs) {
+  // TODO(crbug/1291356): Remove this method.
   profile_prefs->ClearPref(kPrefAlwaysTranslateListDeprecated);
 }
 

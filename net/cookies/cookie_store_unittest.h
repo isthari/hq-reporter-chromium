@@ -221,9 +221,14 @@ class CookieStoreTest : public testing::Test {
       absl::optional<base::Time> server_time = absl::nullopt,
       absl::optional<base::Time> system_time = absl::nullopt,
       absl::optional<CookiePartitionKey> cookie_partition_key = absl::nullopt) {
-    auto cookie = CanonicalCookie::Create(
-        url, cookie_line, system_time.value_or(base::Time::Now()), server_time,
-        cookie_partition_key);
+    // Ensure a different Creation date to guarantee sort order for testing
+    static base::Time last = base::Time::Min();
+    last = base::Time::Now() == last ? last + base::Microseconds(1)
+                                     : base::Time::Now();
+
+    auto cookie =
+        CanonicalCookie::Create(url, cookie_line, system_time.value_or(last),
+                                server_time, cookie_partition_key);
 
     if (!cookie)
       return false;
@@ -1097,15 +1102,28 @@ TYPED_TEST_P(CookieStoreTest, TestIpAddress) {
 TYPED_TEST_P(CookieStoreTest, TestIpAddressNoDomainCookies) {
   GURL url_ip("http://1.2.3.4/weee");
   CookieStore* cs = this->GetCookieStore();
-  EXPECT_FALSE(this->SetCookie(cs, url_ip, "b=2; domain=.1.2.3.4"));
   EXPECT_FALSE(this->SetCookie(cs, url_ip, "c=3; domain=.3.4"));
   this->MatchCookieLines(std::string(), this->GetCookies(cs, url_ip));
   // It should be allowed to set a cookie if domain= matches the IP address
-  // exactly.  This matches IE/Firefox, even though it seems a bit wrong.
+  // by ignoring case and ignoring a leading dot.  This matches IE/Firefox, even
+  // though it seems a bit wrong.
   EXPECT_FALSE(this->SetCookie(cs, url_ip, "b=2; domain=1.2.3.3"));
   this->MatchCookieLines(std::string(), this->GetCookies(cs, url_ip));
   EXPECT_TRUE(this->SetCookie(cs, url_ip, "b=2; domain=1.2.3.4"));
   this->MatchCookieLines("b=2", this->GetCookies(cs, url_ip));
+  EXPECT_TRUE(this->SetCookie(cs, url_ip, "b=2; domain=.1.2.3.4"));
+  this->MatchCookieLines("b=2", this->GetCookies(cs, url_ip));
+
+#if !BUILDFLAG(IS_IOS)
+  // Test a couple of IPv6 addresses
+  GURL url_ip6("http://[2606:2800:220:1:248:1893:25c8:1946]");
+  EXPECT_FALSE(this->SetCookie(
+      cs, url_ip6, "e=1; domain=.2606:2800:220:1:248:1893:25c8:1946"));
+  this->MatchCookieLines(std::string(), this->GetCookies(cs, url_ip6));
+  EXPECT_TRUE(this->SetCookie(
+      cs, url_ip6, "d=1; domain=[2606:2800:220:1:248:1893:25c8:1946]"));
+  this->MatchCookieLines("d=1", this->GetCookies(cs, url_ip6));
+#endif  // !BUILDFLAG(IS_IOS)
 }
 
 // Test a TLD setting cookies on itself.

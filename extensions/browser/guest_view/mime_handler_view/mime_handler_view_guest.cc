@@ -167,14 +167,14 @@ int MimeHandlerViewGuest::GetTaskPrefix() const {
 void MimeHandlerViewGuest::CreateWebContents(
     const base::DictionaryValue& create_params,
     WebContentsCreatedCallback callback) {
-  std::string view_id;
-  create_params.GetString(mime_handler_view::kViewId, &view_id);
-  if (view_id.empty()) {
+  const std::string* view_id =
+      create_params.FindStringKey(mime_handler_view::kViewId);
+  if (!view_id || view_id->empty()) {
     std::move(callback).Run(nullptr);
     return;
   }
   stream_ =
-      MimeHandlerStreamManager::Get(browser_context())->ReleaseStream(view_id);
+      MimeHandlerStreamManager::Get(browser_context())->ReleaseStream(*view_id);
   if (!stream_) {
     std::move(callback).Run(nullptr);
     return;
@@ -470,11 +470,8 @@ void MimeHandlerViewGuest::DidFinishNavigation(
 
   if (navigation_handle->IsInMainFrame()) {
     // We should not navigate the guest away from the handling extension.
-    const url::Origin handler_origin =
-        url::Origin::Create(stream_->handler_url());
     const GURL& new_url = navigation_handle->GetURL();
-    const url::Origin new_origin = url::Origin::Create(new_url);
-    CHECK(new_origin.IsSameOriginWith(handler_origin) ||
+    CHECK(url::IsSameOriginWith(new_url, stream_->handler_url()) ||
           new_url.IsAboutBlank());
   }
 }

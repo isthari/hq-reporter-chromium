@@ -8,6 +8,7 @@
 
 #include "base/format_macros.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
@@ -476,27 +477,27 @@ UIWindow* GetAnyKeyWindow() {
 - (NSDictionary*)cookies {
   NSString* const kGetCookiesScript =
       @"document.cookie ? document.cookie.split(/;\\s*/) : [];";
-  id result = [self executeJavaScript:kGetCookiesScript];
-  // TODO(crbug.com/1041000): Assert that |result| is iterable using
-  // respondToSelector instead of methodSignatureForSelector, after upgrading to
-  // the EG version which handles selectors.
-  EG_TEST_HELPER_ASSERT_TRUE(
-      [result methodSignatureForSelector:@selector(objectEnumerator)],
-      @"The script response is not iterable.");
+  auto result = [self evaluateJavaScript:kGetCookiesScript];
+
+  EG_TEST_HELPER_ASSERT_TRUE(result.is_list(),
+                             @"The script response is not iteratble.");
 
   NSMutableDictionary* cookies = [NSMutableDictionary dictionary];
-  for (NSString* nameValuePair in result) {
-    NSMutableArray* cookieNameValue =
-        [[nameValuePair componentsSeparatedByString:@"="] mutableCopy];
-    // For cookies with multiple parameters it may be valid to have multiple
-    // occurrences of the delimiter.
-    EG_TEST_HELPER_ASSERT_TRUE((2 <= cookieNameValue.count),
-                               @"Cookie has invalid format.");
-    NSString* cookieName = cookieNameValue[0];
-    [cookieNameValue removeObjectAtIndex:0];
+  for (const auto& option : result.GetList()) {
+    if (option.is_string()) {
+      NSString* nameValuePair = base::SysUTF8ToNSString(option.GetString());
+      NSMutableArray* cookieNameValue =
+          [[nameValuePair componentsSeparatedByString:@"="] mutableCopy];
+      // For cookies with multiple parameters it may be valid to have multiple
+      // occurrences of the delimiter.
+      EG_TEST_HELPER_ASSERT_TRUE((2 <= cookieNameValue.count),
+                                 @"Cookie has invalid format.");
+      NSString* cookieName = cookieNameValue[0];
+      [cookieNameValue removeObjectAtIndex:0];
 
-    NSString* cookieValue = [cookieNameValue componentsJoinedByString:@"="];
-    cookies[cookieName] = cookieValue;
+      NSString* cookieValue = [cookieNameValue componentsJoinedByString:@"="];
+      cookies[cookieName] = cookieValue;
+    }
   }
 
   return cookies;
@@ -518,6 +519,11 @@ UIWindow* GetAnyKeyWindow() {
 - (void)waitForWebStateContainingElement:(ElementSelector*)selector {
   EG_TEST_HELPER_ASSERT_NO_ERROR(
       [ChromeEarlGreyAppInterface waitForWebStateContainingElement:selector]);
+}
+
+- (void)waitForWebStateNotContainingElement:(ElementSelector*)selector {
+  EG_TEST_HELPER_ASSERT_NO_ERROR([ChromeEarlGreyAppInterface
+      waitForWebStateNotContainingElement:selector]);
 }
 
 - (void)waitForMainTabCount:(NSUInteger)count {
@@ -896,11 +902,11 @@ UIWindow* GetAnyKeyWindow() {
       screenPositionOfScreenWithNumber:windowNumber];
 }
 
-- (NSUInteger)windowCount WARN_UNUSED_RESULT {
+- (NSUInteger)windowCount [[nodiscard]] {
   return [ChromeEarlGreyAppInterface windowCount];
 }
 
-- (NSUInteger)foregroundWindowCount WARN_UNUSED_RESULT {
+- (NSUInteger)foregroundWindowCount [[nodiscard]] {
   return [ChromeEarlGreyAppInterface foregroundWindowCount];
 }
 
@@ -1089,8 +1095,9 @@ UIWindow* GetAnyKeyWindow() {
 
 - (void)waitForJavaScriptCondition:(NSString*)javaScriptCondition {
   auto verifyBlock = ^BOOL {
-    id value = [ChromeEarlGrey executeJavaScript:javaScriptCondition];
-    return [value isEqual:@YES];
+    auto value = [ChromeEarlGrey evaluateJavaScript:javaScriptCondition];
+    DCHECK(value.is_bool());
+    return value.GetBool();
   };
   NSTimeInterval timeout = base::test::ios::kWaitForActionTimeout;
   NSString* conditionName = [NSString
@@ -1147,6 +1154,33 @@ UIWindow* GetAnyKeyWindow() {
   return result;
 }
 
+- (base::Value)evaluateJavaScript:(NSString*)javaScript {
+  JavaScriptExecutionResult* result =
+      [ChromeEarlGreyAppInterface executeJavaScript:javaScript];
+  EG_TEST_HELPER_ASSERT_TRUE(
+      result.success, @"An error was produced during the script's execution");
+
+  std::string jsonRepresentation = base::SysNSStringToUTF8(result.result);
+  JSONStringValueDeserializer deserializer(jsonRepresentation);
+
+  int errorCode;
+  std::string errorMessage;
+  auto jsonValue = deserializer.Deserialize(&errorCode, &errorMessage);
+  NSString* message = [NSString
+      stringWithFormat:@"JSON parsing failed: code=%d, message=%@", errorCode,
+                       base::SysUTF8ToNSString(errorMessage)];
+  EG_TEST_HELPER_ASSERT_TRUE(jsonValue, message);
+
+  return jsonValue ? std::move(*jsonValue) : base::Value();
+}
+
+- (void)evaluateJavaScriptForSideEffect:(NSString*)javaScript {
+  JavaScriptExecutionResult* result =
+      [ChromeEarlGreyAppInterface executeJavaScript:javaScript];
+  EG_TEST_HELPER_ASSERT_TRUE(
+      result.success, @"An error was produced during the script's execution");
+}
+
 - (NSString*)mobileUserAgentString {
   return [ChromeEarlGreyAppInterface mobileUserAgentString];
 }
@@ -1177,6 +1211,10 @@ UIWindow* GetAnyKeyWindow() {
 
 - (BOOL)isTriggerVariationEnabled:(int)variationID {
   return [ChromeEarlGreyAppInterface isTriggerVariationEnabled:variationID];
+}
+
+- (BOOL)isAddCredentialsInSettingsEnabled {
+  return [ChromeEarlGreyAppInterface isAddCredentialsInSettingsEnabled];
 }
 
 - (BOOL)isUKMEnabled {
@@ -1214,6 +1252,14 @@ UIWindow* GetAnyKeyWindow() {
 
 - (BOOL)isContextMenuActionsRefreshEnabled {
   return [ChromeEarlGreyAppInterface isContextMenuActionsRefreshEnabled];
+}
+
+- (BOOL)isContextMenuInWebViewEnabled {
+  return [ChromeEarlGreyAppInterface isContextMenuInWebViewEnabled];
+}
+
+- (BOOL)isNewOverflowMenuEnabled {
+  return [ChromeEarlGreyAppInterface isNewOverflowMenuEnabled];
 }
 
 #pragma mark - ScopedBlockPopupsPref

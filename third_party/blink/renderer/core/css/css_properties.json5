@@ -219,6 +219,10 @@
         "keyword",
         // Field can take on any subset of values from a list of keywords.
         "multi_keyword",
+        // Semantically equivalent to keyword, but the type is represented as a
+        // bit flag field as with multi_keyword as a performance optimization
+        // for matching multiple values.
+        "bitset_keyword",
         // Field stores a primitive value like int/bool. The type is specified
         // by type_name. The interface has a initial/getter/setter/resetter.
         "primitive",
@@ -834,6 +838,21 @@
       type_name: "OpticalSizing",
       priority: "High",
       keywords: ["auto", "none"],
+      typedom_types: ["Keyword"],
+      valid_for_first_letter: true,
+      valid_for_first_line: true,
+      valid_for_marker: true,
+    },
+    {
+      name: "font-palette",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal" ],
+      inherited: true,
+      font: true,
+      runtime_flag: "FontPalette",
+      converter: "ConvertFontPalette",
+      type_name: "FontPalette",
+      priority: "High",
+      keywords: ["normal", "light", "dark"],
       typedom_types: ["Keyword"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
@@ -2987,7 +3006,7 @@
       keywords: [
         "normal", "multiply", "screen", "overlay", "darken", "lighten",
         "color-dodge", "color-burn", "hard-light", "soft-light", "difference",
-        "exclusion", "hue", "saturation", "color", "luminosity"
+        "exclusion", "hue", "saturation", "color", "luminosity", "plus-lighter"
       ],
       typedom_types: ["Keyword"],
       default_value: "normal",
@@ -4935,7 +4954,7 @@
     {
       name: "-webkit-print-color-adjust",
       property_methods: ["CSSValueFromComputedStyleInternal"],
-      independent: true,
+      independent: false,  // Actually true, but setting it to false saves a precious bit in ComputedStyleBase.
       inherited: true,
       field_template: "keyword",
       keywords: ["economy", "exact"],
@@ -5014,7 +5033,7 @@
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       inherited: true,
       field_group: "*",
-      field_size: 3,
+      field_size: 2,
       field_template: "primitive",
       default_value: "TextEmphasisPosition::kOverRight",
       type_name: "TextEmphasisPosition",
@@ -5130,7 +5149,7 @@
       property_methods: ["CSSValueFromComputedStyleInternal"],
       independent: true,
       inherited: true,
-      field_template: "multi_keyword", // We use a bitflag field due peformance issues. TODO: crbug/12839063
+      field_template: "bitset_keyword",
       keywords: [
         "normal", "pre", "pre-wrap", "pre-line", "nowrap", "-webkit-nowrap", "break-spaces"
       ],

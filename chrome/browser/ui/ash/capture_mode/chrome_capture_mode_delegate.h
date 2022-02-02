@@ -49,6 +49,8 @@ class ChromeCaptureModeDelegate : public ash::CaptureModeDelegate {
       base::OnceClosure stop_callback) override;
   void StopObservingRestrictedContent(
       ash::OnCaptureModeDlpRestrictionChecked callback) override;
+  void OnCaptureImageAttempted(const aura::Window* window,
+                               const gfx::Rect& bounds) override;
   mojo::Remote<recording::mojom::RecordingService> LaunchRecordingService()
       override;
   void BindAudioStreamFactory(
@@ -60,6 +62,9 @@ class ChromeCaptureModeDelegate : public ash::CaptureModeDelegate {
   base::FilePath GetAndroidFilesPath() const override;
   std::unique_ptr<ash::RecordingOverlayView> CreateRecordingOverlayView()
       const override;
+  void ConnectToVideoSourceProvider(
+      mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider> receiver)
+      override;
 
  private:
   // Used to temporarily disable capture mode in certain cases for which neither

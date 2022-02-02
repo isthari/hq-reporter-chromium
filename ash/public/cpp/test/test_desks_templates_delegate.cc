@@ -49,11 +49,15 @@ void TestDesksTemplatesDelegate::GetIconForAppId(
     base::OnceCallback<void(const gfx::ImageSkia&)> callback) const {}
 
 void TestDesksTemplatesDelegate::LaunchAppsFromTemplate(
-    std::unique_ptr<DeskTemplate> desk_template) {}
+    std::unique_ptr<DeskTemplate> desk_template,
+    base::TimeDelta delay) {}
 
 bool TestDesksTemplatesDelegate::IsWindowSupportedForDeskTemplate(
     aura::Window* window) const {
   return DeskTemplate::IsAppTypeSupported(window);
 }
+
+void TestDesksTemplatesDelegate::OpenFeedbackDialog(
+    const std::string& extra_diagnostics) {}
 
 }  // namespace ash

@@ -12,7 +12,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <list>
 #include <map>
 #include <memory>
 #include <queue>
@@ -534,6 +533,9 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Workaround for V4L2VideoDecodeAccelerator. This is created only if some
   // workaround is necessary for the V4L2VideoDecodeAccelerator.
   std::vector<std::unique_ptr<V4L2StatefulWorkaround>> workarounds_;
+
+  // Color space passed in from Initialize().
+  VideoColorSpace container_color_space_;
 
   //
   // Hardware state and associated queues.  Since decoder_thread_ services

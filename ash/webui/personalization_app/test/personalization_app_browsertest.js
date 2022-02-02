@@ -13,7 +13,7 @@ GEN('#include "chromeos/constants/chromeos_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 const ROOT_PAGE = 'chrome://personalization/';
-const WALLPAPER_SUBPAGE = 'chrome://personalization/wallpaper/';
+const WALLPAPER_SUBPAGE = 'chrome://personalization/wallpaper';
 
 class PersonalizationAppBrowserTest extends testing.Test {
   /** @override */
@@ -48,6 +48,39 @@ class PersonalizationAppBrowserTest extends testing.Test {
   }
 }
 
+/**
+ * Wait until |func| returns true.
+ * If |timeoutMs| milliseconds elapse, will reject with |message|.
+ * Polls every |intervalMs| milliseconds.
+ */
+function waitUntil(func, message, intervalMs = 50, timeoutMs = 1001) {
+  let rejectTimer = null;
+  let pollTimer = null;
+
+  function cleanup() {
+    if (rejectTimer) {
+      window.clearTimeout(rejectTimer);
+    }
+    if (pollTimer) {
+      window.clearInterval(pollTimer);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    rejectTimer = window.setTimeout(() => {
+      cleanup();
+      reject(message);
+    }, timeoutMs);
+
+    pollTimer = window.setInterval(() => {
+      if (func()) {
+        cleanup();
+        resolve();
+      }
+    }, intervalMs);
+  });
+}
+
 // TODO(crbug/1262025) revisit this workaround for js2gtest requiring "var"
 // declarations.
 this[PersonalizationAppBrowserTest.name] = PersonalizationAppBrowserTest;
@@ -79,6 +112,21 @@ TEST_F('PersonalizationAppBrowserTest', 'ShowsThemeButtons', () => {
   testDone();
 });
 
+TEST_F('PersonalizationAppBrowserTest', 'ShowsUserInfo', async () => {
+  const preview = document.querySelector('personalization-router')
+                      .shadowRoot.querySelector('personalization-main')
+                      .shadowRoot.querySelector('user-preview');
+
+  await waitUntil(
+      () => preview.shadowRoot.getElementById('email'),
+      'failed to find user email');
+  assertEquals(
+      'fake-email', preview.shadowRoot.getElementById('email').innerText);
+  assertEquals(
+      'Fake Name', preview.shadowRoot.getElementById('name').innerText);
+  testDone();
+});
+
 class WallpaperSubpageBrowserTest extends PersonalizationAppBrowserTest {
   /** @override */
   get browsePreload() {
@@ -94,7 +142,7 @@ this[WallpaperSubpageBrowserTest.name] = WallpaperSubpageBrowserTest;
 // somewhere instead of 404ing or crashing.
 TEST_F('WallpaperSubpageBrowserTest', 'HasWallpaperSubpageUrl', () => {
   assertEquals(document.location.href, WALLPAPER_SUBPAGE);
-
+  
   const title = document.querySelector('head > title');
   assertEquals('Wallpaper', title.innerText);
   testDone();
@@ -102,13 +150,22 @@ TEST_F('WallpaperSubpageBrowserTest', 'HasWallpaperSubpageUrl', () => {
 
 TEST_F('WallpaperSubpageBrowserTest', 'LoadsCollectionsUntrustedIframe', () => {
   const router = document.querySelector('personalization-router');
-  assertTrue(!!router);
+  assertTrue(!!router, 'personalization-router should be top level element');
 
-  const collections = router.shadowRoot.querySelector('wallpaper-collections');
-  assertTrue(!!collections);
+  const wallpaperSubpage = router.shadowRoot.querySelector('wallpaper-subpage');
+  assertTrue(
+      !!wallpaperSubpage,
+      'wallpaper-subpage should be found under personalization-router');
+
+  const collections =
+      wallpaperSubpage.shadowRoot.querySelector('wallpaper-collections');
+  assertTrue(
+      !!collections,
+      'wallpaper-collections should be found under wallpaper-subpage');
+
 
   const iframe = collections.shadowRoot.getElementById('collections-iframe');
-  assertTrue(!!iframe);
+  assertTrue(!!iframe, 'iframe with id collections-iframe should be visible');
 
   assertEquals(
       'chrome-untrusted://personalization/untrusted/collections.html',

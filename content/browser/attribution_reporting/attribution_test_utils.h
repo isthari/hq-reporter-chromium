@@ -10,7 +10,6 @@
 #include <iosfwd>
 #include <vector>
 
-#include "base/compiler_specific.h"
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -21,12 +20,14 @@
 #include "content/browser/attribution_reporting/attribution_manager.h"
 #include "content/browser/attribution_reporting/attribution_manager_impl.h"
 #include "content/browser/attribution_reporting/attribution_policy.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/rate_limit_table.h"
 #include "content/browser/attribution_reporting/send_result.h"
 #include "content/browser/attribution_reporting/storable_source.h"
 #include "content/browser/attribution_reporting/storable_trigger.h"
+#include "content/browser/attribution_reporting/stored_source.h"
 #include "content/test/test_content_browser_client.h"
 #include "net/base/schemeful_site.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -35,7 +36,10 @@
 
 namespace content {
 
+class HistogramContribution;
 class StorableTrigger;
+
+struct AggregatableAttribution;
 
 class MockAttributionReportingContentBrowserClient
     : public TestContentBrowserClient {
@@ -79,19 +83,20 @@ class ConfigurableStorageDelegate : public AttributionStorage::Delegate {
   ~ConfigurableStorageDelegate() override;
 
   // AttributionStorage::Delegate
-  base::Time GetReportTime(const StorableSource& source,
+  base::Time GetReportTime(const CommonSourceInfo& source,
                            base::Time trigger_time) const override;
   int GetMaxAttributionsPerSource(
-      StorableSource::SourceType source_type) const override;
+      CommonSourceInfo::SourceType source_type) const override;
   int GetMaxSourcesPerOrigin() const override;
   int GetMaxAttributionsPerOrigin() const override;
   RateLimitConfig GetRateLimits(
       AttributionStorage::AttributionType attribution_type) const override;
   int GetMaxAttributionDestinationsPerEventSource() const override;
-  uint64_t GetFakeEventSourceTriggerData() const override;
   base::TimeDelta GetDeleteExpiredSourcesFrequency() const override;
   base::TimeDelta GetDeleteExpiredRateLimitsFrequency() const override;
   base::GUID NewReportID() const override;
+  absl::optional<OfflineReportDelayConfig> GetOfflineReportDelayConfig()
+      const override;
 
   void set_max_attributions_per_source(int max) {
     max_attributions_per_source_ = max;
@@ -109,10 +114,6 @@ class ConfigurableStorageDelegate : public AttributionStorage::Delegate {
 
   void set_rate_limits(RateLimitConfig c) { rate_limits_ = c; }
 
-  void set_fake_event_source_trigger_data(uint64_t data) {
-    fake_event_source_trigger_data_ = data;
-  }
-
   void set_delete_expired_sources_frequency(base::TimeDelta frequency) {
     delete_expired_sources_frequency_ = frequency;
   }
@@ -123,6 +124,11 @@ class ConfigurableStorageDelegate : public AttributionStorage::Delegate {
 
   void set_report_time_ms(int report_time_ms) {
     report_time_ms_ = report_time_ms;
+  }
+
+  void set_offline_report_delay_config(
+      absl::optional<OfflineReportDelayConfig> config) {
+    offline_report_delay_config_ = config;
   }
 
  private:
@@ -136,12 +142,12 @@ class ConfigurableStorageDelegate : public AttributionStorage::Delegate {
       .max_contributions_per_window = INT_MAX,
   };
 
-  uint64_t fake_event_source_trigger_data_ = 0;
-
   base::TimeDelta delete_expired_sources_frequency_;
   base::TimeDelta delete_expired_rate_limits_frequency_;
 
   int report_time_ms_ = 0;
+
+  absl::optional<OfflineReportDelayConfig> offline_report_delay_config_;
 };
 
 // Test manager provider which can be used to inject a fake AttributionManager.
@@ -169,18 +175,18 @@ class MockAttributionManager : public AttributionManager {
 
   MOCK_METHOD(void,
               GetActiveSourcesForWebUI,
-              (base::OnceCallback<void(std::vector<StorableSource>)> callback),
+              (base::OnceCallback<void(std::vector<StoredSource>)> callback),
               (override));
 
   MOCK_METHOD(
       void,
       GetPendingReportsForWebUI,
-      (base::OnceCallback<void(std::vector<EventAttributionReport>)> callback),
+      (base::OnceCallback<void(std::vector<AttributionReport>)> callback),
       (override));
 
   MOCK_METHOD(void,
               SendReportsForWebUI,
-              (const std::vector<EventAttributionReport::Id>& ids,
+              (const std::vector<AttributionReport::EventLevelData::Id>& ids,
                base::OnceClosure done),
               (override));
 
@@ -200,7 +206,7 @@ class MockAttributionManager : public AttributionManager {
   void NotifyReportsChanged();
   void NotifySourceDeactivated(
       const AttributionStorage::DeactivatedSource& source);
-  void NotifyReportSent(const EventAttributionReport& report,
+  void NotifyReportSent(const AttributionReport& report,
                         const SendResult& info);
   void NotifyReportDropped(
       const AttributionStorage::CreateReportResult& result);
@@ -218,51 +224,55 @@ class SourceBuilder {
   explicit SourceBuilder(base::Time time = base::Time::Now());
   ~SourceBuilder();
 
-  SourceBuilder& SetExpiry(base::TimeDelta delta) WARN_UNUSED_RESULT;
+  SourceBuilder& SetExpiry(base::TimeDelta delta);
 
-  SourceBuilder& SetSourceEventId(uint64_t source_event_id) WARN_UNUSED_RESULT;
+  SourceBuilder& SetSourceEventId(uint64_t source_event_id);
 
-  SourceBuilder& SetImpressionOrigin(url::Origin origin) WARN_UNUSED_RESULT;
+  SourceBuilder& SetImpressionOrigin(url::Origin origin);
 
-  SourceBuilder& SetConversionOrigin(url::Origin domain) WARN_UNUSED_RESULT;
+  SourceBuilder& SetConversionOrigin(url::Origin domain);
 
-  SourceBuilder& SetReportingOrigin(url::Origin origin) WARN_UNUSED_RESULT;
+  SourceBuilder& SetReportingOrigin(url::Origin origin);
 
-  SourceBuilder& SetSourceType(StorableSource::SourceType source_type)
-      WARN_UNUSED_RESULT;
+  SourceBuilder& SetSourceType(CommonSourceInfo::SourceType source_type);
 
-  SourceBuilder& SetPriority(int64_t priority) WARN_UNUSED_RESULT;
+  SourceBuilder& SetPriority(int64_t priority);
 
   SourceBuilder& SetAttributionLogic(
-      StorableSource::AttributionLogic attribution_logic) WARN_UNUSED_RESULT;
+      CommonSourceInfo::AttributionLogic attribution_logic);
 
-  SourceBuilder& SetImpressionId(
-      absl::optional<StorableSource::Id> impression_id) WARN_UNUSED_RESULT;
+  SourceBuilder& SetFakeTriggerData(absl::optional<uint64_t> fake_trigger_data);
 
-  SourceBuilder& SetDedupKeys(std::vector<int64_t> dedup_keys)
-      WARN_UNUSED_RESULT;
+  SourceBuilder& SetSourceId(StoredSource::Id source_id);
 
-  StorableSource Build() const WARN_UNUSED_RESULT;
+  SourceBuilder& SetDedupKeys(std::vector<int64_t> dedup_keys);
+
+  StorableSource Build() const;
+
+  StoredSource BuildStored() const;
 
  private:
+  CommonSourceInfo BuildCommonInfo() const;
+
   uint64_t source_event_id_ = 123;
   base::Time impression_time_;
   base::TimeDelta expiry_;
   url::Origin impression_origin_;
   url::Origin conversion_origin_;
   url::Origin reporting_origin_;
-  StorableSource::SourceType source_type_ =
-      StorableSource::SourceType::kNavigation;
+  CommonSourceInfo::SourceType source_type_ =
+      CommonSourceInfo::SourceType::kNavigation;
   int64_t priority_ = 0;
-  StorableSource::AttributionLogic attribution_logic_ =
-      StorableSource::AttributionLogic::kTruthfully;
-  absl::optional<StorableSource::Id> impression_id_;
+  CommonSourceInfo::AttributionLogic attribution_logic_ =
+      CommonSourceInfo::AttributionLogic::kTruthfully;
+  absl::optional<uint64_t> fake_trigger_data_;
+  StoredSource::Id source_id_;
   std::vector<int64_t> dedup_keys_;
 };
 
 // Returns a StorableTrigger with default data which matches the default
 // impressions created by SourceBuilder.
-StorableTrigger DefaultTrigger() WARN_UNUSED_RESULT;
+StorableTrigger DefaultTrigger();
 
 // Helper class to construct a StorableTrigger for tests using default data.
 // StorableTrigger members are not mutable after construction requiring a
@@ -272,23 +282,20 @@ class TriggerBuilder {
   TriggerBuilder();
   ~TriggerBuilder();
 
-  TriggerBuilder& SetTriggerData(uint64_t trigger_data) WARN_UNUSED_RESULT;
+  TriggerBuilder& SetTriggerData(uint64_t trigger_data);
 
-  TriggerBuilder& SetEventSourceTriggerData(uint64_t event_source_trigger_data)
-      WARN_UNUSED_RESULT;
+  TriggerBuilder& SetEventSourceTriggerData(uint64_t event_source_trigger_data);
 
   TriggerBuilder& SetConversionDestination(
-      net::SchemefulSite conversion_destination) WARN_UNUSED_RESULT;
+      net::SchemefulSite conversion_destination);
 
-  TriggerBuilder& SetReportingOrigin(url::Origin reporting_origin)
-      WARN_UNUSED_RESULT;
+  TriggerBuilder& SetReportingOrigin(url::Origin reporting_origin);
 
-  TriggerBuilder& SetPriority(int64_t priority) WARN_UNUSED_RESULT;
+  TriggerBuilder& SetPriority(int64_t priority);
 
-  TriggerBuilder& SetDedupKey(absl::optional<int64_t> dedup_key)
-      WARN_UNUSED_RESULT;
+  TriggerBuilder& SetDedupKey(absl::optional<int64_t> dedup_key);
 
-  StorableTrigger Build() const WARN_UNUSED_RESULT;
+  StorableTrigger Build() const;
 
  private:
   uint64_t trigger_data_ = 111;
@@ -299,43 +306,55 @@ class TriggerBuilder {
   absl::optional<int64_t> dedup_key_ = absl::nullopt;
 };
 
-// Helper class to construct an `EventAttributionReport` for tests using default
+// Helper class to construct an `AttributionReport` for tests using default
 // data.
 class ReportBuilder {
  public:
-  explicit ReportBuilder(StorableSource source);
+  explicit ReportBuilder(StoredSource source);
   ~ReportBuilder();
 
-  ReportBuilder& SetTriggerData(uint64_t trigger_data) WARN_UNUSED_RESULT;
+  ReportBuilder& SetTriggerData(uint64_t trigger_data);
 
-  ReportBuilder& SetConversionTime(base::Time time) WARN_UNUSED_RESULT;
+  ReportBuilder& SetTriggerTime(base::Time time);
 
-  ReportBuilder& SetReportTime(base::Time time) WARN_UNUSED_RESULT;
+  ReportBuilder& SetReportTime(base::Time time);
 
-  ReportBuilder& SetPriority(int64_t priority) WARN_UNUSED_RESULT;
+  ReportBuilder& SetPriority(int64_t priority);
 
-  ReportBuilder& SetExternalReportId(base::GUID external_report_id)
-      WARN_UNUSED_RESULT;
+  ReportBuilder& SetExternalReportId(base::GUID external_report_id);
 
-  ReportBuilder& SetReportId(absl::optional<EventAttributionReport::Id> id)
-      WARN_UNUSED_RESULT;
+  ReportBuilder& SetReportId(
+      absl::optional<AttributionReport::EventLevelData::Id> id);
 
-  EventAttributionReport Build() const WARN_UNUSED_RESULT;
+  AttributionReport Build() const;
 
  private:
-  StorableSource source_;
+  StoredSource source_;
   uint64_t trigger_data_ = 0;
-  base::Time conversion_time_;
+  base::Time trigger_time_;
   base::Time report_time_;
   int64_t priority_ = 0;
   base::GUID external_report_id_;
-  absl::optional<EventAttributionReport::Id> report_id_;
+  absl::optional<AttributionReport::EventLevelData::Id> report_id_;
 };
+
+bool operator==(const CommonSourceInfo& a, const CommonSourceInfo& b);
 
 bool operator==(const StorableSource& a, const StorableSource& b);
 
-bool operator==(const EventAttributionReport& a,
-                const EventAttributionReport& b);
+bool operator==(const StoredSource& a, const StoredSource& b);
+
+bool operator==(const HistogramContribution& a, const HistogramContribution& b);
+
+bool operator==(const AggregatableAttribution& a, AggregatableAttribution& b);
+
+bool operator==(const AttributionReport::EventLevelData& a,
+                const AttributionReport::EventLevelData& b);
+
+bool operator==(const AttributionReport::AggregatableContributionData& a,
+                const AttributionReport::AggregatableContributionData& b);
+
+bool operator==(const AttributionReport& a, const AttributionReport& b);
 
 bool operator==(const SendResult& a, const SendResult& b);
 
@@ -352,29 +371,137 @@ std::ostream& operator<<(std::ostream& out,
                          RateLimitTable::AttributionAllowedStatus status);
 
 std::ostream& operator<<(std::ostream& out,
-                         StorableSource::SourceType source_type);
+                         CommonSourceInfo::SourceType source_type);
 
 std::ostream& operator<<(std::ostream& out, const StorableTrigger& conversion);
 
-std::ostream& operator<<(std::ostream& out, const StorableSource& impression);
+std::ostream& operator<<(std::ostream& out, const CommonSourceInfo& source);
+
+std::ostream& operator<<(std::ostream& out, const StorableSource& source);
+
+std::ostream& operator<<(std::ostream& out, const StoredSource& source);
 
 std::ostream& operator<<(std::ostream& out,
-                         const EventAttributionReport& report);
+                         const HistogramContribution& contribution);
+
+std::ostream& operator<<(
+    std::ostream& out,
+    const AggregatableAttribution& aggregatable_attribution);
+
+std::ostream& operator<<(std::ostream& out,
+                         const AttributionReport::EventLevelData& data);
+
+std::ostream& operator<<(
+    std::ostream& out,
+    const AttributionReport::AggregatableContributionData& data);
+
+std::ostream& operator<<(std::ostream& out, const AttributionReport& report);
 
 std::ostream& operator<<(std::ostream& out, SendResult::Status status);
 
 std::ostream& operator<<(std::ostream& out, const SendResult& info);
 
 std::ostream& operator<<(std::ostream& out,
-                         StorableSource::AttributionLogic attribution_logic);
+                         CommonSourceInfo::AttributionLogic attribution_logic);
 
 std::ostream& operator<<(
     std::ostream& out,
     const AttributionStorage::DeactivatedSource& deactivated_source);
 
-std::vector<EventAttributionReport> GetAttributionsToReportForTesting(
+std::vector<AttributionReport> GetAttributionsToReportForTesting(
     AttributionManagerImpl* manager,
-    base::Time max_report_time) WARN_UNUSED_RESULT;
+    base::Time max_report_time);
+
+// Source matchers
+
+MATCHER_P(CommonSourceInfoIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info(), result_listener);
+}
+
+MATCHER_P(SourceEventIdIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().source_event_id(),
+                            result_listener);
+}
+
+MATCHER_P(ImpressionOriginIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().impression_origin(),
+                            result_listener);
+}
+
+MATCHER_P(ConversionOriginIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().conversion_origin(),
+                            result_listener);
+}
+
+MATCHER_P(SourceTypeIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().source_type(),
+                            result_listener);
+}
+
+MATCHER_P(SourcePriorityIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().priority(),
+                            result_listener);
+}
+
+MATCHER_P(ImpressionTimeIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.common_info().impression_time(),
+                            result_listener);
+}
+
+MATCHER_P(DedupKeysAre, matcher, "") {
+  return ExplainMatchResult(matcher, arg.dedup_keys(), result_listener);
+}
+
+// Trigger matchers.
+
+MATCHER_P(TriggerConversionDestinationIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.conversion_destination(),
+                            result_listener);
+}
+
+// Report matchers
+
+MATCHER_P(ReportSourceIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.source(), result_listener);
+}
+
+MATCHER_P(ReportTimeIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.report_time(), result_listener);
+}
+
+MATCHER_P(FailedSendAttemptsIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.failed_send_attempts(),
+                            result_listener);
+}
+
+MATCHER_P(EventLevelDataIs, matcher, "") {
+  return ExplainMatchResult(
+      ::testing::VariantWith<AttributionReport::EventLevelData>(matcher),
+      arg.data(), result_listener);
+}
+
+MATCHER_P(TriggerDataIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.trigger_data, result_listener);
+}
+
+MATCHER_P(TriggerPriorityIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.priority, result_listener);
+}
+
+// `CreateReportResult` matchers
+
+MATCHER_P(CreateReportStatusIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.status(), result_listener);
+}
+
+MATCHER_P(DroppedReportIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.dropped_report(), result_listener);
+}
+
+MATCHER_P(DeactivatedSourceIs, matcher, "") {
+  return ExplainMatchResult(matcher, arg.GetDeactivatedSource(),
+                            result_listener);
+}
 
 }  // namespace content
 

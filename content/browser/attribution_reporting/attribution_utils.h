@@ -5,20 +5,19 @@
 #ifndef CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_UTILS_H_
 #define CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_UTILS_H_
 
-#include "base/compiler_specific.h"
-
 namespace base {
 class Time;
 }  // namespace base
 
 namespace content {
 
-class StorableSource;
+class CommonSourceInfo;
 
 // Calculates the report time for a conversion associated with a given
-// impression.
-base::Time ComputeReportTime(const StorableSource& impression,
-                             base::Time conversion_time) WARN_UNUSED_RESULT;
+// source.
+base::Time ComputeReportTime(const CommonSourceInfo& source,
+                             base::Time trigger_time);
+
 }  // namespace content
 
 #endif  // CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_UTILS_H_

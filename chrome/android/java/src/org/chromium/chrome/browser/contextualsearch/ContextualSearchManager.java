@@ -574,7 +574,6 @@ public class ContextualSearchManager
             mDidStartLoadingResolvedSearchRequest = false;
             mSearchPanel.setSearchTerm(selection);
             mIsRelatedSearchesSerp = false;
-            ensureCaption();
             if (shouldPrefetch) loadSearchUrl();
         } else {
             // The selection is no longer valid, so we can't build a request.  Don't show the UX.
@@ -871,7 +870,6 @@ public class ContextualSearchManager
             boolean doesAnswer = false;
             setCaption(resolvedSearchTerm.caption(), doesAnswer);
         }
-        ensureCaption();
 
         boolean quickActionShown =
                 mSearchPanel.getSearchBarControl().getQuickActionControl().hasQuickAction();
@@ -1255,8 +1253,7 @@ public class ContextualSearchManager
                 ExternalNavigationHandler externalNavHandler, NavigationParams navigationParams) {
             assert mSearchPanel != null;
             mRedirectHandler.updateNewUrlLoading(navigationParams.pageTransitionType,
-                    navigationParams.isRedirect,
-                    navigationParams.hasUserGesture || navigationParams.hasUserGestureCarryover,
+                    navigationParams.isRedirect, navigationParams.hasUserGesture,
                     mLastUserInteractionTimeSupplier.get(), RedirectHandler.INVALID_ENTRY_INDEX,
                     true /* isInitialNavigation */);
             ExternalNavigationParams params =
@@ -1764,13 +1761,13 @@ public class ContextualSearchManager
         if (isSearchPanelShowing()) {
             if (selectionValid) {
                 mSearchPanel.setSearchTerm(selection);
+                mSearchPanel.hideCaption();
                 // If we have a literal search request we should update that too.
                 if (mSearchRequest != null) {
                     mSearchRequest = new ContextualSearchRequest(
                             selection, mPolicy.shouldPrefetchSearchResult());
                 }
                 mIsRelatedSearchesSerp = false;
-                ensureCaption();
             } else {
                 hideContextualSearch(StateChangeReason.INVALID_SELECTION);
             }
@@ -1801,7 +1798,6 @@ public class ContextualSearchManager
         if (isSearchPanelShowing()) {
             mSearchPanel.setSearchTerm(selection);
             mIsRelatedSearchesSerp = false;
-            ensureCaption();
         }
     }
 
@@ -1936,6 +1932,7 @@ public class ContextualSearchManager
                 new Handler().postDelayed(new Runnable() {
                     @Override
                     public void run() {
+                        mSearchPanel.hideCaption();
                         mInternalStateController.notifyFinishedWorkOn(
                                 InternalState.WAITING_FOR_POSSIBLE_TAP_NEAR_PREVIOUS);
                     }
@@ -2012,6 +2009,25 @@ public class ContextualSearchManager
                                 : StateChangeReason.TEXT_SELECT_TAP);
                 mInternalStateController.notifyFinishedWorkOn(InternalState.SHOWING_LITERAL_SEARCH);
             }
+
+            @Override
+            public void showingTapSearch() {
+                mInternalStateController.notifyStartedAndFinished(InternalState.SHOWING_TAP_SEARCH);
+            }
+
+            @Override
+            public void showingIntelligentLongpress() {
+                mInternalStateController.notifyStartedAndFinished(
+                        InternalState.SHOWING_RESOLVED_LONG_PRESS_SEARCH);
+            }
+
+            @Override
+            public void completeSearch() {
+                if (ChromeFeatureList.isEnabled(
+                            ChromeFeatureList.CONTEXTUAL_SEARCH_FORCE_CAPTION)) {
+                    mSearchPanel.ensureCaption();
+                }
+            }
         };
     }
 
@@ -2077,13 +2093,6 @@ public class ContextualSearchManager
     // ============================================================================================
     // Misc helpers
     // ============================================================================================
-
-    /** Ensures that a caption has been set. We use a default guidance message by default. */
-    private void ensureCaption() {
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.CONTEXTUAL_SEARCH_FORCE_CAPTION)) {
-            mSearchPanel.ensureCaption();
-        }
-    }
 
     /**
      * Build the searches suggestions for the Bar or Panel.

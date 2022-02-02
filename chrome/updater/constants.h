@@ -78,13 +78,13 @@ extern const char kInstallSwitch[];
 // currently encoded as a ASCII string.
 extern const char kTagSwitch[];
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 // A debug switch to indicate that --install is running from the `out` directory
 // of the build. When this switch is present, the setup picks up the run time
 // dependencies of the updater from the `out` directory instead of using the
 // metainstaller uncompressed archive.
 extern const char kInstallFromOutDir[];
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
 // Uninstalls the updater.
 extern const char kUninstallSwitch[];
@@ -127,6 +127,19 @@ extern const char kAppIdSwitch[];
 // Specifies the version of the application that the updater needs to register.
 extern const char kAppVersionSwitch[];
 
+// Specifies that the Updater should perform some minimal checks to verify that
+// it is operational/healthy. This is for backward compatibility with Omaha 3.
+// Omaha 3 runs "GoogleUpdate.exe /healthcheck" and expects an exit code of
+// HRESULT SUCCESS, i.e., S_OK, in which case it will hand off the installation
+// to Omaha 4.
+extern const char kHealthCheckSwitch[];
+
+// Specifies the handoff request argument. On Windows, the request may
+// be from legacy updaters which pass the argument in the format of
+// `/handoff <install-args-details>`. Manual argument parsing is needed for that
+// scenario.
+extern const char kHandoffSwitch[];
+
 // File system paths.
 //
 // The directory name where CRX apps get installed. This is provided for demo
@@ -142,12 +155,13 @@ extern const char kDevOverrideKeyUrl[];
 extern const char kDevOverrideKeyUseCUP[];
 extern const char kDevOverrideKeyInitialDelay[];
 extern const char kDevOverrideKeyServerKeepAliveSeconds[];
+extern const char kDevOverrideKeyCrxVerifierFormat[];
 
 // File name of developer overrides file.
 extern const char kDevOverrideFileName[];
 
 // Timing constants.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 // How long to wait for an application installer (such as
 // chrome_installer.exe) to complete.
 constexpr int kWaitForAppInstallerSec = 60;
@@ -155,15 +169,15 @@ constexpr int kWaitForAppInstallerSec = 60;
 // How often the installer progress from registry is sampled. This value may
 // be changed to provide a smoother progress experience (crbug.com/1067475).
 constexpr int kWaitForInstallerProgressSec = 1;
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
 // How long to wait for launchd changes to be reported by launchctl.
 constexpr int kWaitForLaunchctlUpdateSec = 5;
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 // The user defaults suite name.
 extern const char kUserDefaultsSuiteName[];
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
 // Install Errors.
 //
@@ -198,6 +212,9 @@ constexpr int kErrorFailedToLockPrefsMutex = 1;
 
 // The server candidate failed to promote itself to active.
 constexpr int kErrorFailedToSwap = 2;
+
+// Client Errors.
+constexpr int kErrorRegistrationFailed = 1;
 
 // Policy Management constants.
 // The maximum value allowed for policy AutoUpdateCheckPeriodMinutes.

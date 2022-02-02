@@ -81,7 +81,9 @@ IN_PROC_BROWSER_TEST_F(UiHierarchyDataCollectorBrowserTest,
   base::test::TestFuture<absl::optional<SupportToolError>>
       test_future_collect_data;
   data_collector.CollectDataAndDetectPII(
-      test_future_collect_data.GetCallback());
+      test_future_collect_data.GetCallback(),
+      /*task_runner_for_redaction_tool=*/nullptr,
+      /*redaction_tool_container=*/nullptr);
   absl::optional<SupportToolError> error = test_future_collect_data.Get();
   EXPECT_EQ(error, absl::nullopt);
 
@@ -103,6 +105,8 @@ IN_PROC_BROWSER_TEST_F(UiHierarchyDataCollectorBrowserTest,
       test_future_export_data;
   data_collector.ExportCollectedDataWithPII(
       /*pii_types_to_keep=*/{}, output_path,
+      /*task_runner_for_redaction_tool=*/nullptr,
+      /*redaction_tool_container=*/nullptr,
       test_future_export_data.GetCallback());
   error = test_future_export_data.Get();
   EXPECT_EQ(error, absl::nullopt);

@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from __future__ import print_function
-
 import logging
 import os
 import sys
@@ -12,11 +10,12 @@ import time
 from devil.android.sdk import version_codes
 from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_integration_test
-from gpu_tests import path_util
+
+import gpu_path_util
 
 _GPU_PAGE_TIMEOUT = 30
 
-data_path = os.path.join(path_util.GetChromiumSrcDir(), 'content', 'test',
+data_path = os.path.join(gpu_path_util.CHROMIUM_SRC_DIR, 'content', 'test',
                          'data')
 
 test_harness_script = r"""
@@ -173,10 +172,10 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     failure = False
     if is_expected and not is_present:
       failure = True
-      error_message = "is missing"
+      error_message = 'is missing'
     elif not is_expected and is_present:
       failure = True
-      error_message = "is not expected"
+      error_message = 'is not expected'
 
     if failure:
       print('Test failed. Printing page contents:')
@@ -390,8 +389,10 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       logging.info('Skipping test because not running on Android')
       return
 
+    # pylint: disable=protected-access
     sdk_version = \
         self.browser.platform._platform_backend.device.build_version_sdk
+    # pylint: enable=protected-access
     if sdk_version < version_codes.PIE:
       logging.info('Skipping test because not running on Android P+')
       return
@@ -491,11 +492,11 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       if not gpu.aux_attributes:
         self.fail('Browser must support GPU aux attributes')
       if not gpu.aux_attributes['software_rendering']:
-        self.fail("Software rendering was disabled")
+        self.fail('Software rendering was disabled')
       if 'SwiftShader' not in gpu.aux_attributes['gl_renderer']:
-        self.fail("Expected 'SwiftShader' in GPU info GL renderer string")
+        self.fail('Expected "SwiftShader" in GPU info GL renderer string')
       if 'Google' not in gpu.aux_attributes['gl_vendor']:
-        self.fail("Expected 'Google' in GPU info GL vendor string")
+        self.fail('Expected "Google" in GPU info GL vendor string')
       device = gpu.devices[0]
       if not device:
         self.fail("System Info doesn't have a device")
@@ -523,7 +524,7 @@ class GpuProcessIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       tab = self.tab
       for ext in ext_list:
         if tab.EvaluateJavaScript('!gl_context.getExtension("' + ext + '")'):
-          self.fail("Expected " + ext + " support")
+          self.fail('Expected %s support' % ext)
 
   def _GpuProcess_webgl_disabled_extension(self, test_path):
     # Hit exception from id 257 from kGpuDriverBugListEntries.

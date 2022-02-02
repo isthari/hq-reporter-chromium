@@ -89,7 +89,7 @@
 #endif
 
 using printing::ConvertUnit;
-using printing::ConvertUnitDouble;
+using printing::ConvertUnitFloat;
 using printing::kPixelsPerInch;
 using printing::kPointsPerInch;
 
@@ -1777,7 +1777,7 @@ void PDFiumEngine::StartFind(const std::string& text, bool case_sensitive) {
     // Don't use PDFium to search for now, since it doesn't support unicode
     // text. Leave the code for now to avoid bit-rot, in case it's fixed later.
     // The extra parens suppress a -Wunreachable-code warning.
-    if ((0)) {
+    if ((false)) {
       SearchUsingPDFium(str, case_sensitive, first_search,
                         character_to_start_searching_from, current_page);
     } else {
@@ -2680,10 +2680,10 @@ void PDFiumEngine::AppendBlankPages(size_t num_pages) {
 
   // Create blank pages with the same size as the first page.
   gfx::Size page_0_size = GetPageSize(0);
-  double page_0_width_in_points =
-      ConvertUnitDouble(page_0_size.width(), kPixelsPerInch, kPointsPerInch);
-  double page_0_height_in_points =
-      ConvertUnitDouble(page_0_size.height(), kPixelsPerInch, kPointsPerInch);
+  float page_0_width_in_points =
+      ConvertUnitFloat(page_0_size.width(), kPixelsPerInch, kPointsPerInch);
+  float page_0_height_in_points =
+      ConvertUnitFloat(page_0_size.height(), kPixelsPerInch, kPointsPerInch);
 
   for (size_t i = 1; i < num_pages; ++i) {
     {
@@ -3062,9 +3062,9 @@ gfx::Size PDFiumEngine::GetPageSizeForLayout(
     return gfx::Size();
 
   int width_in_pixels = static_cast<int>(
-      ConvertUnitDouble(size_in_points.width, kPointsPerInch, kPixelsPerInch));
+      ConvertUnitFloat(size_in_points.width, kPointsPerInch, kPixelsPerInch));
   int height_in_pixels = static_cast<int>(
-      ConvertUnitDouble(size_in_points.height, kPointsPerInch, kPixelsPerInch));
+      ConvertUnitFloat(size_in_points.height, kPointsPerInch, kPixelsPerInch));
 
   switch (layout_options.default_page_orientation()) {
     case PageOrientation::kOriginal:

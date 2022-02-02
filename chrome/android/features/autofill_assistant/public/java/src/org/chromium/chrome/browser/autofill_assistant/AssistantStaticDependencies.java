@@ -4,8 +4,10 @@
 
 package org.chromium.chrome.browser.autofill_assistant;
 
+import android.app.Activity;
 import android.content.Context;
 
+import androidx.annotation.DimenRes;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.annotations.CalledByNative;
@@ -22,6 +24,11 @@ public interface AssistantStaticDependencies {
     @CalledByNative
     long getNativePointer();
 
+    /**
+     * Create the Activity specific dependencies.
+     * */
+    AssistantDependencies createDependencies(Activity activity);
+
     AccessibilityUtil getAccessibilityUtil();
 
     /**
@@ -32,18 +39,19 @@ public interface AssistantStaticDependencies {
     AssistantTabObscuringUtil getTabObscuringUtilOrNull(WindowAndroid windowAndroid);
 
     @CalledByNative
-    AssistantInfoPageUtil getInfoPageUtil();
+    AssistantInfoPageUtil createInfoPageUtil();
 
-    AssistantFeedbackUtil getFeedbackUtil();
+    AssistantFeedbackUtil createFeedbackUtil();
 
-    AssistantTabUtil getTabUtil();
+    AssistantTabUtil createTabUtil();
 
     @CalledByNative
-    AssistantAccessTokenUtil getAccessTokenUtil();
+    AssistantAccessTokenUtil createAccessTokenUtil();
 
     @Nullable
     String getSignedInAccountEmailOrNull();
 
     @Nullable
-    AssistantProfileImageUtil getProfileImageUtilOrNull(Context context);
+    AssistantProfileImageUtil createProfileImageUtilOrNull(
+            Context context, @DimenRes int imageSizeRedId);
 }

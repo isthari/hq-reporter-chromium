@@ -224,6 +224,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
       aura::Window* gained_active,
       aura::Window* lost_active);
 
+  // Returns true when either the `DesksTemplatesGridWidget` or
+  // `DesksTemplatesDialog` is the window that is losing activation.
+  bool IsTemplatesUiLosingActivation(aura::Window* lost_active);
+
   // Gets the window which keeps focus for the duration of overview mode.
   aura::Window* GetOverviewFocusWindow();
 
@@ -283,6 +287,11 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   void ShowDesksTemplatesGrids(bool was_zero_state);
   void HideDesksTemplatesGrids();
   bool IsShowingDesksTemplatesGrid() const;
+
+  // Updates the focusable overview widgets so that they point to the correct
+  // next and previous widgets for a11y purposes. Needs to be updated when a
+  // piece of UI is shown or hidden.
+  void UpdateAccessibilityFocus();
 
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override;
@@ -384,11 +393,6 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   void RefreshNoWindowsWidgetBoundsOnEachGrid(bool animate);
 
   void OnItemAdded(aura::Window* window);
-
-  // Updates the focusable overview widgets so that they point to the correct
-  // next and previous widgets for a11y purposes. Needs to be updated when an
-  // overview item is added or removed.
-  void UpdateAccessibilityFocus();
 
   // Called when a window is activated or deactivated and the desks templates
   // feature is enabled. Returns true if we should keep overview open. Overview

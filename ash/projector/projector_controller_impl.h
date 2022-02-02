@@ -52,6 +52,7 @@ class ASH_EXPORT ProjectorControllerImpl
       SpeechRecognitionAvailability availability) override;
   void OnTranscription(const media::SpeechRecognitionResult& result) override;
   void OnTranscriptionError() override;
+  void OnSpeechRecognitionStopped() override;
   bool IsEligible() const override;
   NewScreencastPrecondition GetNewScreencastPrecondition() const override;
   void OnToolSet(const AnnotatorTool& tool) override;
@@ -118,7 +119,7 @@ class ASH_EXPORT ProjectorControllerImpl
 
   // Starts or stops the speech recognition session.
   void StartSpeechRecognition();
-  void StopSpeechRecognition();
+  void MaybeStopSpeechRecognition();
 
   // Triggered when finish creating the screencast container folder. This method
   // caches the the container folder path in `ProjectorSession` and triggers the

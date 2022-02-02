@@ -91,27 +91,6 @@ static_library("renderer") {
     "plugins/pdf_plugin_placeholder.h",
     "plugins/plugin_uma.cc",
     "plugins/plugin_uma.h",
-    "subresource_redirect/login_robots_compression_metrics.cc",
-    "subresource_redirect/login_robots_compression_metrics.h",
-    "subresource_redirect/login_robots_decider_agent.cc",
-    "subresource_redirect/login_robots_decider_agent.h",
-    "subresource_redirect/public_image_hints_decider_agent.cc",
-    "subresource_redirect/public_image_hints_decider_agent.h",
-    "subresource_redirect/public_resource_decider.h",
-    "subresource_redirect/public_resource_decider_agent.cc",
-    "subresource_redirect/public_resource_decider_agent.h",
-    "subresource_redirect/robots_rules_parser.cc",
-    "subresource_redirect/robots_rules_parser.h",
-    "subresource_redirect/robots_rules_parser_cache.cc",
-    "subresource_redirect/robots_rules_parser_cache.h",
-    "subresource_redirect/src_video_redirect_url_loader_throttle.cc",
-    "subresource_redirect/src_video_redirect_url_loader_throttle.h",
-    "subresource_redirect/subresource_redirect_params.cc",
-    "subresource_redirect/subresource_redirect_params.h",
-    "subresource_redirect/subresource_redirect_url_loader_throttle.cc",
-    "subresource_redirect/subresource_redirect_url_loader_throttle.h",
-    "subresource_redirect/subresource_redirect_util.cc",
-    "subresource_redirect/subresource_redirect_util.h",
     "sync_encryption_keys_extension.cc",
     "sync_encryption_keys_extension.h",
     "url_loader_throttle_provider_impl.cc",
@@ -146,7 +125,6 @@ static_library("renderer") {
     "//chrome/common",
     "//chrome/common:mojo_bindings",
     "//chrome/common/net",
-    "//chrome/common/performance_manager/mojom",
     "//chrome/common/search:mojo_bindings",
     "//components/autofill/content/renderer",
     "//components/autofill_assistant/content/renderer",
@@ -187,8 +165,6 @@ static_library("renderer") {
     "//components/spellcheck:buildflags",
     "//components/subresource_filter/content/renderer",
     "//components/subresource_filter/core/common",
-    "//components/subresource_redirect/common",
-    "//components/subresource_redirect/proto",
     "//components/sync/driver",
     "//components/translate/content/renderer",
     "//components/translate/core/common",
@@ -246,8 +222,6 @@ static_library("renderer") {
       "pepper/chrome_renderer_pepper_host_factory.h",
       "pepper/pepper_flash_font_file_host.cc",
       "pepper/pepper_flash_font_file_host.h",
-      "pepper/pepper_flash_fullscreen_host.cc",
-      "pepper/pepper_flash_fullscreen_host.h",
       "pepper/pepper_helper.cc",
       "pepper/pepper_helper.h",
       "pepper/pepper_shared_memory_message_filter.cc",
@@ -447,13 +421,6 @@ static_library("renderer") {
   }
 
   if (is_chromeos_ash) {
-    sources += [
-      "performance_manager/mechanisms/tcmalloc_tunables_impl.cc",
-      "performance_manager/mechanisms/tcmalloc_tunables_impl.h",
-    ]
-
-    deps += [ "//chrome/common/performance_manager/mojom" ]
-
     if (target_cpu == "x64") {
       sources += [
         "performance_manager/mechanisms/userspace_swap_impl_chromeos.cc",
@@ -466,22 +433,4 @@ static_library("renderer") {
       ]
     }
   }
-}
-
-fuzzer_test("robots_rules_parser_fuzzer") {
-  sources = [
-    "subresource_redirect/robots_rules_parser.cc",
-    "subresource_redirect/robots_rules_parser.h",
-    "subresource_redirect/robots_rules_parser_fuzzer.cc",
-    "subresource_redirect/subresource_redirect_params.cc",
-    "subresource_redirect/subresource_redirect_params.h",
-  ]
-  deps = [
-    "//base",
-    "//base/test:test_support",
-    "//chrome/common:constants",
-    "//components/subresource_redirect/proto",
-    "//third_party/blink/public/common",
-    "//third_party/icu/fuzzers:fuzzer_support",
-  ]
 }

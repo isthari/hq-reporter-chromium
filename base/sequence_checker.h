@@ -8,7 +8,6 @@
 #include "base/base_export.h"
 #include "base/dcheck_is_on.h"
 #include "base/sequence_checker_impl.h"
-#include "base/strings/string_piece.h"
 
 // SequenceChecker is a helper class used to help verify that some methods of a
 // class are called sequentially (for thread-safety). It supports thread safety
@@ -111,7 +110,7 @@ class THREAD_ANNOTATION_ATTRIBUTE__(capability("context"))
   SequenceCheckerDoNothing(const SequenceCheckerDoNothing&) = delete;
   SequenceCheckerDoNothing& operator=(const SequenceCheckerDoNothing&) = delete;
 
-  bool CalledOnValidSequence(void* = nullptr) const WARN_UNUSED_RESULT {
+  [[nodiscard]] bool CalledOnValidSequence(void* = nullptr) const {
     return true;
   }
   void DetachFromSequence() {}

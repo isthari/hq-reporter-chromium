@@ -14,6 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_feature.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ui_features.h"
@@ -38,7 +39,7 @@ Profile* GetProfile() {
   if (!user)
     return nullptr;
 
-  return chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+  return ash::ProfileHelper::Get()->GetProfileByUser(user);
 }
 
 // Returns the MediaRouter instance for the current primary profile, if there is

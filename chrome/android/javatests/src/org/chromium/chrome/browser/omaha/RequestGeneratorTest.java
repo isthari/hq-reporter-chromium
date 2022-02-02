@@ -21,9 +21,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.FeatureList;
 import org.chromium.base.test.util.AdvancedMockContext;
 import org.chromium.base.test.util.Feature;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.uid.SettingsSecureBasedIdentificationGenerator;
@@ -48,14 +48,13 @@ public class RequestGeneratorTest {
 
     @Before
     public void setUp() {
-        FeatureList.TestValues overrides = new FeatureList.TestValues();
-        overrides.addFeatureFlagOverride(ChromeFeatureList.ANONYMOUS_UPDATE_CHECKS, true);
-        FeatureList.setTestValues(overrides);
+        CachedFeatureFlags.resetFlagsForTesting();
+        CachedFeatureFlags.setForTesting(ChromeFeatureList.ANONYMOUS_UPDATE_CHECKS, true);
     }
 
     @After
     public void tearDown() {
-        FeatureList.setTestValues(null);
+        CachedFeatureFlags.resetFlagsForTesting();
     }
 
     @Test
@@ -141,9 +140,7 @@ public class RequestGeneratorTest {
     @SmallTest
     @Feature({"Omaha"})
     public void testXMLCreationWithUID() {
-        FeatureList.TestValues overrides = new FeatureList.TestValues();
-        overrides.addFeatureFlagOverride(ChromeFeatureList.ANONYMOUS_UPDATE_CHECKS, false);
-        FeatureList.setTestValues(overrides);
+        CachedFeatureFlags.setForTesting(ChromeFeatureList.ANONYMOUS_UPDATE_CHECKS, false);
         IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
         when(IdentityServicesProvider.get().getIdentityManager(any()))
                 .thenReturn(mock(IdentityManager.class));

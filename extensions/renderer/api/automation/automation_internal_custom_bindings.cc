@@ -901,9 +901,9 @@ void AutomationInternalCustomBindings::AddRoutes() {
         if (GetRootOfChildTree(&node, &tree_wrapper)) {
           child_ids.push_back(node->id());
         } else {
-          size_t child_count = node->GetUnignoredChildCount();
-          for (size_t i = 0; i < child_count; ++i)
-            child_ids.push_back(node->GetUnignoredChildAtIndex(i)->id());
+          for (auto iter = node->UnignoredChildrenBegin();
+               iter != node->UnignoredChildrenEnd(); ++iter)
+            child_ids.push_back(iter->id());
         }
 
         gin::DataObjectBuilder response(isolate);
@@ -1837,12 +1837,6 @@ void AutomationInternalCustomBindings::DestroyAccessibilityTree(
   if (tree_id == accessibility_focused_tree_id_)
     accessibility_focused_tree_id_ = ui::AXTreeIDUnknown();
 
-  auto iter = tree_id_to_tree_wrapper_map_.find(tree_id);
-  if (iter == tree_id_to_tree_wrapper_map_.end())
-    return;
-
-  AutomationAXTreeWrapper* tree_wrapper = iter->second.get();
-  axtree_to_tree_wrapper_map_.erase(tree_wrapper->tree());
   tree_id_to_tree_wrapper_map_.erase(tree_id);
 }
 
@@ -2257,9 +2251,11 @@ bool AutomationInternalCustomBindings::GetRootOfChildTree(
 ui::AXNode* AutomationInternalCustomBindings::GetNextInTreeOrder(
     ui::AXNode* start,
     AutomationAXTreeWrapper** in_out_tree_wrapper) const {
+  auto iter = start->UnignoredChildrenBegin();
+  if (iter != start->UnignoredChildrenEnd())
+    return &(*iter);
+
   ui::AXNode* walker = start;
-  if (walker->GetUnignoredChildCount())
-    return walker->GetUnignoredChildAtIndex(0);
 
   // We also have to check child tree id.
   if (GetRootOfChildTree(&walker, in_out_tree_wrapper))
@@ -2268,6 +2264,7 @@ ui::AXNode* AutomationInternalCustomBindings::GetNextInTreeOrder(
   // Find the next branch forward.
   ui::AXNode* parent;
   while ((parent = GetParent(walker, in_out_tree_wrapper))) {
+    // TODO(accessibility): convert below to use UnignoredChildIterator.
     if ((walker->GetUnignoredIndexInParent() + 1) <
         parent->GetUnignoredChildCount()) {
       return parent->GetUnignoredChildAtIndex(
@@ -2299,9 +2296,10 @@ ui::AXNode* AutomationInternalCustomBindings::GetPreviousInTreeOrder(
 
   // Walks to deepest last child.
   while (true) {
-    if (walker->GetUnignoredChildCount()) {
-      walker = walker->GetUnignoredChildAtIndex(
-          walker->GetUnignoredChildCount() - 1);
+    auto iter = walker->UnignoredChildrenBegin();
+    if (iter != walker->UnignoredChildrenEnd() &&
+        --iter != walker->UnignoredChildrenEnd()) {
+      walker = &(*iter);
     } else if (!GetRootOfChildTree(&walker, in_out_tree_wrapper)) {
       break;
     }
@@ -2421,8 +2419,6 @@ void AutomationInternalCustomBindings::OnAccessibilityEvents(
     tree_wrapper = new AutomationAXTreeWrapper(tree_id, this);
     tree_id_to_tree_wrapper_map_.insert(
         std::make_pair(tree_id, base::WrapUnique(tree_wrapper)));
-    axtree_to_tree_wrapper_map_.insert(
-        std::make_pair(tree_wrapper->tree(), tree_wrapper));
   } else {
     tree_wrapper = iter->second.get();
   }
@@ -2519,11 +2515,7 @@ bool AutomationInternalCustomBindings::SendTreeChangeEvent(
   if (!has_filter)
     return false;
 
-  auto iter = axtree_to_tree_wrapper_map_.find(tree);
-  if (iter == axtree_to_tree_wrapper_map_.end())
-    return false;
-
-  ui::AXTreeID tree_id = iter->second->GetTreeID();
+  ui::AXTreeID tree_id = tree->GetAXTreeID();
   bool did_send_event = false;
   for (const auto& observer : tree_change_observers_) {
     switch (observer.filter) {
@@ -2771,12 +2763,7 @@ void AutomationInternalCustomBindings::SendChildTreeIDEvent(
 void AutomationInternalCustomBindings::SendNodesRemovedEvent(
     ui::AXTree* tree,
     const std::vector<int>& ids) {
-  auto iter = axtree_to_tree_wrapper_map_.find(tree);
-  if (iter == axtree_to_tree_wrapper_map_.end())
-    return;
-
-  ui::AXTreeID tree_id = iter->second->GetTreeID();
-
+  ui::AXTreeID tree_id = tree->GetAXTreeID();
   base::Value args(base::Value::Type::LIST);
   args.Append(tree_id.ToString());
   {

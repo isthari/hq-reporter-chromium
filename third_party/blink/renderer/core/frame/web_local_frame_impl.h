@@ -151,8 +151,7 @@ class CORE_EXPORT WebLocalFrameImpl final
       int32_t world_id,
       const WebScriptSource&,
       BackForwardCacheAware back_forward_cache_aware) override;
-  WARN_UNUSED_RESULT v8::Local<v8::Value>
-  ExecuteScriptInIsolatedWorldAndReturnValue(
+  [[nodiscard]] v8::Local<v8::Value> ExecuteScriptInIsolatedWorldAndReturnValue(
       int32_t world_id,
       const WebScriptSource&,
       BackForwardCacheAware back_forward_cache_aware) override;
@@ -297,6 +296,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   WebPlugin* GetPluginToPrint(const WebNode& constrain_to_node) override;
   uint32_t PrintBegin(const WebPrintParams&,
                       const WebNode& constrain_to_node) override;
+  bool WillPrintSoon() override;
   float GetPrintPageShrink(uint32_t page) override;
   float PrintPage(uint32_t page_to_print, cc::PaintCanvas*) override;
   void PrintEnd() override;
@@ -329,7 +329,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   bool HasTransientUserActivation() override;
   bool ConsumeTransientUserActivation(UserActivationUpdateSource) override;
   bool LastActivationWasRestricted() const override;
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   WebFontFamilyNames GetWebFontFamilyNames() const override;
 #endif
   void SetTargetToCurrentHistoryItem(const WebString& target) override;
@@ -469,6 +469,7 @@ class CORE_EXPORT WebLocalFrameImpl final
 
   void DidFailLoad(const ResourceError&, WebHistoryCommitType);
   void DidFinish();
+  void DidFinishLoadForPrinting();
 
   void SetClient(WebLocalFrameClient* client) { client_ = client; }
 

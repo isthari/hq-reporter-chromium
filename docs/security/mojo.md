@@ -249,7 +249,7 @@ class View : public mojom::View {
  public:
   // ...
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void UpdateBrowserControlsState(bool enable_hiding, bool enable_showing,
                                   bool animate);
 #endif
@@ -271,7 +271,7 @@ class View : public mojom::View {
  public:
   // ...
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   void UpdateBrowserControlsState(bool enable_hiding, bool enable_showing,
                                   bool animate) override;
 #else
@@ -847,6 +847,15 @@ Message pipes are fairly inexpensive, but they are not free either: it takes 6
 control messages to establish a message pipe. Keep this in mind: if the
 interface is used relatively frequently, connecting once and reusing the
 interface pointer is probably a good idea.
+
+## Copy data out of BigBuffer before parsing
+
+[BigBuffer](mojo/public/mojom/base/big_buffer.mojom) uses shared memory to make
+passing large messages fast. When shmem is backing the message, it may be
+writable in the sending process while being read in the receiving process. If a
+BigBuffer is received from an untrustworthy process, you should make a copy of
+the data before processing it to avoid time-of-check time-of-use (TOCTOU) bugs.
+The |size()| of the data cannot be manipulated.
 
 
 ## Ensure An Explicit Grant For WebUI Bindings

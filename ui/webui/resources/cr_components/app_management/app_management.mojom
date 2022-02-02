@@ -47,6 +47,8 @@ interface PageHandlerFactory {
 // Browser interface.
 interface PageHandler {
   GetApps() => (array<App> apps);
+  // Returns null if the app is not found.
+  GetApp(string app_id) => (App? app);
   GetExtensionAppPermissionMessages(string app_id) =>
       (array<ExtensionAppPermissionMessage> messages);
   SetPinned(string app_id, apps.mojom.OptionalBool pinned);
@@ -59,6 +61,9 @@ interface PageHandler {
   // Returns a list of |app_ids| that are currently set as preferred apps
   // and have overlapping intent filters with |app_id|.
   GetOverlappingPreferredApps(string app_id) => (array<string> app_ids);
+  // Used to set the Window Mode from the frontend inside
+  // app_management_page_handler.
+  SetWindowMode(string app_id, apps.mojom.WindowMode window_mode);
 };
 
 // Frontend interface.

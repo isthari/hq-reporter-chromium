@@ -11,6 +11,10 @@ namespace arc {
 const base::Feature kBootCompletedBroadcastFeature{
     "ArcBootCompletedBroadcast", base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Controls experimental Compat snap feature for ARC.
+const base::Feature kCompatSnapFeature{"ArcCompatSnapFeature",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Controls experimental Custom Tabs feature for ARC.
 const base::Feature kCustomTabsExperimentFeature{
     "ArcCustomTabsExperiment", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -63,6 +67,11 @@ const base::Feature kEnableUsap{"ArcEnableUsap",
 const base::Feature kFilePickerExperimentFeature{
     "ArcFilePickerExperiment", base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Controls experimental key GMS Core and related services protection against to
+// be killed by low memory killer.
+const base::Feature kGmsCoreLowMemoryKillerProtection{
+    "ArcGmsCoreLowMemoryKillerProtection", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Controls whether the guest zram is enabled. This is only for ARCVM.
 const base::Feature kGuestZram{"ArcGuestZram",
                                base::FEATURE_DISABLED_BY_DEFAULT};
@@ -103,7 +112,7 @@ const base::Feature kNativeBridgeToggleFeature{
 // When enabled, utility processes are spawned to perform hardware decode
 // acceleration on behalf of ARC++/ARCVM instead of using the GPU process.
 const base::Feature kOutOfProcessVideoDecoding{
-    "OutOfProcessVideoDecoding", base::FEATURE_DISABLED_BY_DEFAULT};
+    "OutOfProcessVideoDecoding", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Controls ARC picture-in-picture feature. If this is enabled, then Android
 // will control which apps can enter PIP. If this is disabled, then ARC PIP

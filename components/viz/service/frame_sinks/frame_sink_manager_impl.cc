@@ -31,9 +31,11 @@ namespace viz {
 FrameSinkManagerImpl::InitParams::InitParams() = default;
 FrameSinkManagerImpl::InitParams::InitParams(
     SharedBitmapManager* shared_bitmap_manager,
-    OutputSurfaceProvider* output_surface_provider)
+    OutputSurfaceProvider* output_surface_provider,
+    GmbVideoFramePoolContextProvider* gmb_context_provider)
     : shared_bitmap_manager(shared_bitmap_manager),
-      output_surface_provider(output_surface_provider) {}
+      output_surface_provider(output_surface_provider),
+      gmb_context_provider(gmb_context_provider) {}
 FrameSinkManagerImpl::InitParams::InitParams(InitParams&& other) = default;
 FrameSinkManagerImpl::InitParams::~InitParams() = default;
 FrameSinkManagerImpl::InitParams& FrameSinkManagerImpl::InitParams::operator=(
@@ -64,6 +66,7 @@ operator=(FrameSinkData&& other) = default;
 FrameSinkManagerImpl::FrameSinkManagerImpl(const InitParams& params)
     : shared_bitmap_manager_(params.shared_bitmap_manager),
       output_surface_provider_(params.output_surface_provider),
+      gmb_context_provider_(params.gmb_context_provider),
       surface_manager_(this, params.activation_deadline_in_frames),
       hit_test_manager_(surface_manager()),
       restart_id_(params.restart_id),
@@ -314,7 +317,7 @@ void FrameSinkManagerImpl::AddVideoDetectorObserver(
 void FrameSinkManagerImpl::CreateVideoCapturer(
     mojo::PendingReceiver<mojom::FrameSinkVideoCapturer> receiver) {
   video_capturers_.emplace(std::make_unique<FrameSinkVideoCapturerImpl>(
-      this, std::move(receiver),
+      this, gmb_context_provider_, std::move(receiver),
       std::make_unique<media::VideoCaptureOracle>(
           true /* enable_auto_throttling */),
       log_capture_pipeline_in_webrtc_));
@@ -346,15 +349,6 @@ void FrameSinkManagerImpl::RequestCopyOfOutput(
   }
   it->second->RequestCopyOfOutput(PendingCopyOutputRequest{
       surface_id.local_surface_id(), SubtreeCaptureId(), std::move(request)});
-}
-
-void FrameSinkManagerImpl::SetHitTestAsyncQueriedDebugRegions(
-    const FrameSinkId& root_frame_sink_id,
-    const std::vector<FrameSinkId>& hit_test_async_queried_debug_queue) {
-  hit_test_manager_.SetHitTestAsyncQueriedDebugRegions(
-      root_frame_sink_id, hit_test_async_queried_debug_queue);
-  DCHECK(base::Contains(root_sink_map_, root_frame_sink_id));
-  root_sink_map_[root_frame_sink_id]->ForceImmediateDrawAndSwapIfPossible();
 }
 
 void FrameSinkManagerImpl::DestroyFrameSinkBundle(const FrameSinkBundleId& id) {

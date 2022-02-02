@@ -21,6 +21,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/core/common/policy_switches.h"
+#include "components/policy/proto/chrome_extension_policy.pb.h"
 #include "components/policy/test_support/client_storage.h"
 #include "components/policy/test_support/embedded_policy_test_server.h"
 #include "components/policy/test_support/policy_storage.h"
@@ -40,8 +41,9 @@ std::string GetBrandSerialId(const std::string& device_brand_code,
 }  // namespace
 
 EmbeddedPolicyTestServerMixin::EmbeddedPolicyTestServerMixin(
-    InProcessBrowserTestMixinHost* host)
-    : InProcessBrowserTestMixin(host) {}
+    InProcessBrowserTestMixinHost* host,
+    std::initializer_list<Capabilities> capabilities)
+    : InProcessBrowserTestMixin(host), capabilities_(capabilities) {}
 
 EmbeddedPolicyTestServerMixin::~EmbeddedPolicyTestServerMixin() = default;
 
@@ -52,13 +54,22 @@ void EmbeddedPolicyTestServerMixin::SetUp() {
       FakeGaiaMixin::kFakeAuthCode);
   policy_test_server_->policy_storage()->add_managed_user("*");
 
-  // Create universal signing keys that can sign any domain.
-  std::vector<policy::SignatureProvider::SigningKey> universal_signing_keys;
-  universal_signing_keys.push_back(policy::SignatureProvider::SigningKey(
-      policy::PolicyBuilder::CreateTestSigningKey(),
-      {{"*", policy::PolicyBuilder::GetTestSigningKeySignature()}}));
-  policy_test_server_->policy_storage()->signature_provider()->set_signing_keys(
-      std::move(universal_signing_keys));
+  if (!capabilities_.contains(ENABLE_CANNED_SIGNING_KEYS)) {
+    // Create universal signing keys that can sign any domain.
+    std::vector<policy::SignatureProvider::SigningKey> universal_signing_keys;
+    universal_signing_keys.push_back(policy::SignatureProvider::SigningKey(
+        policy::PolicyBuilder::CreateTestSigningKey(),
+        {{"*", policy::PolicyBuilder::GetTestSigningKeySignature()}}));
+    policy_test_server_->policy_storage()
+        ->signature_provider()
+        ->set_signing_keys(std::move(universal_signing_keys));
+  }
+
+  if (capabilities_.contains(ENABLE_AUTOMATIC_ROTATION_OF_SIGNINGKEYS)) {
+    policy_test_server_->policy_storage()
+        ->signature_provider()
+        ->set_rotate_keys(true);
+  }
 
   // Register default user used in many tests.
   policy::ClientStorage::ClientInfo client_info;
@@ -86,16 +97,37 @@ void EmbeddedPolicyTestServerMixin::SetUpCommandLine(
 
 void EmbeddedPolicyTestServerMixin::UpdateDevicePolicy(
     const enterprise_management::ChromeDeviceSettingsProto& policy) {
-  policy_test_server_->policy_storage()->SetPolicyPayload(
-      policy::dm_protocol::kChromeDevicePolicyType, policy.SerializeAsString());
+  UpdatePolicy(policy::dm_protocol::kChromeDevicePolicyType,
+               policy.SerializeAsString());
 }
 
 void EmbeddedPolicyTestServerMixin::UpdateUserPolicy(
     const enterprise_management::CloudPolicySettings& policy,
     const std::string& policy_user) {
   policy_test_server_->policy_storage()->set_policy_user(policy_user);
-  policy_test_server_->policy_storage()->SetPolicyPayload(
-      policy::dm_protocol::kChromeUserPolicyType, policy.SerializeAsString());
+  UpdatePolicy(policy::dm_protocol::kChromeUserPolicyType,
+               policy.SerializeAsString());
+}
+
+void EmbeddedPolicyTestServerMixin::UpdatePolicy(
+    const std::string& type,
+    const std::string& serialized_policy) {
+  UpdatePolicy(type, std::string(), serialized_policy);
+}
+
+void EmbeddedPolicyTestServerMixin::UpdatePolicy(
+    const std::string& type,
+    const std::string& entity_id,
+    const std::string& serialized_policy) {
+  policy_test_server_->policy_storage()->SetPolicyPayload(type, entity_id,
+                                                          serialized_policy);
+}
+
+void EmbeddedPolicyTestServerMixin::UpdateExternalPolicy(
+    const std::string& type,
+    const std::string& entity_id,
+    const std::string& raw_policy) {
+  policy_test_server_->UpdateExternalPolicy(type, entity_id, raw_policy);
 }
 
 void EmbeddedPolicyTestServerMixin::SetUpdateDeviceAttributesPermission(

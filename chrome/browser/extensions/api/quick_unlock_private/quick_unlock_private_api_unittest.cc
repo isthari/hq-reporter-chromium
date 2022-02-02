@@ -8,9 +8,11 @@
 
 #include <memory>
 
+#include "ash/components/cryptohome/system_salt_getter.h"
 #include "ash/components/login/auth/fake_extended_authenticator.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/containers/contains.h"
@@ -33,17 +35,16 @@
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_api_unittest.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/cryptohome/system_salt_getter.h"
 #include "chromeos/dbus/userdataauth/fake_cryptohome_misc_client.h"
 #include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
 #include "chromeos/services/device_sync/public/cpp/fake_device_sync_client.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
-#include "chromeos/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -193,7 +194,6 @@ class QuickUnlockPrivateUnitTest
 
     ash::SystemSaltGetter::Get()->SetRawSaltForTesting(
         {1, 2, 3, 4, 5, 6, 7, 8});
-    fake_user_manager_->CreateLocalState();
 
     // Rebuild quick unlock state.
     ash::quick_unlock::EnabledForTesting(true);
@@ -517,32 +517,36 @@ class QuickUnlockPrivateUnitTest
   int GetExposedPinLength() {
     const AccountId account_id =
         AccountId::FromUserEmailGaiaId(kTestUserEmail, kTestUserGaiaId);
-    return user_manager::known_user::GetUserPinLength(account_id);
+    return user_manager::KnownUser(g_browser_process->local_state())
+        .GetUserPinLength(account_id);
   }
 
   void ClearExposedPinLength() {
     const AccountId account_id =
         AccountId::FromUserEmailGaiaId(kTestUserEmail, kTestUserGaiaId);
-    user_manager::known_user::SetUserPinLength(account_id, 0);
+    user_manager::KnownUser(g_browser_process->local_state())
+        .SetUserPinLength(account_id, 0);
   }
 
   bool IsBackfillNeeded() {
     const AccountId account_id =
         AccountId::FromUserEmailGaiaId(kTestUserEmail, kTestUserGaiaId);
-    return user_manager::known_user::PinAutosubmitIsBackfillNeeded(account_id);
+    return user_manager::KnownUser(g_browser_process->local_state())
+        .PinAutosubmitIsBackfillNeeded(account_id);
   }
 
   void SetBackfillNotNeeded() {
     const AccountId account_id =
         AccountId::FromUserEmailGaiaId(kTestUserEmail, kTestUserGaiaId);
-    user_manager::known_user::PinAutosubmitSetBackfillNotNeeded(account_id);
+    user_manager::KnownUser(g_browser_process->local_state())
+        .PinAutosubmitSetBackfillNotNeeded(account_id);
   }
 
   void SetBackfillNeededForTests() {
     const AccountId account_id =
         AccountId::FromUserEmailGaiaId(kTestUserEmail, kTestUserGaiaId);
-    user_manager::known_user::PinAutosubmitSetBackfillNeededForTests(
-        account_id);
+    user_manager::KnownUser(g_browser_process->local_state())
+        .PinAutosubmitSetBackfillNeededForTests(account_id);
   }
 
   void OnUpdateUserPods() {

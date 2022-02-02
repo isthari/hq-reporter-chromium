@@ -82,6 +82,7 @@
 <translation id="1605658421715042784">画像をコピー</translation>
 <translation id="1608337082864370066">コピーした画像を検索</translation>
 <translation id="1612730193129642006">タブをグリッド表示</translation>
+<translation id="1620510694547887537">カメラ</translation>
 <translation id="1644574205037202324">履歴</translation>
 <translation id="1650222530560417226">[ログ記録を開始] をタップすると、今後 JavaScript コンソールに表示されるすべてのタブのログやエラーが収集されます。ログは、このページを閉じるか [ログ記録を停止] をタップするまで収集（およびメモリにのみ保存）されます。</translation>
 <translation id="1657011748321897393">ネットワークに接続されていないため共有できませんでした。</translation>
@@ -94,7 +95,6 @@
 <translation id="1690731385917361335">アイテムなし</translation>
 <translation id="1692118695553449118">同期は有効です</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" />件選択しました</translation>
-<translation id="1726573592754903697">Google パスワード マネージャー</translation>
 <translation id="1740468249224277719">ダブルタップしてインストール。</translation>
 <translation id="1752547299766512813">パスワードの保存</translation>
 <translation id="1753905327828125965">よくアクセスするページ</translation>
@@ -142,6 +142,7 @@
 <translation id="2271351792809375263">Chrome に保存したパスワードをデバイスの他のアプリで使用する</translation>
 <translation id="2273327106802955778">その他のメニュー</translation>
 <translation id="2286505070150039482">選択したテキスト</translation>
+<translation id="2299218006564889602">Google パスワード マネージャーに保存する前にデバイス上でパスワードを暗号化します。</translation>
 <translation id="2302742851632557585">ウェブサイトでパスワードを変更</translation>
 <translation id="2316709634732130529">推奨されたパスワードを使用</translation>
 <translation id="2320166752086256636">キーボードを非表示</translation>
@@ -246,6 +247,7 @@
 <translation id="3184767182050912705"><ph name="BIOMETRIC_AUTHENITCATION_TYPE" /> でロックを解除</translation>
 <translation id="3207960819495026254">ブックマークしました</translation>
 <translation id="3224641773458703735">パスワードをエクスポートするには、まずデバイスでパスコードを設定する必要があります。</translation>
+<translation id="3227137524299004712">マイク</translation>
 <translation id="3230318355092723906">同期がオフになっている場合でも、このデバイスのブックマーク、履歴、パスワードなどの設定は、引き続き使用できます。これらの設定に変更を加えた場合、変更内容はアカウントと同期されません。</translation>
 <translation id="3240426699337459095">リンクをコピーしました</translation>
 <translation id="3244271242291266297">MM</translation>
@@ -422,7 +424,6 @@
 <translation id="4901778704868714008">保存...</translation>
 <translation id="4904877109095351937">既読にする</translation>
 <translation id="4908869848243824489">Discover by Google</translation>
-<translation id="4930268273022498155">既存のデータを削除します。<ph name="USER_EMAIL1" /> に切り替えると、削除したデータを取得できます。</translation>
 <translation id="4930714375720679147">ON にする</translation>
 <translation id="4941089862236492464">アイテムの共有中に問題が発生しました。</translation>
 <translation id="4944543191714094452">ページ内を検索…</translation>
@@ -502,7 +503,9 @@
 <translation id="575902488528307720">画像を検索</translation>
 <translation id="5781453543752460388">フォトに追加</translation>
 <translation id="5782227691023083829">翻訳しています...</translation>
+<translation id="5802829331520313983">セットアップ…</translation>
 <translation id="5803566855766646066">この新しいカードを破棄してもよろしいですか？</translation>
+<translation id="5804241973901381774">権限</translation>
 <translation id="5812974770859303494">追加先…</translation>
 <translation id="5816228676161003208">音声を使ってより速く検索できます。</translation>
 <translation id="581659025233126501">同期をオンにする</translation>
@@ -518,6 +521,7 @@
 <translation id="5896576662943111387">iOS 向けの設計</translation>
 <translation id="5897956970858271241">コピーしたリンクにアクセス</translation>
 <translation id="5899314093904173337">近くのユーザーと共有するには、カメラまたは QR スキャンアプリで、この QR コードをスキャンしてもらいます</translation>
+<translation id="5902639236448164449"><ph name="URL" /> のサイト権限を管理します。これらの権限は、タブを閉じるとリセットされます。</translation>
 <translation id="5911030830365207728">Google 翻訳</translation>
 <translation id="5913600720976431809">ページ翻訳のオプション</translation>
 <translation id="5938160824633642847">デバイスの空き容量が少なくなっています。空き容量を増やしてからもう一度お試しください。</translation>
@@ -544,6 +548,7 @@
 <translation id="6066301408025741299">タップしてキャンセルします。</translation>
 <translation id="60829778314739003">同意して続行</translation>
 <translation id="6084848228346514841">タブを選択</translation>
+<translation id="6103540626693881831">オンデバイスの暗号化</translation>
 <translation id="6108923351542677676">設定しています...</translation>
 <translation id="6119050551270742952">現在シークレット モードです</translation>
 <translation id="6122191549521593678">オンライン</translation>
@@ -567,7 +572,6 @@
 <translation id="6284652193729350524"><ph name="LANGUAGE" />を翻訳するか尋ねる</translation>
 <translation id="6293101329759844770">セーフ ブラウジングをオンにするには、[<ph name="BEGIN_LINK" />Google サービス<ph name="END_LINK" />] を開いて [セーフ ブラウジング] をタップします。</translation>
 <translation id="6321526113093607004">ブックマークに追加</translation>
-<translation id="6324528485781869530">同期アカウントの切り替え</translation>
 <translation id="6324669097367352121">ログインの設定</translation>
 <translation id="6337234675334993532">暗号化</translation>
 <translation id="633809752005859102">エラーが発生しました。原因を調査します。</translation>
@@ -611,6 +615,7 @@
 <translation id="6524918542306337007">シークレット モードは使用できません</translation>
 <translation id="6537746030088321027">example.com</translation>
 <translation id="6561262006871132942">拡大</translation>
+<translation id="6583087784430677195">オフにするには、[<ph name="BEGIN_LINK" />設定<ph name="END_LINK" />] を開いて [パスワードを自動入力] に移動します。</translation>
 <translation id="6585618849026997638">重要なページは、ブックマークを追加しておくとすぐにアクセスできます</translation>
 <translation id="6603393121510733479">シークレット ブラウジングは組織によって無効にされています。
 <ph name="BEGIN_LINK" />詳細<ph name="END_LINK" /></translation>
@@ -762,6 +767,7 @@
 <translation id="797413074872316787">カスタマイズした設定を複数のデバイスで同期して使用するには、同期を有効にします。</translation>
 <translation id="7978018860671536736">3.[パスワードを自動入力] をタップする</translation>
 <translation id="7982789257301363584">ネットワーク</translation>
+<translation id="7987685713885608670">セキュリティ強化のため、Google パスワード マネージャーに保存する前にデバイス上でパスワードを暗号化します。</translation>
 <translation id="7993619969781047893">一部のサイトで機能を使用できなくなる可能性があります</translation>
 <translation id="800361585186029508">入力された URL を Google Chrome で開きます。</translation>
 <translation id="802154636333426148">ダウンロード エラー</translation>

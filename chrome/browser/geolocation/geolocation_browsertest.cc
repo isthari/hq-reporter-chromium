@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -205,8 +204,8 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
 
   // Calls watchPosition in JavaScript and accepts or denies the resulting
   // permission request. Returns |true| if the expected behavior happened.
-  bool WatchPositionAndGrantPermission() WARN_UNUSED_RESULT;
-  bool WatchPositionAndDenyPermission() WARN_UNUSED_RESULT;
+  [[nodiscard]] bool WatchPositionAndGrantPermission();
+  [[nodiscard]] bool WatchPositionAndDenyPermission();
 
   // Calls watchPosition in JavaScript and observes whether the permission
   // request is shown without interacting with it. Callers should set
@@ -462,7 +461,7 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptForAllowedOrigin) {
 }
 
 // Crashes on Win only.  http://crbug.com/1014506
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define MAYBE_PromptForOffTheRecord DISABLED_PromptForOffTheRecord
 #else
 #define MAYBE_PromptForOffTheRecord PromptForOffTheRecord

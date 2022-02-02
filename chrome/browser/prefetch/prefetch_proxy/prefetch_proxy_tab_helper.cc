@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/adapters.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
@@ -32,7 +33,6 @@
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_subresource_manager.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_type.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/google/core/common/google_util.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
@@ -341,11 +341,6 @@ bool PrefetchProxyTabHelper::IsProfileEligible(Profile* profile) {
     return false;
   }
 
-  if (PrefetchProxyOnlyForLiteMode()) {
-    return data_reduction_proxy::DataReductionProxySettings::
-        IsDataSaverEnabledByUser(profile->IsOffTheRecord(),
-                                 profile->GetPrefs());
-  }
   return true;
 }
 
@@ -589,10 +584,7 @@ PrefetchProxyTabHelper::ComputeAfterSRPMetricsBeforeCommit(
   DCHECK(!handle->GetRedirectChain().empty());
   absl::optional<PrefetchProxyPrefetchStatus> status;
   absl::optional<size_t> prediction_position;
-  for (auto back_iter = handle->GetRedirectChain().rbegin();
-       back_iter != handle->GetRedirectChain().rend(); ++back_iter) {
-    GURL chain_url = *back_iter;
-
+  for (const GURL& chain_url : base::Reversed(handle->GetRedirectChain())) {
     auto container_iter = page_->prefetch_containers_.find(chain_url);
     if (!status && container_iter != page_->prefetch_containers_.end() &&
         container_iter->second->HasPrefetchStatus()) {
@@ -1245,12 +1237,18 @@ void PrefetchProxyTabHelper::PrefetchSpeculationCandidates(
     return;
 
   // For IP-private prefetches, using the Google proxy needs to be restricted to
-  // first party sites until we understand the benefit and determine interest
-  // from other sites.
+  // first party sites unless users opted-in to extended preloading.
   std::vector<std::pair<GURL, PrefetchType>> filtered_prefetches = prefetches;
-  if (!PrefetchProxyAllowAllDomains() &&
+  const bool allow_all_domains =
+      PrefetchProxyAllowAllDomains() ||
+      (PrefetchProxyAllowAllDomainsForExtendedPreloading() &&
+       prefetch::GetPreloadPagesState(*profile_->GetPrefs()) ==
+           prefetch::PreloadPagesState::kExtendedPreloading);
+  if (!allow_all_domains &&
       !IsGoogleDomainUrl(source_document_url, google_util::ALLOW_SUBDOMAIN,
-                         google_util::ALLOW_NON_STANDARD_PORTS)) {
+                         google_util::ALLOW_NON_STANDARD_PORTS) &&
+      !IsYoutubeDomainUrl(source_document_url, google_util::ALLOW_SUBDOMAIN,
+                          google_util::ALLOW_NON_STANDARD_PORTS)) {
     // Filter out prefetches that require the Google proxy.
     auto new_end =
         std::remove_if(filtered_prefetches.begin(), filtered_prefetches.end(),

@@ -33,7 +33,7 @@ class TCPSocketCreator {
     return tcp_socket;
   }
 
-  ScriptPromise GetSciptPromise() { return create_promise_; }
+  ScriptPromise GetScriptPromise() { return create_promise_; }
 
  private:
   ScriptPromise create_promise_;
@@ -43,13 +43,13 @@ TEST(TCPSocketTest, Create) {
   V8TestingScope scope;
   TCPSocketCreator tcp_socket_creator;
 
-  auto create_promise = tcp_socket_creator.GetSciptPromise();
+  auto create_promise = tcp_socket_creator.GetScriptPromise();
   EXPECT_TRUE(create_promise.IsEmpty());
 
   tcp_socket_creator.Create(scope);
 
   auto* script_state = scope.GetScriptState();
-  create_promise = tcp_socket_creator.GetSciptPromise();
+  create_promise = tcp_socket_creator.GetScriptPromise();
   ScriptPromiseTester create_tester(script_state, create_promise);
   EXPECT_TRUE(create_promise.IsAssociatedWith(script_state));
 
@@ -62,7 +62,7 @@ TEST(TCPSocketTest, CloseBeforeInit) {
 
   auto* tcp_socket = tcp_socket_creator.Create(scope);
   auto* script_state = scope.GetScriptState();
-  auto create_promise = tcp_socket_creator.GetSciptPromise();
+  auto create_promise = tcp_socket_creator.GetScriptPromise();
   ScriptPromiseTester create_tester(script_state, create_promise);
   ASSERT_FALSE(create_tester.IsRejected());
 
@@ -89,7 +89,7 @@ TEST(TCPSocketTest, CloseAfterInitWithoutResultOK) {
 
   auto* tcp_socket = tcp_socket_creator.Create(scope);
   auto* script_state = scope.GetScriptState();
-  auto create_promise = tcp_socket_creator.GetSciptPromise();
+  auto create_promise = tcp_socket_creator.GetScriptPromise();
   ScriptPromiseTester create_tester(script_state, create_promise);
   ASSERT_FALSE(create_tester.IsRejected());
 
@@ -108,8 +108,8 @@ TEST(TCPSocketTest, CloseAfterInitWithoutResultOK) {
   DOMException* create_exception = V8DOMException::ToImplWithTypeCheck(
       scope.GetIsolate(), create_tester.Value().V8Value());
   ASSERT_TRUE(create_exception);
-  EXPECT_EQ(create_exception->name(), "NotAllowedError");
-  EXPECT_EQ(create_exception->message(), "Permission denied");
+  EXPECT_EQ(create_exception->name(), "NetworkError");
+  EXPECT_EQ(create_exception->message(), "Network error.");
 
   close_tester.WaitUntilSettled();
   ASSERT_TRUE(close_tester.IsFulfilled());
@@ -121,7 +121,7 @@ TEST(TCPSocketTest, CloseAfterInitWithResultOK) {
 
   auto* tcp_socket = tcp_socket_creator.Create(scope);
   auto* script_state = scope.GetScriptState();
-  auto create_promise = tcp_socket_creator.GetSciptPromise();
+  auto create_promise = tcp_socket_creator.GetScriptPromise();
   ScriptPromiseTester create_tester(script_state, create_promise);
   ASSERT_FALSE(create_tester.IsFulfilled());
 
@@ -148,7 +148,7 @@ TEST(TCPSocketTest, OnSocketObserverConnectionError) {
 
   auto* tcp_socket = tcp_socket_creator.Create(scope);
   auto* script_state = scope.GetScriptState();
-  auto create_promise = tcp_socket_creator.GetSciptPromise();
+  auto create_promise = tcp_socket_creator.GetScriptPromise();
   ScriptPromiseTester create_tester(script_state, create_promise);
   ASSERT_FALSE(create_tester.IsRejected());
 

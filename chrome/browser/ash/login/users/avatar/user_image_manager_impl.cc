@@ -61,6 +61,8 @@ const int kProfileRefreshIntervalSec = 24 * 3600;
 
 static bool g_ignore_profile_data_download_delay_ = false;
 
+static bool g_skip_profile_download = false;
+
 // Saves `image_bytes` at `image_path`, and delete the old file at
 // `old_image_path` if needed.
 bool SaveAndDeleteImage(scoped_refptr<base::RefCountedBytes> image_bytes,
@@ -657,6 +659,8 @@ void UserImageManagerImpl::DeleteUserImage() {
 }
 
 void UserImageManagerImpl::DownloadProfileImage() {
+  if (g_skip_profile_download)
+    return;
   profile_image_requested_ = true;
   DownloadProfileData();
 }
@@ -710,9 +714,19 @@ void UserImageManagerImpl::OnExternalDataFetched(
   }
 }
 
+void UserImageManagerImpl::SetDownloadedProfileImageForTesting(
+    const gfx::ImageSkia& image) {
+  downloaded_profile_image_ = image;
+}
+
 // static
 void UserImageManagerImpl::IgnoreProfileDataDownloadDelayForTesting() {
   g_ignore_profile_data_download_delay_ = true;
+}
+
+// static
+void UserImageManagerImpl::SkipProfileImageDownloadForTesting() {
+  g_skip_profile_download = true;
 }
 
 bool UserImageManagerImpl::NeedsProfilePicture() const {
@@ -857,17 +871,17 @@ void UserImageManagerImpl::DeleteUserImageAndLocalStateEntry(
     const char* prefs_dict_root) {
   DictionaryPrefUpdate update(g_browser_process->local_state(),
                               prefs_dict_root);
-  const base::DictionaryValue* image_properties;
-  if (!update->GetDictionaryWithoutPathExpansion(account_id_.GetUserEmail(),
-                                                 &image_properties))
+  const base::Value* image_properties =
+      update->FindDictKey(account_id_.GetUserEmail());
+  if (!image_properties)
     return;
 
-  std::string image_path;
-  image_properties->GetString(kImagePathNodeName, &image_path);
-  if (!image_path.empty()) {
+  const std::string* image_path =
+      image_properties->FindStringKey(kImagePathNodeName);
+  if (image_path && !image_path->empty()) {
     background_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(),
-                                  base::FilePath(image_path)));
+                                  base::FilePath(*image_path)));
   }
   update->RemoveKey(account_id_.GetUserEmail());
 }

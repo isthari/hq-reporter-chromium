@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_HISTORY_CLUSTERS_CORE_CLUSTERING_TEST_UTILS_H_
 #define COMPONENTS_HISTORY_CLUSTERS_CORE_CLUSTERING_TEST_UTILS_H_
 
+#include <ostream>
 #include <vector>
 
 #include "base/time/time.h"
@@ -19,7 +20,7 @@ class VisitResult {
  public:
   VisitResult(int visit_id,
               float score,
-              const std::vector<history::VisitID>& duplicate_visit_ids = {},
+              const std::vector<VisitResult>& duplicate_visits = {},
               bool is_search_visit = false);
   explicit VisitResult(const history::ClusterVisit& visit);
   VisitResult(const VisitResult& other);
@@ -27,12 +28,18 @@ class VisitResult {
 
   bool operator==(const VisitResult& rhs) const;
 
+  std::string ToString() const;
+
  private:
+  friend std::ostream& operator<<(std::ostream& os, const VisitResult& dt);
+
   const int visit_id_;
   const float score_;
-  const std::vector<history::VisitID> duplicate_visit_ids_;
+  std::vector<VisitResult> duplicate_visits_;
   const bool is_search_visit_;
 };
+
+std::ostream& operator<<(std::ostream& os, const VisitResult& dt);
 
 // Converts |clusters| to VisitResults which are easier to test equality for.
 std::vector<std::vector<testing::VisitResult>> ToVisitResults(

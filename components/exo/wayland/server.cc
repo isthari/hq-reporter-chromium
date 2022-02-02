@@ -385,7 +385,7 @@ void Server::Initialize() {
                      1, display_, bind_zwp_idle_inhibit_manager);
   }
 
-  weston_test_holder_ = std::make_unique<WestonTest>(wl_display_.get());
+  weston_test_holder_ = std::make_unique<WestonTest>(this);
 
   zcr_keyboard_extension_data_ =
       std::make_unique<WaylandKeyboardExtension>(serial_tracker_.get());
@@ -413,7 +413,7 @@ void Server::Initialize() {
   wl_global_create(wl_display_.get(), &xdg_wm_base_interface, 1,
                    xdg_shell_data_.get(), bind_xdg_shell);
 
-  wl_global_create(wl_display_.get(), &zcr_touchpad_haptics_v1_interface, 1,
+  wl_global_create(wl_display_.get(), &zcr_touchpad_haptics_v1_interface, 2,
                    display_, bind_touchpad_haptics);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 

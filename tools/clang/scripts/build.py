@@ -650,7 +650,8 @@ def main():
       '-DLLVM_ENABLE_ASSERTIONS=%s' % ('OFF' if args.disable_asserts else 'ON'),
       '-DLLVM_ENABLE_PROJECTS=' + projects,
       '-DLLVM_TARGETS_TO_BUILD=' + targets,
-      '-DLLVM_ENABLE_PIC=OFF',
+      # PIC needed for Rust build (links LLVM into shared object)
+      '-DLLVM_ENABLE_PIC=ON',
       '-DLLVM_ENABLE_UNWIND_TABLES=OFF',
       '-DLLVM_ENABLE_TERMINFO=OFF',
       '-DLLVM_ENABLE_Z3_SOLVER=OFF',
@@ -999,10 +1000,12 @@ def main():
     else:
       cmake_args.append('-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-apple-darwin')
   elif sys.platform.startswith('linux'):
-    cmake_args.extend([
-        '-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-linux-gnu',
-        '-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON',
-    ])
+    if platform.machine() == 'aarch64':
+      cmake_args.append(
+          '-DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu')
+    else:
+      cmake_args.append('-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-linux-gnu')
+    cmake_args.append('-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON')
   elif sys.platform == 'win32':
     cmake_args.append('-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-windows-msvc')
 
@@ -1111,6 +1114,10 @@ def main():
           '--unwindlib=none',
       ]
 
+      if target_arch == 'aarch64':
+        # Use PAC/BTI instructions for AArch64
+        cflags += [ '-mbranch-protection=standard' ]
+
       android_args = base_cmake_args + [
         '-DCMAKE_C_COMPILER=' + os.path.join(LLVM_BUILD_DIR, 'bin/clang'),
         '-DCMAKE_CXX_COMPILER=' + os.path.join(LLVM_BUILD_DIR, 'bin/clang++'),
@@ -1162,6 +1169,7 @@ def main():
 
       libs_want = [
           'lib/linux/libclang_rt.asan-{0}-android.so',
+          'lib/linux/libclang_rt.asan_static-{0}-android.a',
           'lib/linux/libclang_rt.ubsan_standalone-{0}-android.so',
           'lib/linux/libclang_rt.profile-{0}-android.a',
       ]
@@ -1268,11 +1276,13 @@ def main():
                    [COMPILER_RT_DIR])
         profile_a = 'libclang_rt.profile.a'
         asan_preinit_a = 'libclang_rt.asan-preinit.a'
+        asan_static_a = 'libclang_rt.asan_static.a'
         asan_so = 'libclang_rt.asan.so'
         ninja_command = ['ninja', profile_a]
         if sys.platform != 'darwin':
           ninja_command.append(asan_so)
           ninja_command.append(asan_preinit_a)
+          ninja_command.append(asan_static_a)
         RunCommand(ninja_command)
         CopyFile(os.path.join(build_phase2_dir, 'lib', target_spec, profile_a),
                               fuchsia_lib_dst_dir)
@@ -1282,6 +1292,9 @@ def main():
           CopyFile(
               os.path.join(build_phase2_dir, 'lib', target_spec,
                            asan_preinit_a), fuchsia_lib_dst_dir)
+          CopyFile(
+              os.path.join(build_phase2_dir, 'lib', target_spec, asan_static_a),
+              fuchsia_lib_dst_dir)
 
   # Run tests.
   if (not args.build_mac_arm and

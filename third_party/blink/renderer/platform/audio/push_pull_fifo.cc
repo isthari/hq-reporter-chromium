@@ -33,8 +33,9 @@ PushPullFIFO::PushPullFIFO(unsigned number_of_channels,
 
 PushPullFIFO::~PushPullFIFO() {
   // Capture metrics only after the FIFO is actually pulled.
-  if (pull_count_ == 0)
+  if (pull_count_ == 0) {
     return;
+  }
 
   // TODO(hongchan): The fast-shutdown process prevents the data below from
   // being collected correctly. Consider using "outside metric collector" that
@@ -119,7 +120,7 @@ size_t PushPullFIFO::Pull(AudioBus* output_bus, uint32_t frames_requested) {
   MutexLocker locker(lock_);
   TRACE_EVENT0("webaudio", "PushPullFIFO::Pull under lock");
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   if (!output_bus) {
     // Log when outputBus or FIFO object is invalid. (crbug.com/692423)
     LOG(WARNING) << "[WebAudio/PushPullFIFO::pull <" << static_cast<void*>(this)

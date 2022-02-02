@@ -22,8 +22,6 @@ namespace full_restore {
 
 // LacrosSaveHandler is a helper class for FullRestoreSaveHandler to handle
 // Lacros windows special cases, e.g. Lacros window id, etc.
-// TODO(crbug.com/1239984):
-// 1. Use the browser session id as the window id.
 class COMPONENT_EXPORT(APP_RESTORE) LacrosSaveHandler {
  public:
   explicit LacrosSaveHandler(const base::FilePath& profile_path);
@@ -36,6 +34,11 @@ class COMPONENT_EXPORT(APP_RESTORE) LacrosSaveHandler {
 
   // Invoked when `window` is destroyed.
   void OnWindowDestroyed(aura::Window* window);
+
+  // Invoked when Lacros browser window is created. `browser_session_id` is the
+  // current browser session id.
+  void OnBrowserWindowAdded(aura::Window* const window,
+                            uint32_t browser_session_id);
 
   // Invoked when an Chrome app Lacros window is created. `app_id` is the
   // AppService id, and `window_id` is the wayland app_id property for the
@@ -60,7 +63,7 @@ class COMPONENT_EXPORT(APP_RESTORE) LacrosSaveHandler {
 
   struct WindowData {
     std::string app_id;
-    int32_t window_id;
+    uint32_t window_id = 0;
   };
 
   // The primary user profile path.
@@ -68,7 +71,7 @@ class COMPONENT_EXPORT(APP_RESTORE) LacrosSaveHandler {
 
   // `window_id_` is used to record the current used window id. When a new
   // Lacros window is created, ++window_id to generate the new window id.
-  int32_t window_id_ = 0;
+  uint32_t window_id_ = 0;
 
   // |window_candidates_| is used to record the map from the exo application id
   // to `app_id` and `window_id`. `app_id` might be changed for Chrome app

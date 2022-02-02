@@ -51,10 +51,10 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.feed.FeedReliabilityLoggingSignals;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.native_page.ContextMenuManager;
-import org.chromium.chrome.browser.omnibox.LocationBarLayout;
 import org.chromium.chrome.browser.omnibox.OmniboxStub;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
@@ -74,7 +74,6 @@ import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVis
 import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.KeyUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
@@ -126,6 +125,8 @@ public class NewTabPageTest {
     OmniboxStub mOmniboxStub;
     @Mock
     VoiceRecognitionHandler mVoiceRecognitionHandler;
+    @Mock
+    FeedReliabilityLoggingSignals mFeedReliabilityLoggingSignals;
 
     private static final String TEST_PAGE = "/chrome/test/data/android/navigate/simple.html";
     private static final String TEST_FEED =
@@ -138,11 +139,13 @@ public class NewTabPageTest {
     private FakeMostVisitedSites mMostVisitedSites;
     private EmbeddedTestServer mTestServer;
     private List<SiteSuggestion> mSiteSuggestions;
+    private OmniboxTestUtils mOmnibox;
 
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
         mActivityTestRule.startMainActivityWithURL("about:blank");
+        mOmnibox = new OmniboxTestUtils(mActivityTestRule.getActivity());
 
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
 
@@ -250,15 +253,14 @@ public class NewTabPageTest {
         TouchCommon.singleClickView(mFakebox);
 
         waitForFakeboxFocusAnimationComplete(mNtp);
-        UrlBar urlBar = (UrlBar) mActivityTestRule.getActivity().findViewById(R.id.url_bar);
-        OmniboxTestUtils.waitForFocusAndKeyboardActive(urlBar, true);
+        mOmnibox.checkFocus(true);
         if (!mActivityTestRule.getActivity().isTablet()) {
             int afterFocusFakeboxTop = getFakeboxTop(mNtp);
             Assert.assertTrue(afterFocusFakeboxTop < initialFakeboxTop);
         }
-        OmniboxTestUtils.toggleUrlBarFocus(urlBar, false);
+
+        mOmnibox.clearFocus();
         waitForFakeboxTopPosition(mNtp, initialFakeboxTop);
-        OmniboxTestUtils.waitForFocusAndKeyboardActive(urlBar, false);
     }
 
     /**
@@ -273,16 +275,10 @@ public class NewTabPageTest {
         TouchCommon.singleClickView(mFakebox);
         waitForFakeboxFocusAnimationComplete(mNtp);
         final UrlBar urlBar = (UrlBar) mActivityTestRule.getActivity().findViewById(R.id.url_bar);
-        OmniboxTestUtils.waitForFocusAndKeyboardActive(urlBar, true);
-
-        InstrumentationRegistry.getInstrumentation().sendStringSync(UrlConstants.VERSION_URL);
-        LocationBarLayout locationBar =
-                (LocationBarLayout) mActivityTestRule.getActivity().findViewById(R.id.location_bar);
-        OmniboxTestUtils.waitForOmniboxSuggestions(locationBar);
-        ChromeTabUtils.waitForTabPageLoaded(mTab, null, () -> {
-            KeyUtils.singleKeyEventView(
-                    InstrumentationRegistry.getInstrumentation(), urlBar, KeyEvent.KEYCODE_ENTER);
-        });
+        mOmnibox.requestFocus();
+        mOmnibox.typeText(UrlConstants.VERSION_URL, false);
+        mOmnibox.checkSuggestionsShown();
+        mOmnibox.sendKey(KeyEvent.KEYCODE_ENTER);
     }
 
     /**
@@ -396,13 +392,9 @@ public class NewTabPageTest {
             Assert.assertFalse(getUrlFocusAnimationsDisabled());
 
             clickFakebox();
-            UrlBar urlBar = (UrlBar) mActivityTestRule.getActivity().findViewById(R.id.url_bar);
-            OmniboxTestUtils.waitForFocusAndKeyboardActive(urlBar, true);
-            mActivityTestRule.typeInOmnibox(testPageUrl, false);
-            LocationBarLayout locationBar =
-                    (LocationBarLayout) mActivityTestRule.getActivity().findViewById(
-                            R.id.location_bar);
-            OmniboxTestUtils.waitForOmniboxSuggestions(locationBar);
+            mOmnibox.checkFocus(true);
+            mOmnibox.typeText(testPageUrl, false);
+            mOmnibox.checkSuggestionsShown();
 
             final CallbackHelper loadedCallback = new CallbackHelper();
             TestThreadUtils.runOnUiThreadBlocking(() -> {
@@ -415,10 +407,7 @@ public class NewTabPageTest {
                 });
             });
 
-            final View v = urlBar;
-            KeyUtils.singleKeyEventView(
-                    InstrumentationRegistry.getInstrumentation(), v, KeyEvent.KEYCODE_ENTER);
-
+            mOmnibox.sendKey(KeyEvent.KEYCODE_ENTER);
             waitForUrlFocusAnimationsDisabledState(true);
             waitForTabLoading();
 
@@ -555,6 +544,44 @@ public class NewTabPageTest {
             when(mVoiceRecognitionHandler.isVoiceSearchEnabled()).thenReturn(false);
             mNtp.onVoiceAvailabilityImpacted();
             assertEquals(View.GONE, micButton.getVisibility());
+        });
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    public void testSettingOmniboxStubAddsUrlFocusChangeListener() throws IOException {
+        mNtp.setFeedReliabilityLoggingSignalsForTesting(mFeedReliabilityLoggingSignals);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mNtp.setOmniboxStub(mOmniboxStub);
+            verify(mOmniboxStub).addUrlFocusChangeListener(eq(mFeedReliabilityLoggingSignals));
+        });
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    public void testFeedReliabilityLoggingFocusOmnibox() throws IOException {
+        mNtp.setFeedReliabilityLoggingSignalsForTesting(mFeedReliabilityLoggingSignals);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mNtp.getNewTabPageManagerForTesting().focusSearchBox(
+                    /*beginVoiceSearch=*/false, /*pastedText=*/"");
+            verify(mFeedReliabilityLoggingSignals).onOmniboxFocused();
+        });
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    public void testFeedReliabilityLoggingVoiceSearch() throws IOException {
+        mNtp.setFeedReliabilityLoggingSignalsForTesting(mFeedReliabilityLoggingSignals);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mNtp.getNewTabPageManagerForTesting().focusSearchBox(
+                    /*beginVoiceSearch=*/true, /*pastedText=*/"");
+            verify(mFeedReliabilityLoggingSignals).onVoiceSearch();
         });
     }
 

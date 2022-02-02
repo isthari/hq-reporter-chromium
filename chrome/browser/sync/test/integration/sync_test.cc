@@ -128,13 +128,14 @@ void SetURLLoaderFactoryForTest(
   signin_client->SetURLLoaderFactoryForTest(url_loader_factory);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  auto* factory =
+  ash::AccountManagerFactory* factory =
       g_browser_process->platform_part()->GetAccountManagerFactory();
-  auto* account_manager =
+  account_manager::AccountManager* account_manager =
       factory->GetAccountManager(profile->GetPath().value());
   account_manager->SetUrlLoaderFactoryForTests(url_loader_factory);
 #elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  auto* account_manager = MaybeGetAshAccountManagerForTests();
+  account_manager::AccountManager* account_manager =
+      MaybeGetAshAccountManagerForTests();
   if (account_manager)
     account_manager->SetUrlLoaderFactoryForTests(url_loader_factory);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -314,7 +315,6 @@ SyncTest::~SyncTest() = default;
 void SyncTest::SetUp() {
 #if BUILDFLAG(IS_ANDROID)
   sync_test_utils_android::SetUpAuthForTesting();
-  sync_test_utils_android::SetUpAndroidSyncSettingsForTesting();
 #endif
 
   // Sets |server_type_| if it wasn't specified by the test.
@@ -372,8 +372,8 @@ void SyncTest::SetUpCommandLine(base::CommandLine* cl) {
   AddTestSwitches(cl);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  cl->AppendSwitch(chromeos::switches::kIgnoreUserProfileMappingForTests);
-  cl->AppendSwitch(chromeos::switches::kDisableArcOptInVerification);
+  cl->AppendSwitch(ash::switches::kIgnoreUserProfileMappingForTests);
+  cl->AppendSwitch(ash::switches::kDisableArcOptInVerification);
   arc::SetArcAvailableCommandLineForTesting(cl);
 #endif
 }
@@ -795,7 +795,7 @@ void SyncTest::SetUpInvalidations(int index) {
           GetProfile(index)->GetPrefs(),
           invalidation::prefs::kInvalidationClientIDCache);
 
-      update_client_id->SetString(kInvalidationGCMSenderId, client_id);
+      update_client_id->SetStringKey(kInvalidationGCMSenderId, client_id);
       break;
     }
     case SERVER_TYPE_UNDECIDED:
@@ -995,17 +995,12 @@ void SyncTest::TearDownOnMainThread() {
   // Closing all browsers created by this test. The calls here block until
   // they are closed. Other browsers created outside SyncTest setup should be
   // closed by the creator of that browser.
-  const size_t initial_total_browser_count = chrome::GetTotalBrowserCount();
-  size_t closed_browser_count = 0;
   for (Browser* browser : browsers_) {
     if (browser) {
       CloseBrowserSynchronously(browser);
-      closed_browser_count++;
     }
   }
   browsers_.clear();
-  ASSERT_EQ(chrome::GetTotalBrowserCount(),
-            initial_total_browser_count - closed_browser_count);
 #endif
   PlatformBrowserTest::TearDownOnMainThread();
 }
@@ -1228,7 +1223,8 @@ void SyncTest::SetOAuth2TokenResponse(const std::string& response_data,
 
   std::string response = base::StringPrintf("HTTP/1.1 %d %s\r\n", status_code,
                                             GetHttpReasonPhrase(status_code));
-  auto response_head = network::mojom::URLResponseHead::New();
+  mojo::StructPtr<network::mojom::URLResponseHead> response_head =
+      network::mojom::URLResponseHead::New();
   response_head->headers =
       base::MakeRefCounted<net::HttpResponseHeaders>(response);
   test_url_loader_factory_.AddResponse(

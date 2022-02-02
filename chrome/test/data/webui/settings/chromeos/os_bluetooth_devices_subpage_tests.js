@@ -13,6 +13,7 @@
 // #import {createDefaultBluetoothDevice, FakeBluetoothConfig} from 'chrome://test/cr_components/chromeos/bluetooth/fake_bluetooth_config.js';
 // #import {setBluetoothConfigForTesting} from 'chrome://resources/cr_components/chromeos/bluetooth/cros_bluetooth_config.js';
 // #import {waitAfterNextRender, eventToPromise} from 'chrome://test/test_util.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
 // clang-format on
 
 suite('OsBluetoothDevicesSubpageTest', function() {
@@ -43,7 +44,11 @@ suite('OsBluetoothDevicesSubpageTest', function() {
     settings.Router.getInstance().resetRouteForTesting();
   });
 
-  function init() {
+  /**
+   * @param {URLSearchParams=} opt_urlParams
+   * @return {!Promise}
+   */
+  function init(opt_urlParams) {
     bluetoothDevicesSubpage =
         document.createElement('os-settings-bluetooth-devices-subpage');
     document.body.appendChild(bluetoothDevicesSubpage);
@@ -60,7 +65,8 @@ suite('OsBluetoothDevicesSubpageTest', function() {
       }
     };
     bluetoothConfig.observeSystemProperties(propertiesObserver);
-    settings.Router.getInstance().navigateTo(settings.routes.BLUETOOTH_DEVICES);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.BLUETOOTH_DEVICES, opt_urlParams);
     return flushAsync();
   }
 
@@ -74,12 +80,31 @@ suite('OsBluetoothDevicesSubpageTest', function() {
     assertTrue(!!bluetoothDevicesSubpage);
   });
 
-  test('Toggle button creation', async function() {
+  test('Toggle button creation and a11y', async function() {
     bluetoothConfig.setSystemState(
         chromeos.bluetoothConfig.mojom.BluetoothSystemState.kEnabled);
-    await flushAsync();
     await init();
-    assertTrue(bluetoothDevicesSubpage.$.enableBluetoothToggle.checked);
+    const toggle = bluetoothDevicesSubpage.shadowRoot.querySelector(
+        '#enableBluetoothToggle');
+    assertTrue(toggle.checked);
+
+    let ironAnnouncerPromise =
+        test_util.eventToPromise('iron-announce', bluetoothDevicesSubpage);
+
+    toggle.click();
+    let result = await ironAnnouncerPromise;
+    assertEquals(
+        result.detail.text,
+        bluetoothDevicesSubpage.i18n('bluetoothDisabledA11YLabel'));
+
+    ironAnnouncerPromise =
+        test_util.eventToPromise('iron-announce', bluetoothDevicesSubpage);
+    toggle.click();
+
+    result = await ironAnnouncerPromise;
+    assertEquals(
+        result.detail.text,
+        bluetoothDevicesSubpage.i18n('bluetoothEnabledA11YLabel'));
   });
 
   test('Toggle button states', async function() {
@@ -251,4 +276,18 @@ suite('OsBluetoothDevicesSubpageTest', function() {
             getDeviceListItem(/*connected=*/ false, /*index=*/ 0),
             getDeviceList(/*connected=*/ false).shadowRoot.activeElement);
       });
+
+  test('Deep link to enable/disable Bluetooth toggle button', async () => {
+    Polymer.dom.flush();
+    const params = new URLSearchParams;
+    params.append('settingId', '100');
+    init(params);
+
+    const deepLinkElement = bluetoothDevicesSubpage.shadowRoot.querySelector(
+        '#enableBluetoothToggle');
+    await test_util.waitAfterNextRender(bluetoothDevicesSubpage);
+    assertEquals(
+        deepLinkElement, getDeepActiveElement(),
+        'On startup enable/disable Bluetooth toggle should be focused for settingId=100.');
+  });
 });

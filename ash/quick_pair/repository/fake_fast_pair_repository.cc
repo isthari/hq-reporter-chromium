@@ -45,11 +45,12 @@ void FakeFastPairRepository::GetDeviceMetadata(
     DeviceMetadataCallback callback) {
   std::string normalized_id = base::ToUpperASCII(hex_model_id);
   if (data_.contains(normalized_id)) {
-    std::move(callback).Run(data_[normalized_id].get());
+    std::move(callback).Run(data_[normalized_id].get(),
+                            /*has_retryable_error=*/false);
     return;
   }
 
-  std::move(callback).Run(nullptr);
+  std::move(callback).Run(nullptr, /*has_retryable_error=*/true);
 }
 
 void FakeFastPairRepository::IsValidModelId(
@@ -92,7 +93,7 @@ bool FakeFastPairRepository::EvictDeviceImages(
 }
 
 // Unimplemented.
-absl::optional<const chromeos::bluetooth_config::DeviceImageInfo>
+absl::optional<chromeos::bluetooth_config::DeviceImageInfo>
 FakeFastPairRepository::GetImagesForDevice(const std::string& device_id) {
   return absl::nullopt;
 }

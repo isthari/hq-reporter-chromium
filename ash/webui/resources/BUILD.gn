@@ -90,14 +90,17 @@ if (!is_official_build) {
 
   # Resources used by chrome://sample-system-web-app
   ash_generated_grit("sample_system_web_app_resources") {
-    source = "$root_gen_dir/ash/webui/sample_system_web_app_ui/ash_sample_system_web_app_resources.grd"
-    deps = [ "//ash/webui/sample_system_web_app_ui:build_trusted_grd" ]
+    source = "$root_gen_dir/ash/webui/sample_system_web_app_ui/resources/trusted/ash_sample_system_web_app_resources.grd"
+    deps =
+        [ "//ash/webui/sample_system_web_app_ui/resources/trusted:trusted_grd" ]
   }
 
   # Resources used by chrome-untrusted://sample-system-web-app
   ash_generated_grit("sample_system_web_app_untrusted_resources") {
-    source = "$root_gen_dir/ash/webui/sample_system_web_app_ui/ash_sample_system_web_app_untrusted_resources.grd"
-    deps = [ "//ash/webui/sample_system_web_app_ui:build_untrusted_grd" ]
+    source = "$root_gen_dir/ash/webui/sample_system_web_app_ui/resources/untrusted/ash_sample_system_web_app_untrusted_resources.grd"
+    deps = [
+      "//ash/webui/sample_system_web_app_ui/resources/untrusted:untrusted_grd",
+    ]
   }
 }
 
@@ -343,6 +346,20 @@ grit("connectivity_diagnostics_resources") {
     "grit/connectivity_diagnostics_resources.h",
     "grit/connectivity_diagnostics_resources_map.cc",
     "grit/connectivity_diagnostics_resources_map.h",
+  ]
+
+  output_dir = "$root_gen_dir/ash"
+}
+
+grit("multidevice_debug_resources") {
+  source =
+      "//ash/webui/multidevice_debug/resources/multidevice_debug_resources.grd"
+
+  outputs = [
+    "grit/ash_multidevice_debug_resources.h",
+    "grit/ash_multidevice_debug_resources_map.cc",
+    "grit/ash_multidevice_debug_resources_map.h",
+    "ash_multidevice_debug_resources.pak",
   ]
 
   output_dir = "$root_gen_dir/ash"

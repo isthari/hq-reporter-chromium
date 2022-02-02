@@ -19,8 +19,17 @@ const char kRuntimeServicePathSwitch[] = "runtime-service-path";
 
 CastRuntimeService::CastRuntimeService(
     CastWebService* web_service,
-    NetworkContextGetter network_context_getter)
-    : app_dispatcher_(web_service, this, std::move(network_context_getter)) {}
+    NetworkContextGetter network_context_getter,
+    media::VideoPlaneController* video_plane_controller,
+    RuntimeApplicationWatcher* application_watcher)
+    : video_plane_controller_(video_plane_controller),
+      app_dispatcher_(web_service,
+                      this,
+                      std::move(network_context_getter),
+                      video_plane_controller_,
+                      application_watcher) {
+  DCHECK(video_plane_controller_);
+}
 
 CastRuntimeService::~CastRuntimeService() = default;
 
@@ -48,7 +57,7 @@ std::unique_ptr<CastEventBuilder> CastRuntimeService::CreateEventBuilder() {
 }
 
 const std::string& CastRuntimeService::GetAudioChannelEndpoint() {
-  return app_dispatcher_.GetCastMediaServiceGrpcEndpoint();
+  return app_dispatcher_.GetCastMediaServiceEndpoint();
 }
 
 WebCryptoServer* CastRuntimeService::GetWebCryptoServer() {
@@ -57,10 +66,6 @@ WebCryptoServer* CastRuntimeService::GetWebCryptoServer() {
 
 receiver::MediaManager* CastRuntimeService::GetMediaManager() {
   return nullptr;
-}
-
-RuntimeApplication* CastRuntimeService::GetRuntimeApplication() {
-  return app_dispatcher_.GetRuntimeApplication();
 }
 
 }  // namespace chromecast

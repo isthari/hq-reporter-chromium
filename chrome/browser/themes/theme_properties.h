@@ -161,8 +161,8 @@ class ThemeProperties {
     COLOR_TAB_FOREGROUND_ACTIVE_FRAME_INACTIVE_INCOGNITO,
 
     // The throbber colors for tabs or anything on a toolbar (currently, only
-    // the download shelf). If you're adding a throbber elsewhere, such as in
-    // a dialog or bubble, you likely want ui::kColorThrobber.
+    // the download shelf). Do not use directly; only for use inside
+    // browser_theme_pack.cc.
     COLOR_TAB_THROBBER_SPINNING,
     COLOR_TAB_THROBBER_WAITING,
 
@@ -247,11 +247,11 @@ class ThemeProperties {
     // Color for the background of the most visited/custom link tile.
     COLOR_NTP_SHORTCUT,
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     // The colors of the 1px border around the window on Windows 10.
     COLOR_ACCENT_BORDER_ACTIVE,
     COLOR_ACCENT_BORDER_INACTIVE,
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
     SHOULD_FILL_BACKGROUND_TAB_COLOR,
 

@@ -1682,7 +1682,7 @@ void ArcBluetoothBridge::SendBluetoothPoweredStateBroadcast(
     return;
 
   base::DictionaryValue extras;
-  extras.SetBoolean("enable", powered == AdapterPowerState::TURN_ON);
+  extras.SetBoolKey("enable", powered == AdapterPowerState::TURN_ON);
   std::string extras_json;
   bool write_success = base::JSONWriter::Write(extras, &extras_json);
   DCHECK(write_success);
@@ -1830,7 +1830,7 @@ void ArcBluetoothBridge::WriteGattDescriptor(
                          weak_factory_.GetWeakPtr(),
                          std::move(split_callback.first), char_id_str),
           base::BindOnce(&OnGattOperationError,
-                         std::move(split_callback.first)));
+                         std::move(split_callback.second)));
       return;
     }
     default:
@@ -2910,7 +2910,7 @@ void ArcBluetoothBridge::SetPrimaryUserBluetoothPowerSetting(
     bool enabled) const {
   const user_manager::User* const user =
       user_manager::UserManager::Get()->GetPrimaryUser();
-  Profile* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+  Profile* profile = ash::ProfileHelper::Get()->GetProfileByUser(user);
   DCHECK(profile);
   profile->GetPrefs()->SetBoolean(ash::prefs::kUserBluetoothAdapterEnabled,
                                   enabled);

@@ -18,7 +18,6 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/user_approved_account_list_manager.h"
-#include "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
 
 namespace syncer {
 class SyncService;
@@ -35,10 +34,22 @@ class SyncSetupService;
 // authentication library.
 class AuthenticationService : public KeyedService,
                               public signin::IdentityManager::Observer,
-                              public ios::ChromeBrowserProvider::Observer,
-                              public ios::ChromeIdentityService::Observer,
                               public ChromeAccountManagerService::Observer {
  public:
+  // The service status for AuthenticationService.
+  enum class ServiceStatus {
+    // Sign-in forced by enterprise policy.
+    SigninForcedByPolicy = 0,
+    // Sign-in is possible.
+    SigninAllowed = 1,
+    // Sign-in disabled by user.
+    SigninDisabledByUser = 2,
+    // Sign-in disabled by enterprise policy.
+    SigninDisabledByPolicy = 3,
+    // Sign-in disabled for internal reason (probably running Chromium).
+    SigninDisabledByInternal = 4,
+  };
+
   // Initializes the service.
   AuthenticationService(PrefService* pref_service,
                         SyncSetupService* sync_setup_service,
@@ -68,6 +79,10 @@ class AuthenticationService : public KeyedService,
   // Adds and removes observers.
   void AddObserver(AuthenticationServiceObserver* observer);
   void RemoveObserver(AuthenticationServiceObserver* observer);
+
+  // Returns the service status, see ServiceStatus. This value can be observed
+  // using AuthenticationServiceObserver::OnServiceStatusChanged().
+  ServiceStatus GetServiceStatus();
 
   // Reminds user to Sign in and sync to Chrome when a new tab is opened.
   void SetReauthPromptForSignInAndSync();
@@ -145,11 +160,6 @@ class AuthenticationService : public KeyedService,
   // sync the accounts between the IdentityManager and the SSO library.
   void OnApplicationWillEnterForeground();
 
-  // ChromeBrowserProvider implementation.
-  void OnChromeIdentityServiceDidChange(
-      ios::ChromeIdentityService* new_service) override;
-  void OnChromeBrowserProviderWillBeDestroyed() override;
-
  private:
   friend class AuthenticationServiceFake;
   friend class AuthenticationServiceTest;
@@ -195,16 +205,22 @@ class AuthenticationService : public KeyedService,
   void OnPrimaryAccountChanged(
       const signin::PrimaryAccountChangeEvent& event_details) override;
 
-  // ChromeIdentityServiceObserver implementation.
+  // ChromeAccountManagerServiceObserver implementation.
   void OnAccessTokenRefreshFailed(ChromeIdentity* identity,
                                   NSDictionary* user_info) override;
-  void OnChromeIdentityServiceWillBeDestroyed() override;
-
-  // ChromeAccountManagerServiceObserver implementation.
   void OnIdentityListChanged(bool need_user_approval) override;
 
   // Fires |OnPrimaryAccountRestricted| on all observers.
   void FirePrimaryAccountRestricted();
+
+  // Notification for prefs::kSigninAllowed.
+  void OnSigninAllowedChanged(const std::string& name);
+
+  // Notification for prefs::kBrowserSigninPolicy.
+  void OnBrowserSigninPolicyChanged(const std::string& name);
+
+  // Fires |OnServiceStatusChanged| on all observers.
+  void FireServiceStatusNotification();
 
   // The delegate for this AuthenticationService. It is invalid to call any
   // method on this object except Initialize() or Shutdown() if this pointer
@@ -235,10 +251,6 @@ class AuthenticationService : public KeyedService,
   // Map between account IDs and their associated MDM error.
   mutable std::map<CoreAccountId, NSDictionary*> cached_mdm_infos_;
 
-  base::ScopedObservation<ios::ChromeIdentityService,
-                          ios::ChromeIdentityService::Observer>
-      identity_service_observation_{this};
-
   base::ScopedObservation<signin::IdentityManager,
                           signin::IdentityManager::Observer>
       identity_manager_observation_{this};
@@ -246,6 +258,11 @@ class AuthenticationService : public KeyedService,
   base::ScopedObservation<ChromeAccountManagerService,
                           ChromeAccountManagerService::Observer>
       account_manager_service_observation_{this};
+
+  // Registrar for prefs::kSigninAllowed.
+  PrefChangeRegistrar pref_change_registrar_;
+  // Registrar for prefs::kBrowserSigninPolicy.
+  PrefChangeRegistrar local_pref_change_registrar_;
 
   base::WeakPtrFactory<AuthenticationService> weak_pointer_factory_;
 };

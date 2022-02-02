@@ -135,6 +135,7 @@ void DeviceCloudPolicyManagerAsh::Shutdown() {
   syslog_uploader_.reset();
   status_uploader_.reset();
   managed_session_service_.reset();
+  euicc_status_uploader_.reset();
   external_data_manager_->Disconnect();
   state_keys_update_subscription_ = {};
   CloudPolicyManager::Shutdown();
@@ -155,12 +156,12 @@ ZeroTouchEnrollmentMode
 DeviceCloudPolicyManagerAsh::GetZeroTouchEnrollmentMode() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(
-          chromeos::switches::kEnterpriseEnableZeroTouchEnrollment)) {
+          ash::switches::kEnterpriseEnableZeroTouchEnrollment)) {
     return ZeroTouchEnrollmentMode::DISABLED;
   }
 
   std::string value = command_line->GetSwitchValueASCII(
-      chromeos::switches::kEnterpriseEnableZeroTouchEnrollment);
+      ash::switches::kEnterpriseEnableZeroTouchEnrollment);
   if (value == kZeroTouchEnrollmentForced) {
     return ZeroTouchEnrollmentMode::FORCED;
   }
@@ -171,7 +172,7 @@ DeviceCloudPolicyManagerAsh::GetZeroTouchEnrollmentMode() {
     return ZeroTouchEnrollmentMode::ENABLED;
   }
   LOG(WARNING) << "Malformed value \"" << value << "\" for switch --"
-               << chromeos::switches::kEnterpriseEnableZeroTouchEnrollment
+               << ash::switches::kEnterpriseEnableZeroTouchEnrollment
                << ". Ignoring switch.";
   return ZeroTouchEnrollmentMode::DISABLED;
 }
@@ -189,8 +190,7 @@ void DeviceCloudPolicyManagerAsh::StartConnection(
   // exposing policy for extensions.
   if (!component_policy_disabled_for_testing_) {
     const base::FilePath component_policy_cache_dir =
-        base::PathService::CheckedGet(
-            chromeos::DIR_SIGNIN_PROFILE_COMPONENT_POLICY);
+        base::PathService::CheckedGet(ash::DIR_SIGNIN_PROFILE_COMPONENT_POLICY);
     CHECK(signin_profile_forwarding_schema_registry_);
     CreateComponentCloudPolicyService(
         dm_protocol::kChromeSigninExtensionPolicyType,
@@ -224,7 +224,7 @@ void DeviceCloudPolicyManagerAsh::StartConnection(
   // Don't create a MachineCertificateUploader or start the
   // AttestationPolicyObserver if machine cert requests are disabled.
   if (!(base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kDisableMachineCertRequest))) {
+          ash::switches::kDisableMachineCertRequest))) {
     machine_certificate_uploader_ =
         std::make_unique<ash::attestation::MachineCertificateUploaderImpl>(
             client());
@@ -257,7 +257,8 @@ void DeviceCloudPolicyManagerAsh::StartConnection(
     login_logout_reporter_ = ash::reporting::LoginLogoutReporter::Create(
         managed_session_service_.get());
     user_added_removed_reporter_ =
-        std::make_unique<::reporting::UserAddedRemovedReporter>();
+        ::reporting::UserAddedRemovedReporter::Create(
+            managed_session_service_.get());
     metric_reporting_manager_ = reporting::MetricReportingManager::Create(
         managed_session_service_.get());
   }

@@ -4,94 +4,48 @@
 
 #include "content/browser/attribution_reporting/attribution_policy.h"
 
-#include <memory>
-
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
-#include "content/browser/attribution_reporting/storable_source.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
 
 namespace {
 
-const StorableSource::SourceType kSourceTypes[] = {
-    StorableSource::SourceType::kNavigation,
-    StorableSource::SourceType::kEvent,
-};
-
-class ConfigurableAttributionPolicy : public AttributionPolicy {
- public:
-  explicit ConfigurableAttributionPolicy(bool should_noise)
-      : should_noise_(should_noise) {}
-
- protected:
-  bool ShouldNoiseTriggerData() const override { return should_noise_; }
-
-  uint64_t MakeNoisedTriggerData(uint64_t max) const override { return 1; }
-
- private:
-  bool should_noise_;
+const CommonSourceInfo::SourceType kSourceTypes[] = {
+    CommonSourceInfo::SourceType::kNavigation,
+    CommonSourceInfo::SourceType::kEvent,
 };
 
 }  // namespace
 
 TEST(AttributionPolicyTest, HighEntropyTriggerData_StrippedToLowerBits) {
-  std::unique_ptr<AttributionPolicy> policy =
-      std::make_unique<ConfigurableAttributionPolicy>(/*should_noise=*/false);
+  AttributionPolicy policy;
 
-  EXPECT_EQ(0u, policy->SanitizeTriggerData(
-                    8, StorableSource::SourceType::kNavigation));
-  EXPECT_EQ(1u, policy->SanitizeTriggerData(
-                    9, StorableSource::SourceType::kNavigation));
+  EXPECT_EQ(0u, policy.SanitizeTriggerData(
+                    8, CommonSourceInfo::SourceType::kNavigation));
+  EXPECT_EQ(1u, policy.SanitizeTriggerData(
+                    9, CommonSourceInfo::SourceType::kNavigation));
 
-  EXPECT_EQ(0u,
-            policy->SanitizeTriggerData(2, StorableSource::SourceType::kEvent));
-  EXPECT_EQ(1u,
-            policy->SanitizeTriggerData(3, StorableSource::SourceType::kEvent));
-}
-
-TEST(AttributionPolicyTest, SanitizeHighEntropySourceEventId_Unchanged) {
-  uint64_t source_event_id = 256LU;
-
-  // The policy should not alter the impression data, and return the base 10
-  // representation.
-  EXPECT_EQ(256LU, AttributionPolicy().SanitizeSourceEventId(source_event_id));
+  EXPECT_EQ(
+      0u, policy.SanitizeTriggerData(2, CommonSourceInfo::SourceType::kEvent));
+  EXPECT_EQ(
+      1u, policy.SanitizeTriggerData(3, CommonSourceInfo::SourceType::kEvent));
 }
 
 TEST(AttributionPolicyTest, LowEntropyTriggerData_Unchanged) {
-  std::unique_ptr<AttributionPolicy> policy =
-      std::make_unique<ConfigurableAttributionPolicy>(/*should_noise=*/false);
+  AttributionPolicy policy;
 
   for (uint64_t trigger_data = 0; trigger_data < 8; trigger_data++) {
     EXPECT_EQ(trigger_data,
-              policy->SanitizeTriggerData(
-                  trigger_data, StorableSource::SourceType::kNavigation));
+              policy.SanitizeTriggerData(
+                  trigger_data, CommonSourceInfo::SourceType::kNavigation));
   }
   for (uint64_t trigger_data = 0; trigger_data < 2; trigger_data++) {
     EXPECT_EQ(trigger_data,
-              policy->SanitizeTriggerData(trigger_data,
-                                          StorableSource::SourceType::kEvent));
-  }
-}
-
-TEST(AttributionPolicyTest, SanitizeTriggerData_OutputHasNoise) {
-  // The policy should include noise when sanitizing data.
-  for (auto source_type : kSourceTypes) {
-    EXPECT_EQ(1LU, ConfigurableAttributionPolicy(/*should_noise=*/true)
-                       .SanitizeTriggerData(0UL, source_type));
-  }
-}
-
-// This test will fail flakily if noise is used.
-TEST(AttributionPolicyTest, DebugMode_TriggerDataNotNoised) {
-  const uint64_t trigger_data = 0UL;
-  for (auto source_type : kSourceTypes) {
-    for (int i = 0; i < 100; i++) {
-      EXPECT_EQ(trigger_data,
-                AttributionPolicy(/*debug_mode=*/true)
-                    .SanitizeTriggerData(trigger_data, source_type));
-    }
+              policy.SanitizeTriggerData(trigger_data,
+                                         CommonSourceInfo::SourceType::kEvent));
   }
 }
 
@@ -140,18 +94,18 @@ TEST(AttributionPolicyTest, SmallImpressionExpirySpecified_ClampedTo1Day) {
 
 TEST(AttributionPolicyTest, NonWholeDayImpressionExpirySpecified_Rounded) {
   const struct {
-    StorableSource::SourceType source_type;
+    CommonSourceInfo::SourceType source_type;
     base::TimeDelta declared_expiry;
     base::TimeDelta want_expiry;
   } kTestCases[] = {
-      {StorableSource::SourceType::kNavigation, base::Hours(36),
+      {CommonSourceInfo::SourceType::kNavigation, base::Hours(36),
        base::Hours(36)},
-      {StorableSource::SourceType::kEvent, base::Hours(36), base::Days(2)},
+      {CommonSourceInfo::SourceType::kEvent, base::Hours(36), base::Days(2)},
 
-      {StorableSource::SourceType::kNavigation,
+      {CommonSourceInfo::SourceType::kNavigation,
        base::Days(1) + base::Milliseconds(1),
        base::Days(1) + base::Milliseconds(1)},
-      {StorableSource::SourceType::kEvent,
+      {CommonSourceInfo::SourceType::kEvent,
        base::Days(1) + base::Milliseconds(1), base::Days(1)},
   };
 

@@ -94,7 +94,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "net/base/features.h"
 #include "services/network/radio_monitor_android.h"
 #endif
@@ -173,8 +173,8 @@ void PopulateResourceResponse(net::URLRequest* request,
   response->auth_challenge_info = request->auth_challenge_info();
   response->has_range_requested = request->extra_request_headers().HasHeader(
       net::HttpRequestHeaders::kRange);
-  response->dns_aliases = request->response_info().dns_aliases;
-
+  base::ranges::copy(request->response_info().dns_aliases,
+                     std::back_inserter(response->dns_aliases));
   // [spec]: https://fetch.spec.whatwg.org/#http-network-or-cache-fetch
   // 13. Set response’s request-includes-credentials to includeCredentials.
   response->request_include_credentials = request->allow_credentials();
@@ -416,6 +416,12 @@ std::vector<mojom::WebClientHintsType> ComputeAcceptCHFrameHints(
     // ResourceWidth is only for images, which won't trigger a restart.
     if (hint == mojom::WebClientHintsType::kResourceWidth ||
         hint == mojom::WebClientHintsType::kResourceWidth_DEPRECATED) {
+      continue;
+    }
+
+    // TODO(crbug.com/1286857): `Sec-CH-UA-Full` client hint isn't yet in
+    // request, which trigger a restart, will add in following CL.
+    if (hint == mojom::WebClientHintsType::kFullUserAgent) {
       continue;
     }
 
@@ -713,7 +719,7 @@ URLLoader::URLLoader(
         request.net_log_reference_info.value());
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   if (base::FeatureList::IsEnabled(net::features::kRecordRadioWakeupTrigger)) {
     MaybeRecordURLLoaderCreationForWakeupTrigger(request, traffic_annotation);
   }
@@ -1955,9 +1961,16 @@ void URLLoader::SendResponseToClient() {
               perfetto::Flow::FromPointer(this), "url", url_request_->url());
   DCHECK_EQ(emitted_devtools_raw_request_, emitted_devtools_raw_response_);
   response_->emitted_extra_info = emitted_devtools_raw_request_;
-  url_loader_client_.Get()->OnReceiveResponse(std::move(response_));
-  url_loader_client_.Get()->OnStartLoadingResponseBody(
-      std::move(consumer_handle_));
+
+  if (base::FeatureList::IsEnabled(features::kCombineResponseBody)) {
+    url_loader_client_.Get()->OnReceiveResponse(response_->Clone(),
+                                                std::move(consumer_handle_));
+  } else {
+    url_loader_client_.Get()->OnReceiveResponse(
+        response_->Clone(), mojo::ScopedDataPipeConsumerHandle());
+    url_loader_client_.Get()->OnStartLoadingResponseBody(
+        std::move(consumer_handle_));
+  }
 }
 
 void URLLoader::CompletePendingWrite(bool success) {
@@ -2247,7 +2260,6 @@ URLLoader::BlockResponseForCorbResult URLLoader::BlockResponseForCorb(
 
   // Send stripped headers to the real URLLoaderClient.
   corb::SanitizeBlockedResponseHeaders(*response_);
-  url_loader_client_.Get()->OnReceiveResponse(response_->Clone());
 
   // Send empty body to the real URLLoaderClient.
   mojo::ScopedDataPipeProducerHandle producer_handle;
@@ -2256,8 +2268,16 @@ URLLoader::BlockResponseForCorbResult URLLoader::BlockResponseForCorb(
                                 consumer_handle),
            MOJO_RESULT_OK);
   producer_handle.reset();
-  url_loader_client_.Get()->OnStartLoadingResponseBody(
-      std::move(consumer_handle));
+
+  if (base::FeatureList::IsEnabled(features::kCombineResponseBody)) {
+    url_loader_client_.Get()->OnReceiveResponse(response_->Clone(),
+                                                std::move(consumer_handle));
+  } else {
+    url_loader_client_.Get()->OnReceiveResponse(
+        response_->Clone(), mojo::ScopedDataPipeConsumerHandle());
+    url_loader_client_.Get()->OnStartLoadingResponseBody(
+        std::move(consumer_handle));
+  }
 
   // Tell the real URLLoaderClient that the response has been completed.
   if (corb_detachable_) {
@@ -2492,8 +2512,6 @@ void URLLoader::SetRequestCredentials(const GURL& url) {
   // As a workaround until a solution is implemented, the cached responses
   // aren't used for those requests.
   if (!coep_allow_credentials) {
-    DCHECK(base::FeatureList::IsEnabled(
-        features::kCrossOriginEmbedderPolicyCredentialless));
     url_request_->SetLoadFlags(url_request_->load_flags() |
                                net::LOAD_BYPASS_CACHE);
   }
@@ -2528,16 +2546,12 @@ bool URLLoader::CoepAllowCredentials(const GURL& url) {
     return true;
   }
 
-  DCHECK(base::FeatureList::IsEnabled(
-      features::kCrossOriginEmbedderPolicyCredentialless));
-
   // [spec]: 4. If request’s origin is same origin with request’s current URL’s
   //            origin and request does not have a redirect-tainted origin, then
   //            return true.
-  url::Origin request_origin = url::Origin::Create(url);
   url::Origin request_initiator =
       url_request_->initiator().value_or(url::Origin());
-  if (request_origin.IsSameOriginWith(request_initiator))
+  if (request_initiator.IsSameOriginWith(url))
     return true;
 
   // [spec]: 5. Return false.

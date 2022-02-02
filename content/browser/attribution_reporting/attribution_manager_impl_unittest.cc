@@ -24,14 +24,18 @@
 #include "base/test/mock_callback.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
+#include "content/browser/attribution_reporting/attribution_storage_delegate_impl.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/send_result.h"
 #include "content/browser/attribution_reporting/storable_source.h"
 #include "content/browser/attribution_reporting/storable_trigger.h"
+#include "content/browser/attribution_reporting/stored_source.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/network_service_instance.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_utils.h"
@@ -51,34 +55,22 @@ using CreateReportStatus =
 using DeactivatedSource = ::content::AttributionStorage::DeactivatedSource;
 
 using ::testing::_;
+using ::testing::AllOf;
 using ::testing::ElementsAre;
 using ::testing::Expectation;
 using ::testing::Field;
+using ::testing::Ge;
 using ::testing::InSequence;
 using ::testing::IsEmpty;
+using ::testing::Le;
 using ::testing::Optional;
 using ::testing::Pair;
 using ::testing::Pointee;
-using ::testing::Property;
 using ::testing::Return;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
 using Checkpoint = ::testing::MockFunction<void(int step)>;
-
-constexpr base::TimeDelta kExpiredReportOffset = base::Minutes(2);
-
-class ConstantOfflineReportDelayPolicy : public AttributionPolicy {
- public:
-  ConstantOfflineReportDelayPolicy() = default;
-  ~ConstantOfflineReportDelayPolicy() override = default;
-
-  absl::optional<OfflineReportDelayConfig> GetOfflineReportDelayConfig()
-      const override {
-    return OfflineReportDelayConfig{.min = kExpiredReportOffset,
-                                    .max = kExpiredReportOffset};
-  }
-};
 
 class MockAttributionManagerObserver : public AttributionManager::Observer {
  public:
@@ -93,7 +85,7 @@ class MockAttributionManagerObserver : public AttributionManager::Observer {
 
   MOCK_METHOD(void,
               OnReportSent,
-              (const EventAttributionReport& report, const SendResult& info),
+              (const AttributionReport& report, const SendResult& info),
               (override));
 
   MOCK_METHOD(void,
@@ -163,6 +155,10 @@ class AttributionManagerImplTest : public testing::Test {
             base::MakeRefCounted<storage::MockSpecialStoragePolicy>()),
         network_sender_(new MockNetworkSender()) {
     EXPECT_TRUE(dir_.CreateUniqueTempDir());
+
+    content::SetNetworkConnectionTrackerForTesting(
+        network::TestNetworkConnectionTracker::GetInstance());
+
     CreateManager();
   }
 
@@ -170,9 +166,8 @@ class AttributionManagerImplTest : public testing::Test {
     attribution_manager_ = absl::WrapUnique(new AttributionManagerImpl(
         static_cast<StoragePartitionImpl*>(
             browser_context_->GetDefaultStoragePartition()),
-        network::TestNetworkConnectionTracker::GetInstance(), dir_.GetPath(),
-        std::make_unique<ConstantOfflineReportDelayPolicy>(),
-        mock_storage_policy_, absl::WrapUnique(network_sender_.get())));
+        dir_.GetPath(), mock_storage_policy_,
+        absl::WrapUnique(network_sender_.get())));
   }
 
   void ShutdownManager() {
@@ -184,11 +179,11 @@ class AttributionManagerImplTest : public testing::Test {
     }
   }
 
-  std::vector<StorableSource> StoredSources() {
-    std::vector<StorableSource> result;
+  std::vector<StoredSource> StoredSources() {
+    std::vector<StoredSource> result;
     base::RunLoop loop;
     attribution_manager_->GetActiveSourcesForWebUI(
-        base::BindLambdaForTesting([&](std::vector<StorableSource> sources) {
+        base::BindLambdaForTesting([&](std::vector<StoredSource> sources) {
           result = std::move(sources);
           loop.Quit();
         }));
@@ -196,11 +191,11 @@ class AttributionManagerImplTest : public testing::Test {
     return result;
   }
 
-  std::vector<EventAttributionReport> StoredReports() {
-    std::vector<EventAttributionReport> result;
+  std::vector<AttributionReport> StoredReports() {
+    std::vector<AttributionReport> result;
     base::RunLoop loop;
-    attribution_manager_->GetPendingReportsForWebUI(base::BindLambdaForTesting(
-        [&](std::vector<EventAttributionReport> reports) {
+    attribution_manager_->GetPendingReportsForWebUI(
+        base::BindLambdaForTesting([&](std::vector<AttributionReport> reports) {
           result = std::move(reports);
           loop.Quit();
         }));
@@ -236,7 +231,8 @@ TEST_F(AttributionManagerImplTest, ImpressionRegistered_ReturnedToWebUI) {
                         .Build();
   attribution_manager_->HandleSource(impression);
 
-  EXPECT_THAT(StoredSources(), ElementsAre(impression));
+  EXPECT_THAT(StoredSources(),
+              ElementsAre(CommonSourceInfoIs(impression.common_info())));
 }
 
 TEST_F(AttributionManagerImplTest, ExpiredImpression_NotReturnedToWebUI) {
@@ -250,25 +246,23 @@ TEST_F(AttributionManagerImplTest, ExpiredImpression_NotReturnedToWebUI) {
 }
 
 TEST_F(AttributionManagerImplTest, ImpressionConverted_ReportReturnedToWebUI) {
-  auto impression = SourceBuilder()
-                        .SetExpiry(kImpressionExpiry)
-                        .SetSourceEventId(100)
-                        .Build();
-  attribution_manager_->HandleSource(impression);
+  SourceBuilder builder;
+  builder.SetExpiry(kImpressionExpiry).SetSourceEventId(100);
+  attribution_manager_->HandleSource(builder.Build());
 
   auto conversion = DefaultTrigger();
   attribution_manager_->HandleTrigger(conversion);
 
-  EventAttributionReport expected_report =
-      ReportBuilder(impression)
+  AttributionReport expected_report =
+      ReportBuilder(builder.BuildStored())
           .SetTriggerData(conversion.trigger_data())
-          .SetConversionTime(base::Time::Now())
+          .SetTriggerTime(base::Time::Now())
           .SetReportTime(base::Time::Now() + kFirstReportingWindow)
           .Build();
 
   // The external report ID is randomly generated by the storage delegate,
   // so zero it out here to avoid flakiness.
-  std::vector<EventAttributionReport> reports = StoredReports();
+  std::vector<AttributionReport> reports = StoredReports();
   for (auto& report : reports) {
     report.SetExternalReportIdForTesting(DefaultExternalReportID());
   }
@@ -420,7 +414,7 @@ TEST_F(AttributionManagerImplTest,
       {SendResult::Status::kTransientFailure});
 
   // kFailed = 1.
-  histograms.ExpectUniqueSample("Conversion.ReportSendOutcome", 1, 1);
+  histograms.ExpectUniqueSample("Conversions.ReportSendOutcome", 1, 1);
 }
 
 TEST_F(AttributionManagerImplTest, RetryLogicOverridesGetReportTimer) {
@@ -486,7 +480,7 @@ TEST_F(AttributionManagerImplTest,
   EXPECT_THAT(StoredReports(), IsEmpty());
 
   // kFailed = 1.
-  histograms.ExpectUniqueSample("Conversion.ReportSendOutcome", 1, 1);
+  histograms.ExpectUniqueSample("Conversions.ReportSendOutcome", 1, 1);
 }
 
 TEST_F(AttributionManagerImplTest, QueuedReportAlwaysFails_StopsSending) {
@@ -523,7 +517,7 @@ TEST_F(AttributionManagerImplTest, QueuedReportAlwaysFails_StopsSending) {
   EXPECT_THAT(StoredReports(), IsEmpty());
 
   // kFailed = 1.
-  histograms.ExpectUniqueSample("Conversion.ReportSendOutcome", 1, 1);
+  histograms.ExpectUniqueSample("Conversions.ReportSendOutcome", 1, 1);
 }
 
 TEST_F(AttributionManagerImplTest, ReportExpiredAtStartup_Sent) {
@@ -539,8 +533,11 @@ TEST_F(AttributionManagerImplTest, ReportExpiredAtStartup_Sent) {
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
   // Simulate startup and ensure the report is sent before being expired.
+  // Advance by the max offline report delay, per
+  // `AttributionStorageDelegateImpl::GetOfflineReportDelayConfig()`.
   CreateManager();
-  task_environment_.FastForwardBy(kExpiredReportOffset);
+  task_environment_.FastForwardBy(
+      AttributionStorageDelegateImpl().GetOfflineReportDelayConfig()->max);
   EXPECT_THAT(network_sender_->calls(), SizeIs(1));
 }
 
@@ -557,7 +554,7 @@ TEST_F(AttributionManagerImplTest, ReportSent_Deleted) {
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
   // kSent = 0.
-  histograms.ExpectUniqueSample("Conversion.ReportSendOutcome", 0, 1);
+  histograms.ExpectUniqueSample("Conversions.ReportSendOutcome", 0, 1);
 }
 
 TEST_F(AttributionManagerImplTest, QueuedReportSent_ObserversNotified) {
@@ -568,21 +565,9 @@ TEST_F(AttributionManagerImplTest, QueuedReportSent_ObserversNotified) {
       observation(&observer);
   observation.Observe(attribution_manager_.get());
 
-  EXPECT_CALL(
-      observer,
-      OnReportSent(Property(&EventAttributionReport::source,
-                            Property(&StorableSource::source_event_id, 1u)),
-                   _));
-  EXPECT_CALL(
-      observer,
-      OnReportSent(Property(&EventAttributionReport::source,
-                            Property(&StorableSource::source_event_id, 2u)),
-                   _));
-  EXPECT_CALL(
-      observer,
-      OnReportSent(Property(&EventAttributionReport::source,
-                            Property(&StorableSource::source_event_id, 3u)),
-                   _));
+  EXPECT_CALL(observer, OnReportSent(ReportSourceIs(SourceEventIdIs(1u)), _));
+  EXPECT_CALL(observer, OnReportSent(ReportSourceIs(SourceEventIdIs(2u)), _));
+  EXPECT_CALL(observer, OnReportSent(ReportSourceIs(SourceEventIdIs(3u)), _));
 
   attribution_manager_->HandleSource(
       SourceBuilder().SetSourceEventId(1).SetExpiry(kImpressionExpiry).Build());
@@ -612,11 +597,11 @@ TEST_F(AttributionManagerImplTest, QueuedReportSent_ObserversNotified) {
        SendResult::Status::kSent, SendResult::Status::kTransientFailure});
 
   // kSent = 0.
-  histograms.ExpectBucketCount("Conversion.ReportSendOutcome", 0, 2);
+  histograms.ExpectBucketCount("Conversions.ReportSendOutcome", 0, 2);
   // kFailed = 1.
-  histograms.ExpectBucketCount("Conversion.ReportSendOutcome", 1, 0);
+  histograms.ExpectBucketCount("Conversions.ReportSendOutcome", 1, 0);
   // kDropped = 2.
-  histograms.ExpectBucketCount("Conversion.ReportSendOutcome", 2, 1);
+  histograms.ExpectBucketCount("Conversions.ReportSendOutcome", 2, 1);
 }
 
 TEST_F(AttributionManagerImplTest, DroppedReport_ObserversNotified) {
@@ -636,37 +621,32 @@ TEST_F(AttributionManagerImplTest, DroppedReport_ObserversNotified) {
     EXPECT_CALL(
         observer,
         OnReportDropped(AllOf(
-            Property(&CreateReportResult::dropped_report,
-                     Optional(Property(&EventAttributionReport::priority, 1))),
-            Property(&CreateReportResult::status,
-                     CreateReportStatus::kSuccessDroppedLowerPriority))));
+            DroppedReportIs(Optional(EventLevelDataIs(TriggerPriorityIs(1)))),
+            CreateReportStatusIs(
+                CreateReportStatus::kSuccessDroppedLowerPriority))));
 
     EXPECT_CALL(checkpoint, Call(2));
 
     EXPECT_CALL(
         observer,
         OnReportDropped(AllOf(
-            Property(&CreateReportResult::dropped_report,
-                     Optional(Property(&EventAttributionReport::priority, -5))),
-            Property(&CreateReportResult::status,
-                     CreateReportStatus::kPriorityTooLow))));
+            DroppedReportIs(Optional(EventLevelDataIs(TriggerPriorityIs(-5)))),
+            CreateReportStatusIs(CreateReportStatus::kPriorityTooLow))));
 
     EXPECT_CALL(checkpoint, Call(3));
 
     EXPECT_CALL(
         observer,
         OnReportDropped(AllOf(
-            Property(&CreateReportResult::dropped_report,
-                     Optional(Property(&EventAttributionReport::priority, 2))),
-            Property(&CreateReportResult::status,
-                     CreateReportStatus::kSuccessDroppedLowerPriority))));
+            DroppedReportIs(Optional(EventLevelDataIs(TriggerPriorityIs(2)))),
+            CreateReportStatusIs(
+                CreateReportStatus::kSuccessDroppedLowerPriority))));
     EXPECT_CALL(
         observer,
         OnReportDropped(AllOf(
-            Property(&CreateReportResult::dropped_report,
-                     Optional(Property(&EventAttributionReport::priority, 3))),
-            Property(&CreateReportResult::status,
-                     CreateReportStatus::kSuccessDroppedLowerPriority))));
+            DroppedReportIs(Optional(EventLevelDataIs(TriggerPriorityIs(3)))),
+            CreateReportStatusIs(
+                CreateReportStatus::kSuccessDroppedLowerPriority))));
   }
 
   attribution_manager_->HandleSource(
@@ -738,12 +718,14 @@ TEST_F(AttributionManagerImplTest, ConversionsSentFromUI_ReportedImmediately) {
   attribution_manager_->HandleSource(
       SourceBuilder().SetExpiry(kImpressionExpiry).Build());
   attribution_manager_->HandleTrigger(DefaultTrigger());
-  std::vector<EventAttributionReport> reports = StoredReports();
+  std::vector<AttributionReport> reports = StoredReports();
   EXPECT_THAT(reports, SizeIs(1));
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
-  attribution_manager_->SendReportsForWebUI({*reports.front().report_id()},
-                                            base::DoNothing());
+  attribution_manager_->SendReportsForWebUI(
+      {*(absl::get<AttributionReport::EventLevelData>(reports.front().data())
+             .id)},
+      base::DoNothing());
   task_environment_.FastForwardBy(base::TimeDelta());
   EXPECT_THAT(network_sender_->calls(), SizeIs(1));
 }
@@ -756,12 +738,15 @@ TEST_F(AttributionManagerImplTest,
       SourceBuilder().SetExpiry(kImpressionExpiry).Build());
   attribution_manager_->HandleTrigger(DefaultTrigger());
   attribution_manager_->HandleTrigger(DefaultTrigger());
-  std::vector<EventAttributionReport> reports = StoredReports();
+  std::vector<AttributionReport> reports = StoredReports();
   EXPECT_THAT(reports, SizeIs(2));
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
   attribution_manager_->SendReportsForWebUI(
-      {*reports.front().report_id(), *reports.back().report_id()},
+      {*(absl::get<AttributionReport::EventLevelData>(reports.front().data())
+             .id),
+       *(absl::get<AttributionReport::EventLevelData>(reports.back().data())
+             .id)},
       base::BindLambdaForTesting([&]() { callback_calls++; }));
   task_environment_.FastForwardBy(base::TimeDelta());
   EXPECT_THAT(network_sender_->calls(), SizeIs(2));
@@ -777,8 +762,6 @@ TEST_F(AttributionManagerImplTest,
 }
 
 TEST_F(AttributionManagerImplTest, ExpiredReportsAtStartup_Delayed) {
-  base::Time start_time = base::Time::Now();
-
   attribution_manager_->HandleSource(
       SourceBuilder().SetExpiry(kImpressionExpiry).Build());
   attribution_manager_->HandleTrigger(DefaultTrigger());
@@ -792,12 +775,13 @@ TEST_F(AttributionManagerImplTest, ExpiredReportsAtStartup_Delayed) {
   CreateManager();
 
   // Ensure that the expired report is delayed based on the time the browser
-  // started.
-  EXPECT_THAT(
-      StoredReports(),
-      ElementsAre(Property(&EventAttributionReport::report_time,
-                           start_time + kFirstReportingWindow +
-                               base::Milliseconds(1) + kExpiredReportOffset)));
+  // started and the min and max offline report delays, per
+  // `AttributionStorageDelegateImpl::GetOfflineReportDelayConfig()`.
+  base::Time min_new_time = base::Time::Now();
+  auto delay = AttributionStorageDelegateImpl().GetOfflineReportDelayConfig();
+  EXPECT_THAT(StoredReports(),
+              ElementsAre(ReportTimeIs(AllOf(Ge(min_new_time + delay->min),
+                                             Le(min_new_time + delay->max)))));
 
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 }
@@ -821,8 +805,7 @@ TEST_F(AttributionManagerImplTest,
 
   // Ensure that this report does not receive additional delay.
   EXPECT_THAT(StoredReports(),
-              ElementsAre(Property(&EventAttributionReport::report_time,
-                                   start_time + kFirstReportingWindow)));
+              ElementsAre(ReportTimeIs(start_time + kFirstReportingWindow)));
 
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 }
@@ -953,8 +936,8 @@ TEST_F(AttributionManagerImplTest, HandleSource_NotifiesObservers) {
       observation(&observer);
   observation.Observe(attribution_manager_.get());
 
-  auto source1 =
-      SourceBuilder().SetExpiry(kImpressionExpiry).SetSourceEventId(7).Build();
+  SourceBuilder builder;
+  builder.SetExpiry(kImpressionExpiry).SetSourceEventId(7);
 
   Checkpoint checkpoint;
   {
@@ -974,13 +957,13 @@ TEST_F(AttributionManagerImplTest, HandleSource_NotifiesObservers) {
 
     EXPECT_CALL(observer, OnSourcesChanged);
     EXPECT_CALL(observer, OnReportsChanged).Times(0);
-    EXPECT_CALL(
-        observer,
-        OnSourceDeactivated(DeactivatedSource{
-            source1, DeactivatedSource::Reason::kReplacedByNewerSource}));
+    EXPECT_CALL(observer,
+                OnSourceDeactivated(DeactivatedSource{
+                    builder.BuildStored(),
+                    DeactivatedSource::Reason::kReplacedByNewerSource}));
   }
 
-  attribution_manager_->HandleSource(source1);
+  attribution_manager_->HandleSource(builder.Build());
   EXPECT_THAT(StoredSources(), SizeIs(1));
   checkpoint.Call(1);
 
@@ -988,9 +971,8 @@ TEST_F(AttributionManagerImplTest, HandleSource_NotifiesObservers) {
   EXPECT_THAT(StoredReports(), SizeIs(1));
   checkpoint.Call(2);
 
-  auto source2 =
-      SourceBuilder().SetExpiry(kImpressionExpiry).SetSourceEventId(9).Build();
-  attribution_manager_->HandleSource(source2);
+  attribution_manager_->HandleSource(
+      SourceBuilder().SetExpiry(kImpressionExpiry).SetSourceEventId(9).Build());
   EXPECT_THAT(StoredSources(), SizeIs(1));
 }
 
@@ -1000,8 +982,8 @@ TEST_F(AttributionManagerImplTest, HandleTrigger_NotifiesObservers) {
       observation(&observer);
   observation.Observe(attribution_manager_.get());
 
-  auto source1 =
-      SourceBuilder().SetExpiry(kImpressionExpiry).SetSourceEventId(7).Build();
+  SourceBuilder builder;
+  builder.SetExpiry(kImpressionExpiry).SetSourceEventId(7);
 
   Checkpoint checkpoint;
   {
@@ -1027,13 +1009,13 @@ TEST_F(AttributionManagerImplTest, HandleTrigger_NotifiesObservers) {
 
     EXPECT_CALL(observer, OnSourcesChanged);
     EXPECT_CALL(observer, OnReportsChanged);
-    EXPECT_CALL(
-        observer,
-        OnSourceDeactivated(DeactivatedSource{
-            source1, DeactivatedSource::Reason::kReachedAttributionLimit}));
+    EXPECT_CALL(observer,
+                OnSourceDeactivated(DeactivatedSource{
+                    builder.BuildStored(),
+                    DeactivatedSource::Reason::kReachedAttributionLimit}));
   }
 
-  attribution_manager_->HandleSource(source1);
+  attribution_manager_->HandleSource(builder.Build());
   EXPECT_THAT(StoredSources(), SizeIs(1));
   checkpoint.Call(1);
 
@@ -1111,7 +1093,7 @@ TEST_F(AttributionManagerImplTest, EmbedderDisallowsReporting_ReportNotSent) {
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
   // kDropped = 2.
-  histograms.ExpectBucketCount("Conversion.ReportSendOutcome", 2, 1);
+  histograms.ExpectBucketCount("Conversions.ReportSendOutcome", 2, 1);
 }
 
 TEST_F(AttributionManagerImplTest, Offline_NoReportSent) {
@@ -1155,11 +1137,13 @@ TEST_F(AttributionManagerImplTest, SendReport_RecordsExtraReportDelay2) {
   EXPECT_THAT(network_sender_->calls(), IsEmpty());
 
   SetOfflineAndWaitForObserversToBeNotified(false);
-  task_environment_.FastForwardBy(kExpiredReportOffset);
+
+  auto delay = AttributionStorageDelegateImpl().GetOfflineReportDelayConfig();
+  task_environment_.FastForwardBy(delay->max);
   EXPECT_THAT(network_sender_->calls(), SizeIs(1));
 
   histograms.ExpectUniqueTimeSample("Conversions.ExtraReportDelay2",
-                                    base::Days(3) + kExpiredReportOffset, 1);
+                                    base::Days(3) + delay->min, 1);
 }
 
 TEST_F(AttributionManagerImplTest, SendReportsFromWebUI_DoesNotRecordMetrics) {
@@ -1169,8 +1153,8 @@ TEST_F(AttributionManagerImplTest, SendReportsFromWebUI_DoesNotRecordMetrics) {
       SourceBuilder().SetExpiry(kImpressionExpiry).Build());
   attribution_manager_->HandleTrigger(DefaultTrigger());
 
-  attribution_manager_->SendReportsForWebUI({EventAttributionReport::Id(1)},
-                                            base::DoNothing());
+  attribution_manager_->SendReportsForWebUI(
+      {AttributionReport::EventLevelData::Id(1)}, base::DoNothing());
   task_environment_.FastForwardBy(base::TimeDelta());
   EXPECT_THAT(network_sender_->calls(), SizeIs(1));
 

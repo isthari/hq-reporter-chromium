@@ -647,6 +647,18 @@ class CanvasResourceProviderSharedImage : public CanvasResourceProvider {
     resource_->WaitSyncToken(sync_token);
   }
 
+  void OnFlushForImage(cc::PaintImage::ContentId content_id) override {
+    CanvasResourceProvider::OnFlushForImage(content_id);
+    if (cached_snapshot_ &&
+        cached_snapshot_->PaintImageForCurrentFrame().GetContentIdForFrame(0) ==
+            content_id) {
+      // This handles the case where the cached snapshot is referenced by an
+      // ImageBitmap that is being transferred to a worker.
+      cached_snapshot_.reset();
+    }
+  }
+
+ private:
   const bool is_accelerated_;
   const uint32_t shared_image_usage_flags_;
   bool current_resource_has_write_access_ = false;
@@ -971,7 +983,7 @@ CanvasResourceProvider::CreateSharedImageProvider(
     shared_image_usage_flags &= ~gpu::SHARED_IMAGE_USAGE_SCANOUT;
   }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   if ((shared_image_usage_flags & gpu::SHARED_IMAGE_USAGE_SCANOUT) &&
       is_accelerated && adjusted_info.colorType() == kRGBA_8888_SkColorType) {
     // GPU-accelerated scannout usage on Mac uses IOSurface.  Must switch from
@@ -995,14 +1007,16 @@ CanvasResourceProvider::CreateSharedImageProvider(
 }
 
 std::unique_ptr<CanvasResourceProvider>
-CanvasResourceProvider::CreateWebGPUImageProvider(const SkImageInfo& info,
-                                                  bool is_origin_top_left) {
+CanvasResourceProvider::CreateWebGPUImageProvider(
+    const SkImageInfo& info,
+    bool is_origin_top_left,
+    uint32_t shared_image_usage_flags) {
   auto context_provider_wrapper = SharedGpuContext::ContextProviderWrapper();
   return CreateSharedImageProvider(
       info, cc::PaintFlags::FilterQuality::kLow,
       CanvasResourceProvider::ShouldInitialize::kNo,
       std::move(context_provider_wrapper), RasterMode::kGPU, is_origin_top_left,
-      gpu::SHARED_IMAGE_USAGE_WEBGPU);
+      shared_image_usage_flags | gpu::SHARED_IMAGE_USAGE_WEBGPU);
 }
 
 std::unique_ptr<CanvasResourceProvider>
@@ -1214,6 +1228,14 @@ SkSurface* CanvasResourceProvider::GetSkSurface() const {
   return surface_.get();
 }
 
+void CanvasResourceProvider::NotifyWillTransfer(
+    cc::PaintImage::ContentId content_id) {
+  // This is called when an ImageBitmap is about to be transferred. All
+  // references to such a bitmap on the current thread must be released, which
+  // means that DisplayItemLists that reference it must be flushed.
+  GetFlushForImageListener()->NotifyFlushForImage(content_id);
+}
+
 void CanvasResourceProvider::EnsureSkiaCanvas() {
   WillDraw();
 
@@ -1354,8 +1376,8 @@ void CanvasResourceProvider::FlushCanvas() {
 }
 
 sk_sp<cc::PaintRecord>
-CanvasResourceProvider::FlushCanvasAndMaybePreserveRecording() {
-  return FlushCanvasInternal(IsPrinting() && clear_frame_);
+CanvasResourceProvider::FlushCanvasAndMaybePreserveRecording(bool printing) {
+  return FlushCanvasInternal((printing || IsPrinting()) && clear_frame_);
 }
 
 gfx::Size CanvasResourceProvider::Size() const {

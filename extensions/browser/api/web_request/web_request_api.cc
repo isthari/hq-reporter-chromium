@@ -66,6 +66,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/guest_view/guest_view_events.h"
 #include "extensions/browser/guest_view/web_view/web_view_constants.h"
@@ -271,8 +272,11 @@ bool IsRequestFromExtension(const WebRequestInfo& request,
 bool FromHeaderDictionary(const base::DictionaryValue* header_value,
                           std::string* name,
                           std::string* out_value) {
-  if (!header_value->GetString(keys::kHeaderNameKey, name))
+  const std::string* name_ptr =
+      header_value->FindStringKey(keys::kHeaderNameKey);
+  if (!name)
     return false;
+  *name = *name_ptr;
 
   // We require either a "value" or a "binaryValue" entry.
   const base::Value* value = header_value->FindKey(keys::kHeaderValueKey);
@@ -696,7 +700,7 @@ bool WebRequestAPI::MaybeProxyURLLoaderFactory(
   auto* web_contents = content::WebContents::FromRenderFrameHost(frame);
   if (!MayHaveProxies()) {
     bool skip_proxy = true;
-    // There are a few internal WebUIs that use WebView tag that are whitelisted
+    // There are a few internal WebUIs that use WebView tag that are allowlisted
     // for webRequest.
     if (web_contents && WebViewGuest::IsGuest(web_contents)) {
       auto* guest_web_contents =
@@ -705,8 +709,9 @@ bool WebRequestAPI::MaybeProxyURLLoaderFactory(
       if (guest_url.SchemeIs(content::kChromeUIScheme)) {
         auto* feature = FeatureProvider::GetAPIFeature("webRequestInternal");
         if (feature
-                ->IsAvailableToContext(nullptr, Feature::WEBUI_CONTEXT,
-                                       guest_url)
+                ->IsAvailableToContext(
+                    nullptr, Feature::WEBUI_CONTEXT, guest_url,
+                    util::GetBrowserContextId(browser_context))
                 .is_available()) {
           skip_proxy = false;
         }
@@ -1613,12 +1618,12 @@ void ExtensionWebRequestEventRouter::DispatchEventToListeners(
 
     // In Public Sessions we want to restrict access to security or privacy
     // sensitive data. Data is filtered for *all* listeners, not only extensions
-    // which are force-installed by policy. Whitelisted extensions are exempt
+    // which are force-installed by policy. Allowlisted extensions are exempt
     // from this filtering.
     WebRequestEventDetails* custom_event_details = event_details.get();
     if (extension_web_request_api_helpers::
             ArePublicSessionRestrictionsEnabled() &&
-        !extensions::IsWhitelistedForPublicSession(listener->id.extension_id)) {
+        !extensions::IsAllowlistedForPublicSession(listener->id.extension_id)) {
       if (!event_details_filtered_copy) {
         event_details_filtered_copy =
             event_details->CreatePublicSessionCopy();
@@ -2736,10 +2741,10 @@ WebRequestInternalEventHandledFunction::Run() {
         dict_value.FindKey("responseHeaders");
 
     // In Public Session we restrict everything but "cancel" (except for
-    // whitelisted extensions which have no such restrictions).
+    // allowlisted extensions which have no such restrictions).
     if (extension_web_request_api_helpers::
             ArePublicSessionRestrictionsEnabled() &&
-        !extensions::IsWhitelistedForPublicSession(extension_id_safe()) &&
+        !extensions::IsAllowlistedForPublicSession(extension_id_safe()) &&
         (redirect_url_value || auth_credentials_value ||
          request_headers_value || response_headers_value)) {
       OnError(event_name, sub_event_name, request_id, render_process_id,
@@ -2833,13 +2838,14 @@ WebRequestInternalEventHandledFunction::Run() {
       const base::DictionaryValue* credentials_value = nullptr;
       EXTENSION_FUNCTION_VALIDATE(
           auth_credentials_value->GetAsDictionary(&credentials_value));
-      std::u16string username;
-      std::u16string password;
-      EXTENSION_FUNCTION_VALIDATE(
-          credentials_value->GetString(keys::kUsernameKey, &username));
-      EXTENSION_FUNCTION_VALIDATE(
-          credentials_value->GetString(keys::kPasswordKey, &password));
-      response->auth_credentials = net::AuthCredentials(username, password);
+      const std::string* username =
+          credentials_value->FindStringKey(keys::kUsernameKey);
+      const std::string* password =
+          credentials_value->FindStringKey(keys::kPasswordKey);
+      EXTENSION_FUNCTION_VALIDATE(username);
+      EXTENSION_FUNCTION_VALIDATE(password);
+      response->auth_credentials = net::AuthCredentials(
+          base::UTF8ToUTF16(*username), base::UTF8ToUTF16(*password));
     }
   }
 

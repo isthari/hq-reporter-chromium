@@ -5,8 +5,8 @@
 import {assert} from 'chrome://resources/js/assert.m.js';
 
 import {Events, EventType, untrustedOrigin} from '../../common/constants.js';
-import {validateReceivedSelection} from '../iframe_api.js';
-import {PersonalizationRouter} from '../personalization_router_element.js';
+import {IFrameApi} from '../iframe_api.js';
+import {Paths, PersonalizationRouter} from '../personalization_router_element.js';
 import {PersonalizationStore} from '../personalization_store.js';
 
 import {selectWallpaper} from './wallpaper_controller.js';
@@ -27,14 +27,15 @@ export function onMessageReceived(event: MessageEvent) {
     case EventType.SELECT_COLLECTION:
       const collections = store.data.wallpaper.backdrop.collections;
 
-      const selectedCollection = validateReceivedSelection(event, collections);
+      const selectedCollection =
+          IFrameApi.getInstance().validateReceivedSelection(event, collections);
       PersonalizationRouter.instance().selectCollection(selectedCollection);
       break;
     case EventType.SELECT_GOOGLE_PHOTOS_COLLECTION:
-      PersonalizationRouter.instance().selectGooglePhotosCollection();
+      PersonalizationRouter.instance().goToRoute(Paths.GooglePhotosCollection);
       break;
     case EventType.SELECT_LOCAL_COLLECTION:
-      PersonalizationRouter.instance().selectLocalCollection();
+      PersonalizationRouter.instance().goToRoute(Paths.LocalCollection);
       break;
     case EventType.SELECT_IMAGE:
       const collectionId = PersonalizationRouter.instance().collectionId;
@@ -43,7 +44,8 @@ export function onMessageReceived(event: MessageEvent) {
         return;
       }
       const images = store.data.wallpaper.backdrop.images[collectionId];
-      const selectedImage = validateReceivedSelection(event, images);
+      const selectedImage =
+          IFrameApi.getInstance().validateReceivedSelection(event, images);
       selectWallpaper(selectedImage, getWallpaperProvider(), store);
       break;
   }

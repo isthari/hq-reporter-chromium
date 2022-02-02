@@ -40,15 +40,15 @@ const char ScopedUserPrefUpdateTest::kValue[] = "value";
 
 TEST_F(ScopedUserPrefUpdateTest, RegularUse) {
   // Dictionary that will be expected to be set at the end.
-  base::DictionaryValue expected_dictionary;
-  expected_dictionary.SetString(kKey, kValue);
+  base::Value expected_dictionary(base::Value::Type::DICTIONARY);
+  expected_dictionary.SetStringKey(kKey, kValue);
 
   {
     EXPECT_CALL(observer_, OnPreferenceChanged(_)).Times(0);
     DictionaryPrefUpdate update(&prefs_, kPref);
-    base::DictionaryValue* value = update.Get();
+    base::Value* value = update.Get();
     ASSERT_TRUE(value);
-    value->SetString(kKey, kValue);
+    value->SetStringKey(kKey, kValue);
 
     // The dictionary was created for us but the creation should have happened
     // silently without notifications.
@@ -72,9 +72,7 @@ TEST_F(ScopedUserPrefUpdateTest, RegularUse) {
 TEST_F(ScopedUserPrefUpdateTest, NeverTouchAnything) {
   const base::Value* old_value = prefs_.GetDictionary(kPref);
   EXPECT_CALL(observer_, OnPreferenceChanged(_)).Times(0);
-  {
-    DictionaryPrefUpdate update(&prefs_, kPref);
-  }
+  { DictionaryPrefUpdate update(&prefs_, kPref); }
   const base::Value* new_value = prefs_.GetDictionary(kPref);
   EXPECT_EQ(old_value, new_value);
   Mock::VerifyAndClearExpectations(&observer_);
@@ -97,14 +95,14 @@ TEST_F(ScopedUserPrefUpdateTest, UpdatingListPrefWithDefaults) {
 
 TEST_F(ScopedUserPrefUpdateTest, UpdatingDictionaryPrefWithDefaults) {
   base::Value defaults(base::Value::Type::DICTIONARY);
-  defaults.SetKey("firstkey", base::Value("value"));
-  defaults.SetKey("secondkey", base::Value("value"));
+  defaults.SetStringKey("firstkey", "value");
+  defaults.SetStringKey("secondkey", "value");
 
   std::string pref_name = "mypref";
   prefs_.registry()->RegisterDictionaryPref(pref_name, std::move(defaults));
   EXPECT_EQ(2u, prefs_.GetDictionary(pref_name)->DictSize());
 
   DictionaryPrefUpdate update(&prefs_, pref_name);
-  update->SetKey("thirdkey", base::Value("value"));
+  update->SetStringKey("thirdkey", "value");
   EXPECT_EQ(3u, prefs_.GetDictionary(pref_name)->DictSize());
 }

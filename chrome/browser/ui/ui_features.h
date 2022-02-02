@@ -20,6 +20,10 @@ namespace features {
 // All features in alphabetical order. The features should be documented
 // alongside the definition of their values in the .cc file.
 
+// TODO(https://crbug.com/896640): Remove this when the tab dragging
+// interactive_ui_tests pass on Wayland.
+extern const base::Feature kAllowWindowDragUsingSystemDragDrop;
+
 extern const base::Feature kChromeLabs;
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -75,8 +79,6 @@ extern const base::Feature kSideSearchStatePerTab;
 extern const base::Feature kSyncConfirmationUpdatedText;
 
 extern const base::Feature kTabGroupsAutoCreate;
-
-extern const base::Feature kTabGroupsCollapseFreezing;
 
 extern const base::Feature kTabGroupsNewBadgePromo;
 
@@ -193,12 +195,12 @@ extern const base::Feature kWebUITabStripContextMenuAfterTap;
 
 extern const base::Feature kWebUIFeedback;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 extern const base::Feature kChromeOSTabSearchCaptionButton;
 #endif
 
 // Cocoa to views migration.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 extern const base::Feature kLocationPermissionsExperiment;
 
 extern const base::Feature kViewsFirstRunDialog;
@@ -209,7 +211,7 @@ int GetLocationPermissionsExperimentBubblePromptLimit();
 int GetLocationPermissionsExperimentLabelPromptLimit();
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 extern const base::Feature kWin10TabSearchCaptionButton;
 #endif
 

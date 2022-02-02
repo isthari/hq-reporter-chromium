@@ -8,17 +8,20 @@
 
 namespace ui {
 
-#if !defined(OS_MAC) && !defined(OS_WIN)
+#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_WIN)
 void AddNativeCoreColorMixer(ColorProvider* provider,
                              bool dark_window,
-                             bool high_contrast) {}
+                             bool high_contrast,
+                             bool high_elevation) {}
+#endif
 
+#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_WIN)
 void AddNativeUiColorMixer(ColorProvider* provider,
                            bool dark_window,
                            bool high_contrast) {}
 #endif
 
-#if !defined(OS_MAC)
+#if !BUILDFLAG(IS_MAC)
 void AddNativePostprocessingMixer(ColorProvider* provider) {}
 #endif
 

@@ -10,7 +10,7 @@
 #include "build/build_config.h"
 #include "ui/accessibility/platform/inspect/ax_api_type.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "base/win/scoped_com_initializer.h"
 #endif
 
@@ -30,8 +30,11 @@ class AXTreeServer final {
   AXTreeServer(const AXTreeServer&) = delete;
   AXTreeServer& operator=(const AXTreeServer&) = delete;
 
+  // If an error occurs during initialization, set bit here.
+  bool error;
+
  private:
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Only one COM initializer per thread is permitted.
   base::win::ScopedCOMInitializer com_initializer_;
 #endif

@@ -107,6 +107,7 @@ static_library("arc") {
     ":arc_base",
     ":arc_metrics_constants",
     ":prefs",
+    "//ash/components/cryptohome",
   ]
 
   deps = [
@@ -117,7 +118,6 @@ static_library("arc") {
     "//ash/keyboard/ui",
     "//ash/public/cpp",
     "//chromeos/components/sensors:sensors",
-    "//chromeos/cryptohome",
     "//chromeos/dbus",
     "//chromeos/dbus/cryptohome",
     "//chromeos/dbus/permission_broker",
@@ -306,6 +306,8 @@ static_library("arc_test_support") {
     "test/fake_policy_instance.h",
     "test/fake_power_instance.cc",
     "test/fake_power_instance.h",
+    "test/fake_privacy_items_instance.cc",
+    "test/fake_privacy_items_instance.h",
     "test/fake_process_instance.cc",
     "test/fake_process_instance.h",
     "test/fake_sharesheet_instance.cc",
@@ -416,6 +418,7 @@ source_set("unit_tests") {
     "//ash/components/arc/enterprise",
     "//ash/components/arc/media_session",
     "//ash/components/arc/video_accelerator:common",
+    "//ash/components/cryptohome",
     "//ash/components/disks:test_support",
     "//ash/components/policy",
     "//ash/constants",
@@ -424,7 +427,6 @@ source_set("unit_tests") {
     "//base",
     "//base/test:test_support",
     "//chromeos",
-    "//chromeos/cryptohome:cryptohome",
     "//chromeos/dbus:test_support",
     "//chromeos/dbus/dlcservice",
     "//chromeos/dbus/permission_broker",

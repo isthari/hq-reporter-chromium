@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ui/views/overlay/overlay_window_views.h"
+
 #include <memory>
 #include <utility>
 
 #include "base/memory/raw_ptr.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/views/overlay/close_image_button.h"
-#include "chrome/browser/ui/views/overlay/overlay_window_views.h"
 #include "chrome/browser/ui/views/overlay/track_image_button.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/views/chrome_views_test_base.h"
@@ -24,6 +26,12 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/test/button_test_api.h"
+
+namespace {
+
+constexpr gfx::Size kMinWindowSize(200, 100);
+
+}  // namespace
 
 class TestPictureInPictureWindowController
     : public content::PictureInPictureWindowController {
@@ -69,7 +77,7 @@ class OverlayWindowViewsTest : public ChromeViewsTestBase {
     web_contents_ = web_contents_factory_.CreateWebContents(&profile_);
     pip_window_controller_.set_web_contents(web_contents_);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     test_views_delegate()->set_context(GetContext());
 #endif
     test_views_delegate()->set_use_desktop_native_widgets(true);
@@ -79,7 +87,7 @@ class OverlayWindowViewsTest : public ChromeViewsTestBase {
     SetDisplayWorkArea({0, 0, 1000, 1000});
 
     overlay_window_ = OverlayWindowViews::Create(&pip_window_controller_);
-    overlay_window_->set_minimum_size_for_testing({200, 100});
+    overlay_window_->set_minimum_size_for_testing(kMinWindowSize);
   }
 
   void TearDown() override {
@@ -423,4 +431,18 @@ TEST_F(OverlayWindowViewsTest, DontPauseOnWidgetCloseWhenPauseNotAvailable) {
   EXPECT_CALL(pip_window_controller(), OnWindowDestroyed(false));
   overlay_window().CloseNow();
   testing::Mock::VerifyAndClearExpectations(&pip_window_controller());
+}
+
+TEST_F(OverlayWindowViewsTest, SmallDisplayWorkAreaDoesNotCrash) {
+  SetDisplayWorkArea({0, 0, 300, 200});
+  overlay_window().UpdateVideoSize({400, 300});
+
+  // Since the work area would force a max size smaller than the minimum size,
+  // the size is fixed at the minimum size.
+  EXPECT_EQ(kMinWindowSize, overlay_window().GetBounds().size());
+  EXPECT_EQ(kMinWindowSize, overlay_window().GetMaximumSize());
+
+  // The video should still be letterboxed to the correct aspect ratio.
+  EXPECT_EQ(gfx::Size(133, 100),
+            overlay_window().video_layer_for_testing()->size());
 }

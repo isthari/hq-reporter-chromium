@@ -39,8 +39,6 @@
 #include "chrome/browser/browser_features.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
-#include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings.h"
-#include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_stats.h"
@@ -111,7 +109,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/common/password_generation_util.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/google/core/common/google_util.h"
 #include "components/guest_view/browser/guest_view_base.h"
@@ -155,6 +152,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/referrer.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "extensions/buildflags/buildflags.h"
@@ -239,12 +237,16 @@
 #include "ui/base/resource/resource_bundle.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/chromeos/arc/open_with_menu.h"
+#include "chrome/browser/chromeos/arc/start_smart_selection_action_menu.h"
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/clipboard_history_controller.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/ash/arc/intent_helper/open_with_menu.h"
-#include "chrome/browser/ash/arc/intent_helper/start_smart_selection_action_menu.h"
+#include "chrome/browser/ash/arc/intent_helper/arc_intent_helper_mojo_ash.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager_factory.h"
 #include "chrome/browser/renderer_context_menu/quick_answers_menu_observer.h"
@@ -253,6 +255,7 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chrome/browser/lacros/arc/arc_intent_helper_mojo_lacros.h"
 #include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
 #include "chromeos/lacros/lacros_service.h"
 #include "ui/aura/window.h"
@@ -573,25 +576,22 @@ void AddAvatarToLastMenuItem(const gfx::Image& icon,
 }
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
-void OnProfileCreated(const GURL& link_url,
-                      const content::Referrer& referrer,
-                      Profile* profile,
-                      Profile::CreateStatus status) {
-  if (status == Profile::CREATE_STATUS_INITIALIZED) {
-    Browser* browser = chrome::FindLastActiveWithProfile(profile);
-    NavigateParams nav_params(
-        browser, link_url,
-        /* |ui::PAGE_TRANSITION_TYPED| is used rather than
-           |ui::PAGE_TRANSITION_LINK| since this ultimately opens the link in
-           another browser. This parameter is used within the tab strip model of
-           the browser it opens in implying a link from the active tab in the
-           destination browser which is not correct. */
-        ui::PAGE_TRANSITION_TYPED);
-    nav_params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
-    nav_params.referrer = referrer;
-    nav_params.window_action = NavigateParams::SHOW_WINDOW;
-    Navigate(&nav_params);
-  }
+void OnProfileCreated(const GURL& link_url, Profile* profile) {
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
+  NavigateParams nav_params(
+      browser, link_url,
+      /* |ui::PAGE_TRANSITION_TYPED| is used rather than
+         |ui::PAGE_TRANSITION_LINK| since this ultimately opens the link in
+         another browser. This parameter is used within the tab strip model of
+         the browser it opens in implying a link from the active tab in the
+         destination browser which is not correct. */
+      ui::PAGE_TRANSITION_TYPED);
+  nav_params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  // We are opening the link across profiles, so sending the referer
+  // header is a privacy risk.
+  nav_params.referrer = content::Referrer();
+  nav_params.window_action = NavigateParams::SHOW_WINDOW;
+  Navigate(&nav_params);
 }
 
 bool DoesInputFieldTypeSupportEmoji(
@@ -628,7 +628,7 @@ bool ShouldUseShareMenu() {
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS) ||    \
         BUILDFLAG(GOOGLE_CHROME_BRANDING)
 ui::MenuSourceType GetMenuSourceType(int event_flags) {
-  if (event_flags & ui::EF_LEFT_MOUSE_BUTTON)
+  if (event_flags & ui::EF_MOUSE_BUTTON)
     return ui::MENU_SOURCE_MOUSE;
   else if (event_flags & ui::EF_FROM_TOUCH)
     return ui::MENU_SOURCE_TOUCH;
@@ -986,12 +986,21 @@ void RenderViewContextMenu::InitMenu() {
   }
 
   bool supports_smart_text_selection = false;
+#if BUILDFLAG(IS_CHROMEOS)
+  if (content_type_->SupportsGroup(
+          ContextMenuContentType::ITEM_GROUP_SMART_SELECTION)) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  supports_smart_text_selection =
-      content_type_->SupportsGroup(
-          ContextMenuContentType::ITEM_GROUP_SMART_SELECTION) &&
-      arc::IsArcPlayStoreEnabledForProfile(GetProfile());
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    supports_smart_text_selection =
+        arc::IsArcPlayStoreEnabledForProfile(GetProfile());
+#else  // BUILDFLAG(IS_CHROMEOS_LACROS)
+    auto* service = chromeos::LacrosService::Get();
+    // AppService and ARC are not supporting non-primary profile.
+    // Also check if Lacros supports ARC.
+    supports_smart_text_selection = GetProfile()->IsMainProfile() && service &&
+                                    service->IsAvailable<crosapi::mojom::Arc>();
+#endif
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS)
   if (supports_smart_text_selection)
     AppendSmartSelectionActionItems();
 
@@ -1322,10 +1331,8 @@ void RenderViewContextMenu::AppendLinkItems() {
     AppendOpenInWebAppLinkItems();
     AppendOpenWithLinkItems();
 
-    // While ChromeOS supports multiple profiles, only one can be open at a
-    // time.
-    // TODO(jochen): Consider adding support for ChromeOS with similar
-    // semantics as the profile switcher in the system tray.
+    // ChromeOS ASH supports multiple profiles, but only one can be open at a
+    // time. With LaCrOS, profile switching is enabled.
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
     // g_browser_process->profile_manager() is null during unit tests.
     if (g_browser_process->profile_manager() &&
@@ -1413,7 +1420,7 @@ void RenderViewContextMenu::AppendLinkItems() {
             params_.link_url);
     if (browser && !ShouldUseShareMenu() && should_offer_to_share_url) {
       if (send_tab_to_self::GetValidDeviceCount(GetProfile()) == 1) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
         menu_model_.AddItem(
             IDC_CONTENT_LINK_SEND_TAB_TO_SELF_SINGLE_TARGET,
             l10n_util::GetStringFUTF16(
@@ -1433,7 +1440,7 @@ void RenderViewContextMenu::AppendLinkItems() {
                 source_web_contents_,
                 send_tab_to_self::SendTabToSelfMenuType::kLink,
                 params_.link_url);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
         menu_model_.AddSubMenuWithStringId(
             IDC_CONTENT_LINK_SEND_TAB_TO_SELF, IDS_LINK_MENU_SEND_TAB_TO_SELF,
             send_tab_to_self_sub_menu_model_.get());
@@ -1446,7 +1453,7 @@ void RenderViewContextMenu::AppendLinkItems() {
       }
     }
 
-#if !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_FUCHSIA)
     AppendClickToCallItem();
 #endif
 
@@ -1469,7 +1476,7 @@ void RenderViewContextMenu::AppendLinkItems() {
 }
 
 void RenderViewContextMenu::AppendOpenWithLinkItems() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   open_with_menu_observer_ =
       std::make_unique<arc::OpenWithMenu>(browser_context_, this);
   observers_.AddObserver(open_with_menu_observer_.get());
@@ -1490,9 +1497,16 @@ void RenderViewContextMenu::AppendQuickAnswersItems() {
 }
 
 void RenderViewContextMenu::AppendSmartSelectionActionItems() {
+#if BUILDFLAG(IS_CHROMEOS)
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+  using ArcIntentHelperMojoDelegate = arc::ArcIntentHelperMojoAsh;
+#else  // BUILDFLAG(IS_CHROMEOS_LACROS_
+  using ArcIntentHelperMojoDelegate = arc::ArcIntentHelperMojoLacros;
+#endif
   start_smart_selection_action_menu_observer_ =
-      std::make_unique<arc::StartSmartSelectionActionMenu>(this);
+      std::make_unique<arc::StartSmartSelectionActionMenu>(
+          browser_context_, this,
+          std::make_unique<ArcIntentHelperMojoDelegate>());
   observers_.AddObserver(start_smart_selection_action_menu_observer_.get());
 
   if (menu_model_.GetItemCount())
@@ -1717,7 +1731,7 @@ void RenderViewContextMenu::AppendPageItems() {
     menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
     send_tab_to_self_menu_present = true;
     if (send_tab_to_self::GetValidDeviceCount(GetProfile()) == 1) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
       menu_model_.AddItem(
           IDC_SEND_TAB_TO_SELF_SINGLE_TARGET,
           l10n_util::GetStringFUTF16(
@@ -1736,7 +1750,7 @@ void RenderViewContextMenu::AppendPageItems() {
           std::make_unique<send_tab_to_self::SendTabToSelfSubMenuModel>(
               source_web_contents_,
               send_tab_to_self::SendTabToSelfMenuType::kContent);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
       menu_model_.AddSubMenuWithStringId(
           IDC_SEND_TAB_TO_SELF, IDS_CONTEXT_MENU_SEND_TAB_TO_SELF,
           send_tab_to_self_sub_menu_model_.get());
@@ -1927,7 +1941,7 @@ void RenderViewContextMenu::AppendEditableItems() {
 // 'Undo' and 'Redo' for text input with no suggestions and no text selected.
 // We make an exception for OS X as context clicking will select the closest
 // word. In this case both items are always shown.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_UNDO,
                                   IDS_CONTENT_CONTEXT_UNDO);
   menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_REDO,
@@ -2000,7 +2014,7 @@ void RenderViewContextMenu::AppendLanguageSettings() {
   if (!use_spelling)
     return;
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_LANGUAGE_SETTINGS,
                                   IDS_CONTENT_CONTEXT_LANGUAGE_SETTINGS);
 #else
@@ -2100,7 +2114,7 @@ void RenderViewContextMenu::AppendSharingItems() {
   int items_before_sharing = menu_model_.GetItemCount();
   bool starting_separator_added = items_before_sharing > items_initial;
 
-#if !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_FUCHSIA)
   AppendClickToCallItem();
 #endif
   AppendSharedClipboardItem();
@@ -2114,7 +2128,7 @@ void RenderViewContextMenu::AppendSharingItems() {
     menu_model_.RemoveItemAt(items_initial);
 }
 
-#if !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_FUCHSIA)
 void RenderViewContextMenu::AppendClickToCallItem() {
   SharingClickToCallEntryPoint entry_point;
   absl::optional<std::string> phone_number;
@@ -2141,7 +2155,7 @@ void RenderViewContextMenu::AppendClickToCallItem() {
   click_to_call_context_menu_observer_->BuildMenu(*phone_number, selection_text,
                                                   entry_point);
 }
-#endif  // !defined(OS_FUCHSIA)
+#endif  // !BUILDFLAG(IS_FUCHSIA)
 
 void RenderViewContextMenu::AppendSharedClipboardItem() {
   if (!ShouldOfferSharedClipboard(browser_context_, params_.selection_text))
@@ -2400,7 +2414,7 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
     case IDC_CHECK_SPELLING_WHILE_TYPING:
       return prefs->GetBoolean(spellcheck::prefs::kSpellCheckEnable);
 
-#if !defined(OS_MAC) && defined(OS_POSIX)
+#if !BUILDFLAG(IS_MAC) && BUILDFLAG(IS_POSIX)
     // TODO(suzhe): this should not be enabled for password fields.
     case IDC_INPUT_METHODS_MENU:
       return true;
@@ -2937,6 +2951,10 @@ bool RenderViewContextMenu::IsViewSourceEnabled() const {
           source_web_contents_)) {
     return false;
   }
+  // Disallow ViewSource if DevTools are disabled.
+  if (!IsDevCommandEnabled(IDC_CONTENT_CONTEXT_INSPECTELEMENT)) {
+    return false;
+  }
   return (params_.media_type != ContextMenuDataMediaType::kPlugin) &&
          embedder_web_contents_->GetController().CanViewSource();
 }
@@ -3145,7 +3163,7 @@ void RenderViewContextMenu::AppendQRCodeGeneratorItem(bool for_image,
     return;
   auto string_id = for_image ? IDS_CONTEXT_MENU_GENERATE_QR_CODE_IMAGE
                              : IDS_CONTEXT_MENU_GENERATE_QR_CODE_PAGE;
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   draw_icon = false;
 #endif
   if (draw_icon) {
@@ -3218,7 +3236,6 @@ void RenderViewContextMenu::ExecOpenWebApp() {
       WindowOpenDisposition::CURRENT_TAB, apps::mojom::LaunchSource::kFromMenu);
   launch_params.override_url = params_.link_url;
   apps::AppServiceProxyFactory::GetForProfile(GetProfile())
-      ->BrowserAppLauncher()
       ->LaunchAppWithParams(std::move(launch_params));
 }
 
@@ -3251,8 +3268,7 @@ void RenderViewContextMenu::ExecOpenLinkInProfile(int profile_index) {
   base::FilePath profile_path = profile_link_paths_[profile_index];
   profiles::SwitchToProfile(
       profile_path, false,
-      base::BindRepeating(OnProfileCreated, params_.link_url,
-                          CreateReferrer(params_.link_url, params_)));
+      base::BindRepeating(OnProfileCreated, params_.link_url));
 }
 
 void RenderViewContextMenu::ExecInspectElement() {

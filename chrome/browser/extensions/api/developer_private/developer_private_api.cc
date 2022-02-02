@@ -16,7 +16,6 @@
 #include "base/guid.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -83,6 +82,7 @@
 #include "extensions/browser/management_policy.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/path_util.h"
+#include "extensions/browser/permissions_manager.h"
 #include "extensions/browser/process_manager_factory.h"
 #include "extensions/browser/ui_util.h"
 #include "extensions/browser/warning_service.h"
@@ -90,6 +90,7 @@
 #include "extensions/browser/zipfile_installer.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/feature_switch.h"
+#include "extensions/common/features/feature_developer_mode_only.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
@@ -212,8 +213,6 @@ void PerformVerificationCheck(content::BrowserContext* context) {
     }
   }
 
-  UMA_HISTOGRAM_BOOLEAN("ExtensionSettings.ShouldDoVerificationCheck",
-                        should_do_verification_check);
   if (should_do_verification_check)
     InstallVerifier::Get(context)->VerifyAllExtensions();
 }
@@ -899,6 +898,8 @@ DeveloperPrivateUpdateProfileConfigurationFunction::Run() {
       return RespondNow(Error(kCannotUpdateChildAccountProfileSettingsError));
     prefs->SetBoolean(prefs::kExtensionsUIDeveloperMode,
                       *update.in_developer_mode);
+    SetCurrentDeveloperMode(util::GetBrowserContextId(browser_context()),
+                            *update.in_developer_mode);
   }
 
   return RespondNow(NoArguments());
@@ -2109,6 +2110,83 @@ DeveloperPrivateRemoveHostPermissionFunction::Run() {
 void DeveloperPrivateRemoveHostPermissionFunction::
     OnRuntimePermissionsRevoked() {
   Respond(NoArguments());
+}
+
+DeveloperPrivateGetUserSiteSettingsFunction::
+    DeveloperPrivateGetUserSiteSettingsFunction() = default;
+DeveloperPrivateGetUserSiteSettingsFunction::
+    ~DeveloperPrivateGetUserSiteSettingsFunction() = default;
+
+ExtensionFunction::ResponseAction
+DeveloperPrivateGetUserSiteSettingsFunction::Run() {
+  const PermissionsManager::UserPermissionsSettings& settings =
+      PermissionsManager::Get(browser_context())->GetUserPermissionsSettings();
+
+  developer::UserSiteSettings user_site_settings;
+  user_site_settings.permitted_sites.reserve(settings.permitted_sites.size());
+  for (const auto& origin : settings.permitted_sites)
+    user_site_settings.permitted_sites.push_back(origin.Serialize());
+
+  user_site_settings.restricted_sites.reserve(settings.restricted_sites.size());
+  for (const auto& origin : settings.restricted_sites)
+    user_site_settings.restricted_sites.push_back(origin.Serialize());
+
+  return RespondNow(OneArgument(
+      base::Value::FromUniquePtrValue(user_site_settings.ToValue())));
+}
+
+DeveloperPrivateAddUserSpecifiedSiteFunction::
+    DeveloperPrivateAddUserSpecifiedSiteFunction() = default;
+DeveloperPrivateAddUserSpecifiedSiteFunction::
+    ~DeveloperPrivateAddUserSpecifiedSiteFunction() = default;
+
+ExtensionFunction::ResponseAction
+DeveloperPrivateAddUserSpecifiedSiteFunction::Run() {
+  std::unique_ptr<developer::AddUserSpecifiedSite::Params> params(
+      developer::AddUserSpecifiedSite::Params::Create(args()));
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  PermissionsManager* manager = PermissionsManager::Get(browser_context());
+  const url::Origin url = url::Origin::Create(GURL(params->options.host));
+  switch (params->options.site_list) {
+    case developer::USER_SITE_SET_PERMITTED:
+      manager->AddUserPermittedSite(url);
+      break;
+    case developer::USER_SITE_SET_RESTRICTED:
+      manager->AddUserRestrictedSite(url);
+      break;
+    case developer::USER_SITE_SET_NONE:
+      NOTREACHED();
+  }
+
+  return RespondNow(NoArguments());
+}
+
+DeveloperPrivateRemoveUserSpecifiedSiteFunction::
+    DeveloperPrivateRemoveUserSpecifiedSiteFunction() = default;
+DeveloperPrivateRemoveUserSpecifiedSiteFunction::
+    ~DeveloperPrivateRemoveUserSpecifiedSiteFunction() = default;
+
+ExtensionFunction::ResponseAction
+DeveloperPrivateRemoveUserSpecifiedSiteFunction::Run() {
+  std::unique_ptr<developer::RemoveUserSpecifiedSite::Params> params(
+      developer::RemoveUserSpecifiedSite::Params::Create(args()));
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  PermissionsManager* manager = PermissionsManager::Get(browser_context());
+  const url::Origin url = url::Origin::Create(GURL(params->options.host));
+  switch (params->options.site_list) {
+    case developer::USER_SITE_SET_PERMITTED:
+      manager->RemoveUserPermittedSite(url);
+      break;
+    case developer::USER_SITE_SET_RESTRICTED:
+      manager->RemoveUserRestrictedSite(url);
+      break;
+    case developer::USER_SITE_SET_NONE:
+      NOTREACHED();
+  }
+
+  return RespondNow(NoArguments());
 }
 
 }  // namespace api

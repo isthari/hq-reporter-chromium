@@ -126,7 +126,7 @@ VideoBitrateAllocation CreateBitrateAllocationWithActiveLayers(
   VideoBitrateAllocation new_bitrate_allocation;
   for (size_t si : active_layers) {
     for (size_t ti = 0; ti < VideoBitrateAllocation::kMaxTemporalLayers; ++ti) {
-      const int bps = bitrate_allocation.GetBitrateBps(si, ti);
+      const uint32_t bps = bitrate_allocation.GetBitrateBps(si, ti);
       new_bitrate_allocation.SetBitrate(si, ti, bps);
     }
   }
@@ -148,7 +148,7 @@ VideoBitrateAllocation AdaptBitrateAllocation(
     }
 
     for (size_t ti = 0; ti < VideoBitrateAllocation::kMaxTemporalLayers; ++ti) {
-      const int bps = bitrate_allocation.GetBitrateBps(si, ti);
+      const uint32_t bps = bitrate_allocation.GetBitrateBps(si, ti);
       new_bitrate_allocation.SetBitrate(new_si, ti, bps);
     }
 
@@ -179,8 +179,13 @@ MATCHER_P4(MatchRtcConfigWithRates,
            num_temporal_layers,
            spatial_layer_resolutions,
            "") {
-  if (arg.target_bandwidth != bitrate_allocation.GetSumBps() / 1000)
+  if (arg.target_bandwidth < 0)
     return false;
+
+  if (static_cast<uint32_t>(arg.target_bandwidth) !=
+      bitrate_allocation.GetSumBps() / 1000) {
+    return false;
+  }
 
   if (arg.framerate != static_cast<double>(framerate))
     return false;
@@ -333,7 +338,8 @@ VP9VaapiVideoEncoderDelegateTest::CreateEncodeJob(
       kDefaultVideoEncodeAcceleratorConfig.input_visible_size.GetArea());
 
   return std::make_unique<VaapiVideoEncoderDelegate::EncodeJob>(
-      input_frame, keyframe, va_surface, picture, std::move(scoped_va_buffer));
+      input_frame, keyframe, va_surface->id(), va_surface->size(), picture,
+      std::move(scoped_va_buffer));
 }
 
 void VP9VaapiVideoEncoderDelegateTest::InitializeVP9VaapiVideoEncoderDelegate(
@@ -664,7 +670,7 @@ TEST_P(VP9VaapiVideoEncoderDelegateTest, FailsWithInvalidSpatialLayers) {
           num_spatial_layers, num_temporal_layers,
           kDefaultVideoEncodeAcceleratorConfig.bitrate.target());
   std::vector<VideoBitrateAllocation> invalid_bitrate_allocations;
-  constexpr int kBitrate = 1234;
+  constexpr uint32_t kBitrate = 1234u;
   auto bitrate_allocation = kDefaultBitrateAllocation;
   // Activate one more top spatial layer.
   ASSERT_LE(num_spatial_layers + 1, VideoBitrateAllocation::kMaxSpatialLayers);

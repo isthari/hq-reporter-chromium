@@ -864,6 +864,60 @@ class DeveloperPrivateRemoveHostPermissionFunction
   void OnRuntimePermissionsRevoked();
 };
 
+class DeveloperPrivateGetUserSiteSettingsFunction
+    : public DeveloperPrivateAPIFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("developerPrivate.getUserSiteSettings",
+                             DEVELOPERPRIVATE_GETUSERSITESETTINGS)
+  DeveloperPrivateGetUserSiteSettingsFunction();
+
+  DeveloperPrivateGetUserSiteSettingsFunction(
+      const DeveloperPrivateGetUserSiteSettingsFunction&) = delete;
+  DeveloperPrivateGetUserSiteSettingsFunction& operator=(
+      const DeveloperPrivateGetUserSiteSettingsFunction&) = delete;
+
+ private:
+  ~DeveloperPrivateGetUserSiteSettingsFunction() override;
+
+  ResponseAction Run() override;
+};
+
+class DeveloperPrivateAddUserSpecifiedSiteFunction
+    : public DeveloperPrivateAPIFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("developerPrivate.addUserSpecifiedSite",
+                             DEVELOPERPRIVATE_ADDUSERSPECIFIEDSITE)
+  DeveloperPrivateAddUserSpecifiedSiteFunction();
+
+  DeveloperPrivateAddUserSpecifiedSiteFunction(
+      const DeveloperPrivateAddUserSpecifiedSiteFunction&) = delete;
+  DeveloperPrivateAddUserSpecifiedSiteFunction& operator=(
+      const DeveloperPrivateAddUserSpecifiedSiteFunction&) = delete;
+
+ private:
+  ~DeveloperPrivateAddUserSpecifiedSiteFunction() override;
+
+  ResponseAction Run() override;
+};
+
+class DeveloperPrivateRemoveUserSpecifiedSiteFunction
+    : public DeveloperPrivateAPIFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("developerPrivate.removeUserSpecifiedSite",
+                             DEVELOPERPRIVATE_REMOVEUSERSPECIFIEDSITE)
+  DeveloperPrivateRemoveUserSpecifiedSiteFunction();
+
+  DeveloperPrivateRemoveUserSpecifiedSiteFunction(
+      const DeveloperPrivateRemoveUserSpecifiedSiteFunction&) = delete;
+  DeveloperPrivateRemoveUserSpecifiedSiteFunction& operator=(
+      const DeveloperPrivateRemoveUserSpecifiedSiteFunction&) = delete;
+
+ private:
+  ~DeveloperPrivateRemoveUserSpecifiedSiteFunction() override;
+
+  ResponseAction Run() override;
+};
+
 }  // namespace api
 
 }  // namespace extensions

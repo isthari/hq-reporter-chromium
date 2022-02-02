@@ -9,12 +9,13 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "build/build_config.h"
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
 #include "components/services/app_service/public/mojom/types.mojom-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chromeos/crosapi/mojom/app_service_types.mojom-forward.h"
 #endif
 
@@ -43,6 +44,15 @@ class WebApp;
 }  // namespace web_app
 
 namespace apps_util {
+
+// Creates a file filter.
+apps::mojom::IntentFilterPtr CreateFileFilter(
+    const std::vector<std::string>& intent_actions,
+    const std::vector<std::string>& mime_types,
+    const std::vector<std::string>& file_extensions,
+    const std::string& activity_name = "",
+    bool include_directories = false);
+
 // Create intent filters for |web_app|.
 // The |scope| is needed because currently the correct app scope is not
 // provided through WebApp API for shortcuts.
@@ -80,11 +90,6 @@ apps::mojom::IntentPtr CreateShareIntentFromFiles(
     const std::string& share_text,
     const std::string& share_title);
 
-// Create an intent struct from the arc intent and arc activity.
-apps::mojom::IntentPtr CreateIntentForArcIntentAndActivity(
-    arc::mojom::IntentInfoPtr arc_intent,
-    arc::mojom::ActivityNamePtr activity);
-
 base::flat_map<std::string, std::string> CreateArcIntentExtras(
     const apps::mojom::IntentPtr& intent);
 
@@ -111,7 +116,7 @@ apps::mojom::IntentFilterPtr ConvertArcToAppServiceIntentFilter(
     const arc::IntentFilter& arc_intent_filter);
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 // Convert App Service Intent to Crosapi Intent.
 // |profile| is only needed when the intent contains files, can be filled with
 // null otherwise.

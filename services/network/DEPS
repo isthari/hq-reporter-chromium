@@ -11,13 +11,14 @@ include_rules = [
   "+components/prefs",
   "+components/version_info",
   "+components/web_package",
+  # FakeSSLClientSocket
+  "+components/webrtc",
   "+crypto",
   "+ipc",
-  # FakeSSLClientSocket
-  "+jingle/glue",
   "+net",
   "+sandbox",
   "+services/proxy_resolver/public/mojom",
+  "+services/proxy_resolver_win/public/mojom",
   "+services/service_manager/public",
   "+third_party/boringssl/src/include",
   "+url",

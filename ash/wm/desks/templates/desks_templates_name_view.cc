@@ -8,7 +8,6 @@
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/gfx/text_elider.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/box_layout_view.h"
 #include "ui/views/widget/widget.h"
@@ -63,18 +62,41 @@ void DesksTemplatesNameView::CommitChanges(views::Widget* widget) {
   focus_manager->SetStoredFocusView(nullptr);
 }
 
-void DesksTemplatesNameView::SetTextAndElideIfNeeded(
-    const std::u16string& text) {
-  // Calculates the max width taking into account the insets and padding of the
-  // parent.
-  auto* parent_view = static_cast<views::BoxLayoutView*>(parent());
-  SetText(gfx::ElideText(text, GetFontList(),
-                         parent_view->width() -
-                             parent_view->GetInsideBorderInsets().width() -
-                             GetInsets().width(),
-                         gfx::ELIDE_TAIL));
+void DesksTemplatesNameView::OnContentsChanged() {
+  PreferredSizeChanged();
+}
 
-  full_text_ = text;
+gfx::Size DesksTemplatesNameView::CalculatePreferredSize() const {
+  const gfx::Size preferred_size = DesksTextfield::CalculatePreferredSize();
+  // Use the available width if it is larger than the preferred width.
+  const int preferred_width =
+      std::clamp(preferred_size.width(), 1, GetAvailableWidth());
+  return gfx::Size(preferred_width, kTemplateNameViewHeight);
+}
+
+void DesksTemplatesNameView::OnGestureEvent(ui::GestureEvent* event) {
+  DesksTextfield::OnGestureEvent(event);
+  // Stop propagating this event so that the parent of `this`, which is a button
+  // does not get the event.
+  event->StopPropagation();
+}
+
+int DesksTemplatesNameView::GetAvailableWidth() const {
+  auto* parent_view = static_cast<const views::BoxLayoutView*>(parent());
+  int available_width = parent_view->width() -
+                        parent_view->GetInsideBorderInsets().width() -
+                        GetInsets().width();
+  const int between_child_spacing = parent_view->GetBetweenChildSpacing();
+  for (auto* child : parent_view->children()) {
+    if (child == this || !child->GetVisible())
+      continue;
+    // The width of `child` may be 0 if it is offscreen, so use the preferred
+    // width instead.
+    available_width -=
+        (child->GetPreferredSize().width() + between_child_spacing);
+  }
+
+  return std::max(1, available_width);
 }
 
 BEGIN_METADATA(DesksTemplatesNameView, DesksTextfield)

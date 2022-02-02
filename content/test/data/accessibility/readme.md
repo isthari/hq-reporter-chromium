@@ -79,7 +79,6 @@ out/Default/browser_tests --gtest_filter="PDFExtensionAccessibilityTreeDumpTest*
 Supported platforms are:
 * `android` -- expected Android AccessibilityNodeInfo output
 * `auralinux` -- expected Linux ATK output
-* `auralinux-trusty` -- expected Linux ATK output (Version Specific Expected File)
 * `auralinux-xenial` -- expected Linux ATK output (Version Specific Expected File)
 * `blink` -- representation of internal accessibility tree
 * `blink-cros` -- representation of internal accessibility tree
@@ -120,16 +119,14 @@ specific filters.
 In the case of Linux, the tests are run on several LTS
 [releases](https://releases.ubuntu.com/) of Ubuntu:
 
-* "Trusty Tahr": Ubuntu 14.04 LTS, ATK version 2.10 (bot: "linux-trusty-rel")
 * "Xenial Xerus": Ubuntu 16.04, ATK version 2.18 (bot: "linux-xenial-rel")
 * "Bionic Beaver": Ubuntu 18.04, ATK version 2.28 (runs on multiple bots)
 
 In many cases the expected results for `foo.html` will be the same for all
 versions of Ubuntu, in which case `foo-expected-auralinux.txt` is all that is
 needed. However, if the `foo.html` test passes on the Linux release build
-("linux-rel"), but fails on "linux-trusty-rel", you will need an additional
-`foo-expected-auralinux-trusty.txt` file. If it also fails on "linux-xenial-rel",
-create `foo-expected-auralinux-xenial.txt`.
+("linux-rel"), but fails on "linux-xenial-rel", you will need an additional
+`foo-expected-auralinux-xenial.txt` file.
 
 At the present time there is no version-specific support for Bionic Beaver,
 which is the current version run on "linux-rel".
@@ -198,7 +195,7 @@ Note: Mac platform is supported only.
 `Script tests` provide platform dependent `-SCRIPT` directive to indicate
 a script to run. For example:
 
-`MAC-SCRIPT: input.AXName`
+`@MAC-SCRIPT: input.AXName`
 
 to dump accessible name of an accessible node for a DOM element having
 `input` DOM id on Mac platform. You can also use `:LINE_NUM` syntax to indicate
@@ -206,10 +203,10 @@ an accessible object, where `LINE_NUM` is index of a line where
 the accessible object is placed in the formatted tree. However you should avoid
 using `:LINE_NUM` in a test as it may break the test automatic rebaseling.
 
-You can put multiple instructions under the same `MAC-SCRIPT` directive, for
+You can put multiple instructions under the same `@MAC-SCRIPT` directive, for
 example:
 ```
-MAC-SCRIPT:
+@MAC-SCRIPT:
   input.AXRole
   input.AXName
 ```
@@ -217,6 +214,20 @@ MAC-SCRIPT:
 Calls can be chained, for example:
 
 `input.AXFocusableAncestor.AXRole`
+
+Note: The `.AXAttribute` will dump the accessible attribute for the node only
+if the attribute is supported for that node.
+
+To test for the support of the attribute in mac accessibility API, you can see
+if the attribute is included in the accessibilityAttribute names using
+`has()`. For example, the following will tell you whether the attribute
+`AXInvalid` is supported on an accessible node, regardless of whether the
+attribute has been provided by the web author.
+
+```
+@MAC-SCRIPT:
+  input.accessibilityAttributeNames.has(AXInvalid)
+```
 
 Parameterized attributes are also supported, for example:
 
@@ -248,7 +259,7 @@ You can use `waitfor` instruction to wait for a specific event before the script
 continues, for example:
 
 ```
-MAC-SCRIPT:
+@MAC-SCRIPT:
   button.AXPerformAction(AXPress)
   wait for AXFocusedUIElementChanged
 ```

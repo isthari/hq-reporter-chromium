@@ -21,7 +21,6 @@
 #include "base/rand_util.h"
 #include "base/ranges/algorithm.h"
 #include "base/task/sequence_manager/enqueue_order.h"
-#include "base/task/sequence_manager/real_time_domain.h"
 #include "base/task/sequence_manager/task_time_observer.h"
 #include "base/task/sequence_manager/thread_controller_impl.h"
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
@@ -132,7 +131,7 @@ SequenceManager::MetricRecordingSettings InitializeMetricRecordingSettings(
 // Writes |address| in hexadecimal ("0x11223344") form starting from |output|
 // and moving backwards in memory. Returns a pointer to the first digit of the
 // result. Does *not* NUL-terminate the number.
-#if !defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
 char* PrependHexAddress(char* output, const void* address) {
   uintptr_t value = reinterpret_cast<uintptr_t>(address);
   static const char kHexChars[] = "0123456789ABCDEF";
@@ -144,7 +143,7 @@ char* PrependHexAddress(char* output, const void* address) {
   *output = '0';
   return output;
 }
-#endif  // !defined(OS_NACL)
+#endif  // !BUILDFLAG(IS_NACL)
 
 // Controls whether canceled tasks are removed from the front of the queue when
 // deciding when the next wake up should happen.
@@ -212,7 +211,7 @@ SequenceManagerImpl::SequenceManagerImpl(
       empty_queues_to_reload_(associated_thread_),
       memory_corruption_sentinel_(kMemoryCorruptionSentinelValue),
       main_thread_only_(this, associated_thread_, settings_, settings_.clock),
-      clock_(main_thread_only_.time_domain.get()) {
+      clock_(settings_.clock) {
   TRACE_EVENT_OBJECT_CREATED_WITH_ID(
       TRACE_DISABLED_BY_DEFAULT("sequence_manager"), "SequenceManager", this);
   main_thread_only().selector.SetTaskQueueSelectorObserver(this);
@@ -228,7 +227,7 @@ SequenceManagerImpl::~SequenceManagerImpl() {
   TRACE_EVENT_OBJECT_DELETED_WITH_ID(
       TRACE_DISABLED_BY_DEFAULT("sequence_manager"), "SequenceManager", this);
 
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
   if (settings_.message_loop_type == MessagePumpType::UI &&
       associated_thread_->IsBound()) {
     controller_->DetachFromMessagePump();
@@ -277,8 +276,8 @@ SequenceManagerImpl::MainThreadOnly::MainThreadOnly(
     const SequenceManager::Settings& settings,
     const base::TickClock* clock)
     : selector(associated_thread, settings),
-      real_time_domain(std::make_unique<RealTimeDomain>(clock)),
-      time_domain(real_time_domain.get()),
+      default_clock(clock),
+      time_domain(nullptr),
       wake_up_queue(std::make_unique<DefaultWakeUpQueue>(associated_thread,
                                                          sequence_manager)),
       non_waking_wake_up_queue(
@@ -350,7 +349,7 @@ void SequenceManagerImpl::BindToMessagePump(std::unique_ptr<MessagePump> pump) {
   CompleteInitializationOnBoundThread();
 
   // On Android attach to the native loop when there is one.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   if (settings_.message_loop_type == MessagePumpType::UI ||
       settings_.message_loop_type == MessagePumpType::JAVA) {
     controller_->AttachToMessagePump();
@@ -358,7 +357,7 @@ void SequenceManagerImpl::BindToMessagePump(std::unique_ptr<MessagePump> pump) {
 #endif
 
   // On iOS attach to the native loop when there is one.
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
   if (settings_.message_loop_type == MessagePumpType::UI) {
     controller_->AttachToMessagePump();
   }
@@ -391,6 +390,7 @@ void SequenceManagerImpl::CompleteInitializationOnBoundThread() {
 }
 
 void SequenceManagerImpl::SetTimeDomain(TimeDomain* time_domain) {
+  DCHECK(!main_thread_only().time_domain);
   DCHECK(time_domain);
   time_domain->OnAssignedToSequenceManager(this);
   controller_->SetTickClock(time_domain);
@@ -399,10 +399,9 @@ void SequenceManagerImpl::SetTimeDomain(TimeDomain* time_domain) {
 }
 
 void SequenceManagerImpl::ResetTimeDomain() {
-  controller_->SetTickClock(main_thread_only().real_time_domain.get());
-  clock_.store(main_thread_only().real_time_domain.get(),
-               std::memory_order_release);
-  main_thread_only().time_domain = main_thread_only().real_time_domain.get();
+  controller_->SetTickClock(main_thread_only().default_clock);
+  clock_.store(main_thread_only().default_clock, std::memory_order_release);
+  main_thread_only().time_domain = nullptr;
 }
 
 std::unique_ptr<internal::TaskQueueImpl>
@@ -529,15 +528,11 @@ void SequenceManagerImpl::ScheduleWork() {
 
 void SequenceManagerImpl::SetNextWakeUp(LazyNow* lazy_now,
                                         absl::optional<WakeUp> wake_up) {
-  TimeTicks next_task_time = TimeTicks::Max();
-  if (wake_up) {
-    next_task_time = main_thread_only().time_domain->GetNextDelayedTaskTime(
-        *wake_up, lazy_now);
-  }
-  if (next_task_time.is_null()) {
+  TimeTicks wake_up_time = AdjustWakeUp(wake_up, lazy_now);
+  if (wake_up_time.is_null()) {
     ScheduleWork();
   } else {
-    controller_->SetNextDelayedDoWork(lazy_now, next_task_time);
+    controller_->SetNextDelayedDoWork(lazy_now, wake_up_time);
   }
 }
 
@@ -586,7 +581,7 @@ SequenceManagerImpl::SelectNextTask(SelectTaskOption option) {
   return selected_task;
 }
 
-#if DCHECK_IS_ON() && !defined(OS_NACL)
+#if DCHECK_IS_ON() && !BUILDFLAG(IS_NACL)
 void SequenceManagerImpl::LogTaskDebugInfo(
     const WorkQueue* selected_work_queue) const {
   const Task* task = selected_work_queue->GetFrontTask();
@@ -638,7 +633,7 @@ void SequenceManagerImpl::LogTaskDebugInfo(
     }
   }
 }
-#endif  // DCHECK_IS_ON() && !defined(OS_NACL)
+#endif  // DCHECK_IS_ON() && !BUILDFLAG(IS_NACL)
 
 absl::optional<SequenceManagerImpl::SelectedTask>
 SequenceManagerImpl::SelectNextTaskImpl(SelectTaskOption option) {
@@ -697,9 +692,9 @@ SequenceManagerImpl::SelectNextTaskImpl(SelectTaskOption option) {
       return absl::nullopt;
     }
 
-#if DCHECK_IS_ON() && !defined(OS_NACL)
+#if DCHECK_IS_ON() && !BUILDFLAG(IS_NACL)
     LogTaskDebugInfo(work_queue);
-#endif  // DCHECK_IS_ON() && !defined(OS_NACL)
+#endif  // DCHECK_IS_ON() && !BUILDFLAG(IS_NACL)
 
     main_thread_only().task_execution_stack.emplace_back(
         work_queue->TakeTaskFromWorkQueue(), work_queue->task_queue(),
@@ -758,7 +753,7 @@ TimeTicks SequenceManagerImpl::GetNextTaskTime(LazyNow* lazy_now,
     // work to be done. However we may want to yield to native work if it is
     // more important.
     if (UNLIKELY(!ShouldRunTaskOfPriority(*priority)))
-      return GetNextDelayedTaskTimeImpl(lazy_now, option);
+      return AdjustWakeUp(GetNextWakeUpWithOption(option), lazy_now);
     return TimeTicks();
   }
 
@@ -770,7 +765,7 @@ TimeTicks SequenceManagerImpl::GetNextTaskTime(LazyNow* lazy_now,
   if (auto priority =
           main_thread_only().selector.GetHighestPendingPriority(option)) {
     if (UNLIKELY(!ShouldRunTaskOfPriority(*priority)))
-      return GetNextDelayedTaskTimeImpl(lazy_now, option);
+      return AdjustWakeUp(GetNextWakeUpWithOption(option), lazy_now);
     return TimeTicks();
   }
 
@@ -778,7 +773,7 @@ TimeTicks SequenceManagerImpl::GetNextTaskTime(LazyNow* lazy_now,
   // call MoveReadyDelayedTasksToWorkQueues because it's assumed
   // DelayTillNextTask will return TimeDelta>() if the delayed task is due to
   // run now.
-  return GetNextDelayedTaskTimeImpl(lazy_now, option);
+  return AdjustWakeUp(GetNextWakeUpWithOption(option), lazy_now);
 }
 
 absl::optional<WakeUp> SequenceManagerImpl::GetNextWakeUp() const {
@@ -787,19 +782,30 @@ absl::optional<WakeUp> SequenceManagerImpl::GetNextWakeUp() const {
   return main_thread_only().wake_up_queue->GetNextWakeUp();
 }
 
-TimeTicks SequenceManagerImpl::GetNextDelayedTaskTimeImpl(
-    LazyNow* lazy_now,
+absl::optional<WakeUp> SequenceManagerImpl::GetNextWakeUpWithOption(
     SelectTaskOption option) const {
   DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
 
   if (option == SelectTaskOption::kSkipDelayedTask)
-    return TimeTicks::Max();
+    return absl::nullopt;
+  return GetNextWakeUp();
+}
 
-  auto wake_up = GetNextWakeUp();
+TimeTicks SequenceManagerImpl::AdjustWakeUp(absl::optional<WakeUp> wake_up,
+                                            LazyNow* lazy_now) const {
+  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
   if (!wake_up)
     return TimeTicks::Max();
-  return main_thread_only().time_domain->GetNextDelayedTaskTime(*wake_up,
-                                                                lazy_now);
+  // Overdue work needs to be run immediately.
+  if (lazy_now->Now() >= wake_up->time)
+    return TimeTicks();
+  // If |time_domain| is present, we don't want an actual OS level delayed wake
+  // up scheduled, so pretend we have no more work. This will result in
+  // appearing idle and |time_domain| will decide what to do in
+  // MaybeFastForwardToWakeUp().
+  if (main_thread_only().time_domain)
+    return TimeTicks::Max();
+  return wake_up->time;
 }
 
 bool SequenceManagerImpl::HasPendingHighResolutionTasks() {
@@ -810,9 +816,11 @@ bool SequenceManagerImpl::HasPendingHighResolutionTasks() {
 
 bool SequenceManagerImpl::OnSystemIdle() {
   auto wakeup = main_thread_only().wake_up_queue->GetNextWakeUp();
-  bool have_work_to_do =
-      main_thread_only().time_domain->MaybeFastForwardToWakeUp(
-          wakeup, controller_->ShouldQuitRunLoopWhenIdle());
+  bool have_work_to_do = false;
+  if (main_thread_only().time_domain) {
+    have_work_to_do = main_thread_only().time_domain->MaybeFastForwardToWakeUp(
+        wakeup, controller_->ShouldQuitRunLoopWhenIdle());
+  }
   if (!have_work_to_do) {
     MaybeReclaimMemory();
     if (main_thread_only().on_next_idle_callback)
@@ -1044,7 +1052,9 @@ Value SequenceManagerImpl::AsValueWithSelectorResult(
   state.SetStringKey("native_work_priority",
                      TaskQueue::PriorityToString(
                          *main_thread_only().pending_native_work.begin()));
-  state.SetKey("time_domain", main_thread_only().time_domain->AsValue());
+  state.SetKey("time_domain", main_thread_only().time_domain
+                                  ? main_thread_only().time_domain->AsValue()
+                                  : Value());
   state.SetKey("wake_up_queue", main_thread_only().wake_up_queue->AsValue(now));
   state.SetKey("non_waking_wake_up_queue",
                main_thread_only().non_waking_wake_up_queue->AsValue(now));
@@ -1148,7 +1158,7 @@ bool SequenceManagerImpl::IsTaskExecutionAllowed() const {
   return controller_->IsTaskExecutionAllowed();
 }
 
-#if defined(OS_IOS)
+#if BUILDFLAG(IS_IOS)
 void SequenceManagerImpl::AttachToMessagePump() {
   return controller_->AttachToMessagePump();
 }
@@ -1233,17 +1243,17 @@ NOINLINE bool SequenceManagerImpl::Validate() {
 
 void SequenceManagerImpl::EnableCrashKeys(const char* async_stack_crash_key) {
   DCHECK(!main_thread_only().async_stack_crash_key);
-#if !defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
   main_thread_only().async_stack_crash_key = debug::AllocateCrashKeyString(
       async_stack_crash_key, debug::CrashKeySize::Size64);
   static_assert(sizeof(main_thread_only().async_stack_buffer) ==
                     static_cast<size_t>(debug::CrashKeySize::Size64),
                 "Async stack buffer size must match crash key size.");
-#endif  // OS_NACL
+#endif  // BUILDFLAG(IS_NACL)
 }
 
 void SequenceManagerImpl::RecordCrashKeys(const PendingTask& pending_task) {
-#if !defined(OS_NACL)
+#if !BUILDFLAG(IS_NACL)
   // SetCrashKeyString is a no-op even if the crash key is null, but we'd still
   // have construct the StringPiece that is passed in.
   if (!main_thread_only().async_stack_crash_key)
@@ -1273,7 +1283,7 @@ void SequenceManagerImpl::RecordCrashKeys(const PendingTask& pending_task) {
   DCHECK_GE(pos, buffer);
   debug::SetCrashKeyString(main_thread_only().async_stack_crash_key,
                            StringPiece(pos, buffer_end - pos));
-#endif  // OS_NACL
+#endif  // BUILDFLAG(IS_NACL)
 }
 
 internal::TaskQueueImpl* SequenceManagerImpl::currently_executing_task_queue()

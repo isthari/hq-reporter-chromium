@@ -57,7 +57,7 @@
 #include "third_party/blink/renderer/core/style/filter_operations.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/fonts/font_selector_client.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -207,7 +207,6 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   mojom::blink::ColorScheme GetOwnerColorScheme() const {
     return owner_color_scheme_;
   }
-  void InitialViewportChanged();
   void ViewportRulesChanged();
 
   void InjectSheet(const StyleSheetKey&, StyleSheetContents*,
@@ -482,6 +481,7 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void UpdateStyleAndLayoutTreeForContainer(Element& container,
                                             const LogicalSize&,
                                             LogicalAxes contained_axes);
+  void RecalcStyleForContainerDescendantsInLegacyLayoutTree(Element& container);
   void RecalcStyle();
 
   void ClearEnsuredDescendantStyles(Element& element);
@@ -529,6 +529,9 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void Trace(Visitor*) const override;
   const char* NameInHeapSnapshot() const override { return "StyleEngine"; }
 
+  RuleSet* DefaultDocumentTransitionStyle() const;
+  void InvalidateUADocumentTransitionStyle();
+
  private:
   // FontSelectorClient implementation.
   void FontsNeedUpdate(FontSelector*, FontInvalidationReason) override;
@@ -560,6 +563,7 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
                                        MediaValueChange);
   void MediaQueryAffectingValueChanged(HeapHashSet<Member<TextTrack>>&,
                                        MediaValueChange);
+  void EnsureUAStyleForTransitionPseudos();
 
   const RuleFeatureSet& GetRuleFeatureSet() const {
     DCHECK(global_rule_set_);
@@ -655,6 +659,8 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   void PropagateWritingModeAndDirectionToHTMLRoot();
 
   void RecalcStyle(StyleRecalcChange, const StyleRecalcContext&);
+  void RecalcStyleForContainer(Element& container, StyleRecalcChange change);
+
   void RecalcTransitionPseudoStyle();
 
   // We may need to update whitespaces in the layout tree after a flat tree
@@ -747,6 +753,12 @@ class CORE_EXPORT StyleEngine final : public GarbageCollected<StyleEngine>,
   Member<ViewportStyleResolver> viewport_resolver_;
   Member<MediaQueryEvaluator> media_query_evaluator_;
   Member<CSSGlobalRuleSet> global_rule_set_;
+
+  // This is the default UA generated style sheet for the ::transition* pseudo
+  // elements. This is tracked by StyleEngine as opposed to
+  // CSSDefaultStyleSheets since it is 1:1 with a Document and can be
+  // dynamically updated.
+  Member<RuleSet> ua_document_transition_style_;
 
   PendingInvalidations pending_invalidations_;
 

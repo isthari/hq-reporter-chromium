@@ -183,10 +183,18 @@ inline bool MightTraversePhysicalFragments(const LayoutObject& obj) {
   // If this object participates in legacy block fragmentation (but still is a
   // LayoutNG object, which may happen if we're using a layout type not
   // supported in the legacy engine, such as custom layout), do not attempt to
-  // fragment-traverse it.
-  if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled() &&
-      obj.IsInsideFlowThread())
-    return false;
+  // fragment-traverse it. Check whether the nearest parent box can traverse
+  // fragments (but ignore the flow thread, as it's not used by LayoutNG and
+  // therefore never fragment-traversable), and just inherit that.
+  if (obj.IsInsideFlowThread()) {
+    if (const LayoutObject* parent = obj.Parent()) {
+      if (const LayoutObject* nearest_box_ancestor = parent->EnclosingBox()) {
+        if (nearest_box_ancestor->IsLayoutFlowThread())
+          nearest_box_ancestor = nearest_box_ancestor->Parent();
+        return nearest_box_ancestor->CanTraversePhysicalFragments();
+      }
+    }
+  }
   return true;
 }
 
@@ -1001,36 +1009,41 @@ LayoutBox* LayoutObject::EnclosingBox() const {
 
 LayoutBlockFlow* LayoutObject::FragmentItemsContainer() const {
   NOT_DESTROYED();
-  for (LayoutObject* parent = Parent(); parent; parent = parent->Parent()) {
-    if (auto* block_flow = DynamicTo<LayoutBlockFlow>(parent))
-      return block_flow;
-  }
-  return nullptr;
+  DCHECK(!IsOutOfFlowPositioned());
+  auto* block_flow = DynamicTo<LayoutBlockFlow>(ContainingNGBlock());
+  if (!block_flow || !block_flow->IsLayoutNGObject())
+    return nullptr;
+#if EXPENSIVE_DCHECKS_ARE_ON()
+  // Make sure that we don't skip blocks in the ancestry chain (which might
+  // happen if there are out-of-flow positioned objects, for instance). In this
+  // method we don't want to escape the enclosing inline formatting context.
+  for (const LayoutObject* walker = Parent(); walker != block_flow;
+       walker = walker->Parent())
+    DCHECK(!walker->IsLayoutBlock());
+#endif
+  return block_flow;
 }
 
-LayoutBlockFlow* LayoutObject::ContainingNGBlockFlow() const {
+LayoutBlock* LayoutObject::ContainingNGBlock() const {
   NOT_DESTROYED();
-  DCHECK(IsInline());
   if (!RuntimeEnabledFeatures::LayoutNGEnabled())
     return nullptr;
-  for (LayoutObject* parent = Parent(); parent; parent = parent->Parent()) {
-    if (auto* block_flow = DynamicTo<LayoutBlockFlow>(parent)) {
-      // Skip |LayoutFlowThread| because it is skipped when finding the first
-      // child in |GetLayoutObjectForFirstChildNode|.
-      if (UNLIKELY(block_flow->IsLayoutFlowThread()))
-        block_flow = DynamicTo<LayoutBlockFlow>(block_flow->Parent());
-      if (!NGBlockNode::CanUseNewLayout(*block_flow))
-        return nullptr;
-      return block_flow;
-    }
-  }
-  return nullptr;
+  LayoutBlock* containing_block = ContainingBlock();
+  if (!containing_block)
+    return nullptr;
+  // Flow threads should be invisible to LayoutNG, so skip to the multicol
+  // container.
+  if (UNLIKELY(containing_block->IsLayoutFlowThread()))
+    containing_block = To<LayoutBlockFlow>(containing_block->Parent());
+  if (!containing_block->IsLayoutNGObject())
+    return nullptr;
+  return containing_block;
 }
 
 bool LayoutObject::IsFirstInlineFragmentSafe() const {
   NOT_DESTROYED();
   DCHECK(IsInline());
-  LayoutBlockFlow* block_flow = ContainingNGBlockFlow();
+  LayoutBlockFlow* block_flow = FragmentItemsContainer();
   return block_flow && !block_flow->NeedsLayout();
 }
 
@@ -2360,6 +2373,15 @@ void LayoutObject::MarkContainerChainForOverflowRecalcIfNeeded(
 void LayoutObject::SetNeedsOverflowRecalc(
     OverflowRecalcType overflow_recalc_type) {
   NOT_DESTROYED();
+  if (UNLIKELY(IsLayoutFlowThread())) {
+    // If we're a flow thread inside an NG multicol container, just redirect to
+    // the multicol container, since the overflow recalculation walks down the
+    // NG fragment tree, and the flow thread isn't represented there.
+    if (auto* multicol_container = DynamicTo<LayoutNGBlockFlow>(Parent())) {
+      multicol_container->SetNeedsOverflowRecalc(overflow_recalc_type);
+      return;
+    }
+  }
   bool mark_container_chain_layout_overflow_recalc =
       !SelfNeedsLayoutOverflowRecalc();
 
@@ -4004,8 +4026,9 @@ void LayoutObject::DestroyAndCleanupAnonymousWrappers(
 
 void LayoutObject::Destroy() {
   NOT_DESTROYED();
-  CHECK(g_allow_destroying_layout_object_in_finalizer ||
-        !ThreadState::IsSweepingOnOwningThread(*ThreadStateStorage::Current()));
+  DCHECK(
+      g_allow_destroying_layout_object_in_finalizer ||
+      !ThreadState::IsSweepingOnOwningThread(*ThreadStateStorage::Current()));
 
   // Mark as being destroyed to avoid trouble with merges in |RemoveChild()| and
   // other house keepings.
@@ -4163,7 +4186,7 @@ const ComputedStyle* LayoutObject::FirstLineStyleWithoutFallback() const {
               first_line_block->GetUncachedPseudoElementStyle(
                   StyleRequest(kPseudoIdFirstLine, Style()))) {
         return StyleRef().AddCachedPseudoElementStyle(
-            std::move(first_line_style));
+            std::move(first_line_style), kPseudoIdFirstLine, g_null_atom);
       }
     }
   } else if (!IsAnonymous() && IsLayoutInline() &&
@@ -4180,7 +4203,8 @@ const ComputedStyle* LayoutObject::FirstLineStyleWithoutFallback() const {
               GetUncachedPseudoElementStyle(StyleRequest(
                   kPseudoIdFirstLineInherited, parent_first_line_style))) {
         return StyleRef().AddCachedPseudoElementStyle(
-            std::move(first_line_style));
+            std::move(first_line_style), kPseudoIdFirstLineInherited,
+            g_null_atom);
       }
     }
   }

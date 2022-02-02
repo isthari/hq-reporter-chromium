@@ -4,6 +4,12 @@
 
 #include "services/network/cookie_access_delegate_impl.h"
 
+#include <set>
+
+#include "base/callback_forward.h"
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
+#include "net/base/schemeful_site.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_util.h"
 #include "net/cookies/first_party_set_metadata.h"
@@ -55,29 +61,51 @@ bool CookieAccessDelegateImpl::ShouldIgnoreSameSiteRestrictions(
   return false;
 }
 
-net::FirstPartySetMetadata
-CookieAccessDelegateImpl::ComputeFirstPartySetMetadata(
+void CookieAccessDelegateImpl::ComputeFirstPartySetMetadataMaybeAsync(
     const net::SchemefulSite& site,
     const net::SchemefulSite* top_frame_site,
-    const std::set<net::SchemefulSite>& party_context) const {
-  return first_party_sets_ ? first_party_sets_->ComputeMetadata(
-                                 site, top_frame_site, party_context)
-                           : net::FirstPartySetMetadata();
+    const std::set<net::SchemefulSite>& party_context,
+    base::OnceCallback<void(net::FirstPartySetMetadata)> callback) const {
+  if (!first_party_sets_) {
+    std::move(callback).Run(net::FirstPartySetMetadata());
+    return;
+  }
+  first_party_sets_->ComputeMetadata(site, top_frame_site, party_context,
+                                     std::move(callback));
 }
 
-absl::optional<net::SchemefulSite>
-CookieAccessDelegateImpl::FindFirstPartySetOwner(
-    const net::SchemefulSite& site) const {
-  if (!first_party_sets_)
-    return absl::nullopt;
-  return first_party_sets_->FindOwner(site);
+void CookieAccessDelegateImpl::FindFirstPartySetOwner(
+    const net::SchemefulSite& site,
+    base::OnceCallback<void(absl::optional<net::SchemefulSite>)> callback)
+    const {
+  if (!first_party_sets_) {
+    std::move(callback).Run(absl::nullopt);
+    return;
+  }
+  std::move(callback).Run(first_party_sets_->FindOwner(site));
 }
 
-base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>
-CookieAccessDelegateImpl::RetrieveFirstPartySets() const {
-  if (!first_party_sets_)
-    return {};
-  return first_party_sets_->Sets();
+void CookieAccessDelegateImpl::FindFirstPartySetOwners(
+    const base::flat_set<net::SchemefulSite>& sites,
+    base::OnceCallback<
+        void(base::flat_map<net::SchemefulSite, net::SchemefulSite>)> callback)
+    const {
+  if (!first_party_sets_) {
+    std::move(callback).Run({});
+    return;
+  }
+  std::move(callback).Run(first_party_sets_->FindOwners(sites));
+}
+
+void CookieAccessDelegateImpl::RetrieveFirstPartySets(
+    base::OnceCallback<
+        void(base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>)>
+        callback) const {
+  if (!first_party_sets_) {
+    std::move(callback).Run({});
+    return;
+  }
+  return first_party_sets_->Sets(std::move(callback));
 }
 
 }  // namespace network

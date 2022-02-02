@@ -24,7 +24,6 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="chime_sdk"/>
       <traffic_annotation unique_id="chrome_android_hats"/>
       <traffic_annotation unique_id="chrome_variations_android"/>
-      <traffic_annotation unique_id="contextual_search_resolve"/>
       <traffic_annotation unique_id="customtabs_parallel_request"/>
       <traffic_annotation unique_id="download_bitmap"/>
       <traffic_annotation unique_id="download_manager_service_retry"/>
@@ -41,6 +40,8 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="permission_request_creator"/>
       <traffic_annotation unique_id="publish_note_request"/>
       <traffic_annotation unique_id="rlz"/>
+      <traffic_annotation unique_id="webapk_create"/>
+      <traffic_annotation unique_id="webapk_update"/>
     </sender>
     <sender name="Feed Library">
       <traffic_annotation unique_id="interest_feedv2_send"/>
@@ -64,6 +65,8 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="customization_wallpaper_downloader"/>
       <traffic_annotation unique_id="edu_account_login_profile_image_fetcher"/>
       <traffic_annotation unique_id="fast_pair_footprints_request"/>
+      <traffic_annotation unique_id="fast_pair_image_decoder"/>
+      <traffic_annotation unique_id="fast_pair_device_metadata_fetcher"/>
       <traffic_annotation unique_id="fwupd_firmware_update"/>
       <traffic_annotation unique_id="gaia_reauth_token_fetcher"/>
       <traffic_annotation unique_id="ime_url_downloader"/>
@@ -86,7 +89,9 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="wallpaper_backdrop_images_info"/>
       <traffic_annotation unique_id="wallpaper_backdrop_surprise_me_image"/>
       <traffic_annotation unique_id="wallpaper_fetcher"/>
+      <traffic_annotation unique_id="wallpaper_google_photos_albums"/>
       <traffic_annotation unique_id="wallpaper_google_photos_count"/>
+      <traffic_annotation unique_id="wallpaper_google_photos_photos"/>
     </sender>
     <!-- ChromeOS-specific features -->
     <sender name="ChromeOS Recovery">
@@ -268,6 +273,7 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="safe_browsing_certificate_error_reporting"/>
       <traffic_annotation unique_id="safe_browsing_client_side_phishing_detector"/>
       <traffic_annotation unique_id="safe_browsing_extended_reporting"/>
+      <traffic_annotation unique_id="safe_browsing_extension_telemetry"/>
       <traffic_annotation unique_id="safe_browsing_feedback"/>
       <traffic_annotation unique_id="safe_browsing_incident"/>
       <traffic_annotation unique_id="safe_browsing_v4_get_hash"/>
@@ -362,18 +368,9 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="hintsfetcher_gethintsrequest"/>
       <traffic_annotation unique_id="optimization_guide_model"/>
       <traffic_annotation unique_id="optimization_guide_model_download"/>
-      <traffic_annotation unique_id="litepages_robots_rules"/>
     </sender>
     <sender name="Network">
       <traffic_annotation unique_id="network_time_component"/>
-    </sender>
-  </group>
-  <group name="Printing">
-    <sender name="Cloud Print">
-      <traffic_annotation unique_id="cloud_print_backend"/>
-      <traffic_annotation unique_id="cloud_print_credential_update"/>
-      <traffic_annotation unique_id="cloud_print_proxy"/>
-      <traffic_annotation unique_id="printer_job_handler"/>
     </sender>
   </group>
   <group name="Search">
@@ -393,12 +390,17 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="one_google_bar_service"/>
       <traffic_annotation unique_id="search_prefetch_service"/>
     </sender>
+    <sender name="Contextual Search">
+      <traffic_annotation unique_id="contextual_search_resolve"/>
+      <traffic_annotation unique_id="contextual_search_thumbnail"/>
+    </sender>
   </group>
   <group name="Updates, Recovery, and Crash Reports">
     <sender name="Chrome Variations Service">
       <traffic_annotation unique_id="chrome_variations_service"/>
     </sender>
     <sender name="Updates">
+      <traffic_annotation unique_id="omaha_client_android_uc"/>
       <traffic_annotation unique_id="update_client"/>
     </sender>
     <sender name="Crash Reports">

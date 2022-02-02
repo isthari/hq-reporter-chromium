@@ -46,6 +46,7 @@
 #import "net/base/mac/url_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/cert/x509_util_ios.h"
+#include "net/http/http_content_disposition.h"
 #include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -64,7 +65,7 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
 
 }  // namespace
 
-@interface CRWWKNavigationHandler () <DownloadNativeTaskBridgeReadyDelegate> {
+@interface CRWWKNavigationHandler () <DownloadNativeTaskBridgeDelegate> {
   // Referrer for the current page; does not include the fragment.
   NSString* _currentReferrerString;
 
@@ -386,11 +387,9 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
   BOOL isCrossOriginTargetFrame = NO;
   if (action.sourceFrame && action.targetFrame &&
       action.sourceFrame != action.targetFrame) {
-    url::Origin sourceOrigin = url::Origin::Create(
-        web::GURLOriginWithWKSecurityOrigin(action.sourceFrame.securityOrigin));
-    url::Origin targetOrigin = url::Origin::Create(
+    isCrossOriginTargetFrame = !url::IsSameOriginWith(
+        web::GURLOriginWithWKSecurityOrigin(action.sourceFrame.securityOrigin),
         web::GURLOriginWithWKSecurityOrigin(action.targetFrame.securityOrigin));
-    isCrossOriginTargetFrame = !sourceOrigin.IsSameOriginWith(targetOrigin);
   }
   const web::WebStatePolicyDecider::RequestInfo requestInfo(
       transition, isMainFrameNavigationAction, isCrossOriginTargetFrame,
@@ -453,7 +452,7 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
                     : WKNavigationResponsePolicyCancel);
       });
 
-  if ([self shouldRenderResponse:WKResponse]) {
+  if ([self shouldRenderResponse:WKResponse HTTPHeaders:headers.get()]) {
     const web::WebStatePolicyDecider::ResponseInfo response_info(
         WKResponse.forMainFrame);
     self.webStateImpl->ShouldAllowResponse(WKResponse.response, response_info,
@@ -1063,7 +1062,7 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
 
   [_nativeTaskBridges
       addObject:[[DownloadNativeTaskBridge alloc] initWithDownload:WKDownload
-                                             downloadReadyDelegate:self]];
+                                                          delegate:self]];
 }
 
 - (void)onDownloadNativeTaskBridgeReadyForDownload:
@@ -1091,6 +1090,13 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
                                  contentLength, MIMEType, bridge);
 
   [_nativeTaskBridges removeObject:bridge];
+}
+
+- (void)resumeDownloadNativeTask:(NSData*)data
+               completionHandler:(void (^)(WKDownload*))completionHandler
+    API_AVAILABLE(ios(15)) {
+  [self.delegate resumeDownloadWithData:data
+                      completionHandler:completionHandler];
 }
 
 #pragma mark - Private methods
@@ -1351,7 +1357,18 @@ const web::CertVerificationErrorsCacheType::size_type kMaxCertErrorsCount = 100;
 }
 
 // Returns YES if response should be rendered in WKWebView.
-- (BOOL)shouldRenderResponse:(WKNavigationResponse*)WKResponse {
+- (BOOL)shouldRenderResponse:(WKNavigationResponse*)WKResponse
+                 HTTPHeaders:(net::HttpResponseHeaders*)headers {
+  if (headers) {
+    std::string contentDisposition;
+    headers->GetNormalizedHeader("content-disposition", &contentDisposition);
+    net::HttpContentDisposition parsedContentDisposition(contentDisposition,
+                                                         std::string());
+    if (parsedContentDisposition.is_attachment()) {
+      return NO;
+    }
+  }
+
   if (_shouldPerformDownload) {
     DCHECK(web::features::IsNewDownloadAPIEnabled());
     return NO;

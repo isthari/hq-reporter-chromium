@@ -220,7 +220,8 @@ declare global {
         id: string,
         incognitoAccess: AccessModifier,
         installWarnings: string[],
-        launchUrl?: string, location: Location,
+        launchUrl?: string,
+        location: Location,
         locationText?: string,
         manifestErrors: ManifestError[],
         manifestHomePageUrl: string,
@@ -374,6 +375,11 @@ declare global {
         type?: ErrorType,
       };
 
+      export type UserSiteSettings = {
+        permittedSites: string[],
+        restrictedSites: string[],
+      };
+
       type VoidCallback = () => void;
       type StringCallback = (s: string) => void;
 
@@ -425,6 +431,8 @@ declare global {
           update: ExtensionConfigurationUpdate, callback?: VoidCallback): void;
       export function updateProfileConfiguration(
           update: ProfileConfigurationUpdate, callback?: VoidCallback): void;
+      export function getUserSiteSettings(
+          callback: (result: UserSiteSettings) => void): void;
 
       export const onItemStateChanged: ChromeEvent<(data: EventData) => void>;
       export const onProfileStateChanged:

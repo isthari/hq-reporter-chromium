@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/flat_map.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/autofill_assistant/browser/actions/action.h"
@@ -24,6 +25,7 @@
 #include "components/autofill_assistant/browser/retry_timer.h"
 #include "components/autofill_assistant/browser/script.h"
 #include "components/autofill_assistant/browser/script_executor_delegate.h"
+#include "components/autofill_assistant/browser/script_executor_ui_delegate.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/top_padding.h"
 #include "components/autofill_assistant/browser/wait_for_dom_observer.h"
@@ -70,7 +72,8 @@ class ScriptExecutor : public ActionDelegate,
                  const std::string& script_payload,
                  ScriptExecutor::Listener* listener,
                  const std::vector<std::unique_ptr<Script>>* ordered_interrupts,
-                 ScriptExecutorDelegate* delegate);
+                 ScriptExecutorDelegate* delegate,
+                 ScriptExecutorUiDelegate* ui_delegate);
 
   ScriptExecutor(const ScriptExecutor&) = delete;
   ScriptExecutor& operator=(const ScriptExecutor&) = delete;
@@ -204,6 +207,8 @@ class ScriptExecutor : public ActionDelegate,
   void Close() override;
   autofill::PersonalDataManager* GetPersonalDataManager() const override;
   WebsiteLoginManager* GetWebsiteLoginManager() const override;
+  password_manager::PasswordChangeSuccessTracker*
+  GetPasswordChangeSuccessTracker() const override;
   content::WebContents* GetWebContents() const override;
   ElementStore* GetElementStore() const override;
   WebController* GetWebController() const override;
@@ -279,6 +284,7 @@ class ScriptExecutor : public ActionDelegate,
     WaitForDomOperation(
         ScriptExecutor* main_script,
         ScriptExecutorDelegate* delegate,
+        ScriptExecutorUiDelegate* ui_delegate,
         base::TimeDelta max_wait_time,
         bool allow_interrupt,
         WaitForDomObserver* observer,
@@ -345,6 +351,7 @@ class ScriptExecutor : public ActionDelegate,
 
     raw_ptr<ScriptExecutor> main_script_;
     raw_ptr<ScriptExecutorDelegate> delegate_;
+    raw_ptr<ScriptExecutorUiDelegate> ui_delegate_;
     const base::TimeDelta max_wait_time_;
     const bool allow_interrupt_;
     raw_ptr<WaitForDomObserver> observer_;
@@ -402,14 +409,15 @@ class ScriptExecutor : public ActionDelegate,
   void GetNextActions();
   void OnProcessedAction(base::TimeTicks start_time,
                          std::unique_ptr<ProcessedActionProto> action);
-  void CheckElementMatches(
+  void CheckElementConditionMatches(
       const Selector& selector,
       BatchElementChecker* checker,
       base::OnceCallback<void(const ClientStatus&)> callback);
   void CheckElementMatchesCallback(
       base::OnceCallback<void(const ClientStatus&)> callback,
       const ClientStatus& status,
-      const ElementFinder::Result& ignored_element);
+      const std::vector<std::string>& ignored_payloads,
+      const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements);
   void OnShortWaitForElement(
       base::OnceCallback<void(const ClientStatus&, base::TimeDelta)> callback,
       const ClientStatus& element_status,
@@ -457,6 +465,7 @@ class ScriptExecutor : public ActionDelegate,
   std::string last_script_payload_;
   const raw_ptr<ScriptExecutor::Listener> listener_;
   const raw_ptr<ScriptExecutorDelegate> delegate_;
+  const raw_ptr<ScriptExecutorUiDelegate> ui_delegate_;
   // Set of interrupts that might run during wait for dom or prompt action with
   // allow_interrupt. Sorted by priority; an interrupt that appears on the
   // vector first should run first. Note that the content of this vector can

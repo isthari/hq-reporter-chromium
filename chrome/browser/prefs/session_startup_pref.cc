@@ -48,7 +48,7 @@ void URLListToPref(const base::Value* url_list, SessionStartupPref* pref) {
 // static
 void SessionStartupPref::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   uint32_t flags = PrefRegistry::NO_REGISTRATION_FLAGS;
 #else
   uint32_t flags = user_prefs::PrefRegistrySyncable::SYNCABLE_PREF;
@@ -86,9 +86,9 @@ void SessionStartupPref::SetStartupPref(PrefService* prefs,
   if (!SessionStartupPref::URLsAreManaged(prefs)) {
     // Always save the URLs, that way the UI can remain consistent even if the
     // user changes the startup type pref.
-    // Ownership of the ListValue retains with the pref service.
+    // Ownership of the list Value retains with the pref service.
     ListPrefUpdate update(prefs, prefs::kURLsToRestoreOnStartup);
-    base::ListValue* url_pref_list = update.Get();
+    base::Value* url_pref_list = update.Get();
     DCHECK(url_pref_list);
     url_pref_list->ClearList();
     for (GURL url : pref.urls)

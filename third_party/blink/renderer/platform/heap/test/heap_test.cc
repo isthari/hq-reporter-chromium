@@ -40,7 +40,7 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_objects.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_platform.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
@@ -721,7 +721,7 @@ TEST_F(HeapTest, HashMapOfMembers) {
 // This test often fails on Android (https://crbug.com/843032).
 // We run out of memory on Android devices because ReserveCapacityForSize
 // actually allocates a much larger backing than specified (in this case 400MB).
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #define MAYBE_LargeHashMap DISABLED_LargeHashMap
 #else
 #define MAYBE_LargeHashMap LargeHashMap

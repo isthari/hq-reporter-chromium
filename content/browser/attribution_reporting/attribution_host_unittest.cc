@@ -10,6 +10,7 @@
 #include "build/build_config.h"
 #include "content/browser/attribution_reporting/attribution_manager.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
@@ -59,7 +60,6 @@ using testing::InSequence;
 using testing::IsNull;
 using testing::Mock;
 using testing::Pointee;
-using testing::Property;
 using testing::Return;
 
 using Checkpoint = ::testing::MockFunction<void(int step)>;
@@ -118,8 +118,7 @@ class AttributionHostTest : public RenderViewHostTestHarness {
 
 TEST_F(AttributionHostTest, ValidConversionInSubframe_NoBadMessage) {
   EXPECT_CALL(mock_manager_,
-              HandleTrigger(Property(
-                  &StorableTrigger::conversion_destination,
+              HandleTrigger(TriggerConversionDestinationIs(
                   net::SchemefulSite(GURL("https://www.example.com")))));
 
   contents()->NavigateAndCommit(GURL("https://www.example.com"));
@@ -149,8 +148,7 @@ TEST_F(AttributionHostTest, ValidConversionInSubframe_NoBadMessage) {
 TEST_F(AttributionHostTest,
        ConversionInSubframe_ConversionDestinationMatchesMainFrame) {
   EXPECT_CALL(mock_manager_,
-              HandleTrigger(Property(
-                  &StorableTrigger::conversion_destination,
+              HandleTrigger(TriggerConversionDestinationIs(
                   net::SchemefulSite(GURL("https://www.example.com")))));
 
   contents()->NavigateAndCommit(GURL("https://www.example.com"));
@@ -358,8 +356,7 @@ TEST_F(AttributionHostTest, Conversion_AssociatedWithConversionSite) {
   // Verify that we use the domain of the page where the conversion occurred
   // instead of the origin.
   EXPECT_CALL(mock_manager_,
-              HandleTrigger(Property(
-                  &StorableTrigger::conversion_destination,
+              HandleTrigger(TriggerConversionDestinationIs(
                   net::SchemefulSite(GURL("https://conversion.com")))));
 
   // Create a page with a secure origin.
@@ -701,8 +698,7 @@ TEST_F(AttributionHostTest,
 TEST_F(AttributionHostTest,
        ImpressionInSubframe_ImpressionOriginMatchesTopPageOrigin) {
   EXPECT_CALL(mock_manager_,
-              HandleSource(Property(
-                  &StorableSource::impression_origin,
+              HandleSource(ImpressionOriginIs(
                   url::Origin::Create(GURL("https://www.example.com")))));
 
   contents()->NavigateAndCommit(GURL("https://www.example.com"));
@@ -730,10 +726,10 @@ TEST_F(AttributionHostTest,
 }
 
 TEST_F(AttributionHostTest, ValidImpression_NoBadMessage) {
-  EXPECT_CALL(mock_manager_,
-              HandleSource(AllOf(Property(&StorableSource::source_type,
-                                          StorableSource::SourceType::kEvent),
-                                 Property(&StorableSource::priority, 10))));
+  EXPECT_CALL(
+      mock_manager_,
+      HandleSource(AllOf(SourceTypeIs(CommonSourceInfo::SourceType::kEvent),
+                         SourcePriorityIs(10))));
 
   // Create a page with a secure origin.
   contents()->NavigateAndCommit(GURL("https://www.example.com"));
@@ -829,7 +825,7 @@ TEST_F(AttributionHostTest, AndroidConversion_DuringNavigation) {
   }
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -867,7 +863,7 @@ TEST_F(AttributionHostTest, AndroidConversion_AfterNavigation) {
   }
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -895,7 +891,7 @@ TEST_F(AttributionHostTest, AndroidConversion_AfterNavigation_SubDomain) {
   EXPECT_CALL(mock_manager_, HandleSource);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -918,7 +914,7 @@ TEST_F(AttributionHostTest,
   EXPECT_CALL(mock_manager_, HandleSource).Times(0);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -946,7 +942,7 @@ TEST_F(AttributionHostTest, AndroidConversion_NavigationAborted) {
   EXPECT_CALL(mock_manager_, HandleSource).Times(0);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -975,7 +971,7 @@ TEST_F(AttributionHostTest, AndroidConversion_NavigationError) {
   EXPECT_CALL(mock_manager_, HandleSource).Times(0);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -1005,7 +1001,7 @@ TEST_F(AttributionHostTest, AndroidConversion_BeforeNavigation) {
   EXPECT_CALL(mock_manager_, HandleSource).Times(0);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -1027,7 +1023,7 @@ TEST_F(AttributionHostTest, AndroidConversion_SameDocument) {
   EXPECT_CALL(mock_manager_, HandleSource);
 
   std::string origin(
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
       "android-app:com.any.app");
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme(kAndroidAppScheme, url::SCHEME_WITH_HOST);
@@ -1045,7 +1041,7 @@ TEST_F(AttributionHostTest, AndroidConversion_SameDocument) {
       url::Origin::Create(GURL(origin)), CreateValidImpression());
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 TEST_F(AttributionHostTest, AndroidConversion) {
   EXPECT_CALL(mock_manager_, HandleSource);
 

@@ -328,14 +328,22 @@ void CrostiniApps::OnCrostiniEnabledChanged() {
 
   // The Crostini Terminal app is a hard-coded special case. It is the entry
   // point to installing other Crostini apps, and is always in search.
-  apps::mojom::AppPtr app = apps::mojom::App::New();
-  app->app_type = apps::mojom::AppType::kCrostini;
-  app->app_id = crostini::kCrostiniTerminalSystemAppId;
-  app->show_in_launcher = show;
-  app->show_in_shelf = show;
-  app->show_in_search = apps::mojom::OptionalBool::kTrue;
-  app->handles_intents = show;
-  PublisherBase::Publish(std::move(app), subscribers_);
+  apps::mojom::AppPtr mojom_app = apps::mojom::App::New();
+  mojom_app->app_type = apps::mojom::AppType::kCrostini;
+  mojom_app->app_id = crostini::kCrostiniTerminalSystemAppId;
+  mojom_app->show_in_launcher = show;
+  mojom_app->show_in_shelf = show;
+  mojom_app->show_in_search = apps::mojom::OptionalBool::kTrue;
+  mojom_app->handles_intents = show;
+  PublisherBase::Publish(std::move(mojom_app), subscribers_);
+
+  std::unique_ptr<App> app = std::make_unique<App>(
+      AppType::kCrostini, crostini::kCrostiniTerminalSystemAppId);
+  app->show_in_launcher = crostini_enabled_;
+  app->show_in_shelf = crostini_enabled_;
+  app->show_in_search = true;
+  app->handles_intents = crostini_enabled_;
+  AppPublisher::Publish(std::move(app));
 }
 
 std::unique_ptr<App> CrostiniApps::CreateApp(
@@ -345,9 +353,17 @@ std::unique_ptr<App> CrostiniApps::CreateApp(
       registration.VmType(),
       guest_os::GuestOsRegistryService::VmType::ApplicationList_VmType_TERMINA);
 
-  std::unique_ptr<App> app =
-      AppPublisher::MakeApp(AppType::kCrostini, registration.app_id(),
-                            Readiness::kReady, registration.Name());
+  std::unique_ptr<App> app = AppPublisher::MakeApp(
+      AppType::kCrostini, registration.app_id(), Readiness::kReady,
+      registration.Name(), InstallReason::kUser, InstallSource::kUnknown);
+
+  const std::string& executable_file_name = registration.ExecutableFileName();
+  if (!executable_file_name.empty()) {
+    app->additional_search_terms.push_back(executable_file_name);
+  }
+  for (const std::string& keyword : registration.Keywords()) {
+    app->additional_search_terms.push_back(keyword);
+  }
 
   if (generate_new_icon_key) {
     if (registration.app_id() == crostini::kCrostiniTerminalSystemAppId) {
@@ -365,6 +381,27 @@ std::unique_ptr<App> CrostiniApps::CreateApp(
           *icon_key_factory_.CreateIconKey(IconEffects::kCrOsStandardIcon));
     }
   }
+
+  app->last_launch_time = registration.LastLaunchTime();
+  app->install_time = registration.InstallTime();
+
+  auto show = !registration.NoDisplay();
+  auto show_in_search = show;
+  if (registration.app_id() == crostini::kCrostiniTerminalSystemAppId) {
+    show = crostini_enabled_;
+    // The Crostini Terminal should appear in the app search, even when
+    // Crostini is not installed.
+    show_in_search = true;
+  }
+  app->show_in_launcher = show;
+  app->show_in_search = show_in_search;
+  app->show_in_shelf = show_in_search;
+  // TODO(crbug.com/955937): Enable once Crostini apps are managed inside App
+  // Management.
+  app->show_in_management = false;
+
+  app->allow_uninstall =
+      crostini::IsUninstallable(profile_, registration.app_id());
 
   // TODO(crbug.com/1253250): Add other fields for the App struct.
   return app;

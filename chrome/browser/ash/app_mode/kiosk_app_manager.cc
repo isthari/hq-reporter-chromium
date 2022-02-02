@@ -274,9 +274,9 @@ bool KioskAppManager::GetSwitchesForSessionRestore(
   // should not be present for kiosk sessions.
   bool in_policy_switches_block = false;
   const std::string policy_switches_begin =
-      GetSwitchString(switches::kPolicySwitchesBegin);
+      GetSwitchString(chromeos::switches::kPolicySwitchesBegin);
   const std::string policy_switches_end =
-      GetSwitchString(switches::kPolicySwitchesEnd);
+      GetSwitchString(chromeos::switches::kPolicySwitchesEnd);
 
   for (const auto& it : current_command_line->argv()) {
     if (it == policy_switches_begin) {
@@ -821,11 +821,11 @@ void KioskAppManager::UpdateExternalCachePrefs() {
     base::DictionaryValue entry;
 
     if (apps_[i]->update_url().is_valid()) {
-      entry.SetString(extensions::ExternalProviderImpl::kExternalUpdateUrl,
-                      apps_[i]->update_url().spec());
+      entry.SetStringKey(extensions::ExternalProviderImpl::kExternalUpdateUrl,
+                         apps_[i]->update_url().spec());
     } else {
-      entry.SetString(extensions::ExternalProviderImpl::kExternalUpdateUrl,
-                      extension_urls::GetWebstoreUpdateUrl().spec());
+      entry.SetStringKey(extensions::ExternalProviderImpl::kExternalUpdateUrl,
+                         extension_urls::GetWebstoreUpdateUrl().spec());
     }
 
     prefs->SetPath(apps_[i]->app_id(), std::move(entry));
@@ -872,7 +872,7 @@ void KioskAppManager::SetAutoLoginState(AutoLoginState state) {
   PrefService* prefs = g_browser_process->local_state();
   DictionaryPrefUpdate dict_update(prefs,
                                    KioskAppManager::kKioskDictionaryName);
-  dict_update->SetInteger(kKeyAutoLoginState, static_cast<int>(state));
+  dict_update->SetIntKey(kKeyAutoLoginState, static_cast<int>(state));
   prefs->CommitPendingWrite();
 }
 

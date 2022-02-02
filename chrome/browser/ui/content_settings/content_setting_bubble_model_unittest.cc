@@ -13,7 +13,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
-#include "chrome/browser/custom_handlers/test_protocol_handler_registry_delegate.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
@@ -37,6 +36,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
+#include "components/custom_handlers/test_protocol_handler_registry_delegate.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "components/permissions/permission_decision_auto_blocker.h"
@@ -51,7 +51,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "services/device/public/cpp/geolocation/geolocation_manager.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
 #include "services/device/public/cpp/test/fake_geolocation_manager.h"
@@ -426,7 +426,7 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamContentBubbleMediaMenus) {
         GetMediaStreamCaptureIndicator();
   std::unique_ptr<content::MediaStreamUI> media_stream_ui =
       indicator->RegisterMediaStream(web_contents(), audio_devices);
-  media_stream_ui->OnStarted(base::OnceClosure(),
+  media_stream_ui->OnStarted(base::RepeatingClosure(),
                              content::MediaStreamUI::SourceCallback(),
                              /*label=*/std::string(), /*screen_capture_ids=*/{},
                              content::MediaStreamUI::StateChangeCallback());
@@ -728,7 +728,7 @@ TEST_F(ContentSettingBubbleModelTest, AccumulateMediastreamMicAndCamera) {
 }
 
 TEST_F(ContentSettingBubbleModelTest, Geolocation) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   auto fake_geolocation_manager =
       std::make_unique<device::FakeGeolocationManager>();
   device::FakeGeolocationManager* geolocation_manager =
@@ -736,7 +736,7 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
   TestingBrowserProcess::GetGlobal()
       ->GetTestPlatformPart()
       ->SetGeolocationManager(std::move(fake_geolocation_manager));
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
   WebContentsTester::For(web_contents())
       ->NavigateAndCommit(GURL("https://www.example.com"));
@@ -750,7 +750,7 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
                                          CONTENT_SETTING_ALLOW);
   content_settings->OnContentAllowed(ContentSettingsType::GEOLOCATION);
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // System-level geolocation permission is blocked.
   {
     auto content_setting_bubble_model =
@@ -790,7 +790,7 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
     // This should be a no-op.
     content_setting_bubble_model->CommitChanges();
   }
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
   // Go from allow by default to block by default to allow by default.
   {
@@ -1044,7 +1044,8 @@ TEST_F(ContentSettingBubbleModelTest, RegisterProtocolHandler) {
 
 TEST_F(ContentSettingBubbleModelTest, RPHAllow) {
   custom_handlers::ProtocolHandlerRegistry registry(
-      profile(), std::make_unique<TestProtocolHandlerRegistryDelegate>());
+      profile(),
+      std::make_unique<custom_handlers::TestProtocolHandlerRegistryDelegate>());
   registry.InitProtocolSettings();
 
   const GURL page_url("https://toplevel.example/");
@@ -1111,7 +1112,8 @@ TEST_F(ContentSettingBubbleModelTest, RPHAllow) {
 
 TEST_F(ContentSettingBubbleModelTest, RPHDefaultDone) {
   custom_handlers::ProtocolHandlerRegistry registry(
-      profile(), std::make_unique<TestProtocolHandlerRegistryDelegate>());
+      profile(),
+      std::make_unique<custom_handlers::TestProtocolHandlerRegistryDelegate>());
   registry.InitProtocolSettings();
 
   const GURL page_url("https://toplevel.example/");

@@ -11,6 +11,7 @@
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/metrics/power/power_details_provider.h"
 #include "chrome/browser/performance_monitor/process_metrics_recorder_util.h"
@@ -102,7 +103,7 @@ PowerMetricsReporter::PowerMetricsReporter(
       base::BindOnce(&PowerMetricsReporter::OnFirstBatteryStateSampled,
                      weak_factory_.GetWeakPtr()));
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   power_details_provider_ = PowerDetailsProvider::Create();
   iopm_power_source_sampling_event_source_.Start(
       base::BindRepeating(&PowerMetricsReporter::OnIOPMPowerSourceSamplingEvent,
@@ -154,7 +155,7 @@ void PowerMetricsReporter::ReportHistograms(
   ReportCPUHistograms(metrics, suffixes);
   ReportBatteryHistograms(interval_duration, discharge_mode,
                           discharge_rate_during_interval, suffixes);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   RecordCoalitionData(metrics, suffixes);
 #endif
 }
@@ -322,7 +323,7 @@ void PowerMetricsReporter::ReportUKMs(
     builder.SetBatteryDischargeRate(*discharge_rate_during_interval);
   }
   builder.SetCPUTimeMs(metrics.cpu_usage * interval_duration.InMilliseconds());
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   builder.SetIdleWakeUps(metrics.idle_wakeups);
   builder.SetPackageExits(metrics.package_idle_wakeups);
   builder.SetEnergyImpactScore(metrics.energy_impact);
@@ -391,7 +392,7 @@ PowerMetricsReporter::GetBatteryDischargeRateDuringInterval(
   static const int64_t kDischargeRateFactor =
       10000 * base::Minutes(1).InSecondsF();
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   // On MacOS, empirical evidence has shown that right after a full charge, the
   // current capacity stays equal to the maximum capacity for several minutes,
   // despite the fact that power was definitely consumed. Reporting a zero
@@ -408,7 +409,7 @@ PowerMetricsReporter::GetBatteryDischargeRateDuringInterval(
   return {BatteryDischargeMode::kDischarging, discharge_rate};
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 void PowerMetricsReporter::OnIOPMPowerSourceSamplingEvent() {
   base::TimeTicks now_ticks = base::TimeTicks::Now();
 
@@ -420,11 +421,19 @@ void PowerMetricsReporter::OnIOPMPowerSourceSamplingEvent() {
   // The delta is expected to be almost always 60 seconds. Split the buckets for
   // 0.2s granularity (10s interval with 50 buckets + 1 underflow bucket + 1
   // overflow bucket) around that value.
+  base::TimeDelta sampling_event_delta = now_ticks - *last_event_time_ticks_;
   base::HistogramBase* histogram = base::LinearHistogram::FactoryTimeGet(
       "Power.IOPMPowerSource.SamplingEventDelta",
       /*min=*/base::Seconds(55), /*max=*/base::Seconds(65), /*buckets=*/52,
       base::HistogramBase::kUmaTargetedHistogramFlag);
-  histogram->AddTime(now_ticks - *last_event_time_ticks_);
+  histogram->AddTime(sampling_event_delta);
   *last_event_time_ticks_ = now_ticks;
+
+  // Same as the above but using a range that starts from zero and significantly
+  // goes beyond the expected mean time of |sampling_event_delta| (which is 60
+  // seconds.).
+  base::UmaHistogramMediumTimes(
+      "Power.IOPMPowerSource.SamplingEventDelta.MediumTimes",
+      sampling_event_delta);
 }
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)

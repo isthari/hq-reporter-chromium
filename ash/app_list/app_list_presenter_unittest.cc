@@ -566,7 +566,7 @@ class PopulatedAppListTest : public AshTestBase {
  protected:
   void OpenAppListInFullscreen() {
     AppListPresenterImpl* presenter =
-        Shell::Get()->app_list_controller()->presenter();
+        Shell::Get()->app_list_controller()->fullscreen_presenter();
     presenter->Show(AppListViewState::kFullscreenAllApps,
                     GetPrimaryDisplay().id(), base::TimeTicks::Now(),
                     /*show_source=*/absl::nullopt);
@@ -1865,6 +1865,18 @@ TEST_P(AppListBubbleAndTabletTest, AppsGridItemReparentToFolderDrag) {
   EXPECT_TRUE(apps_grid_view_->GetItemViewAt(3)->item()->is_folder());
   EXPECT_EQ(dragged_item->folder_id(),
             apps_grid_view_->GetItemViewAt(3)->item()->id());
+
+  // With productivity launcher enabled, newly created folder should open and
+  // have the name input focused.
+  EXPECT_EQ(productivity_launcher_param(),
+            GetAppListTestHelper()->IsInFolderView());
+  if (productivity_launcher_param()) {
+    EXPECT_EQ(dragged_item->folder_id(), folder_view()->folder_item()->id());
+    EXPECT_TRUE(folder_view()
+                    ->folder_header_view()
+                    ->GetFolderNameViewForTest()
+                    ->HasFocus());
+  }
 }
 
 // Tests that an item can be removed just after creating a folder that contains
@@ -3763,10 +3775,7 @@ TEST_P(AppListPresenterTest, ShowInInvalidDisplay) {
   GetAppListTestHelper()->CheckState(AppListViewState::kClosed);
 }
 
-// Tests that tap the auto-hide shelf with app list opened should dismiss the
-// app list but keep shelf visible.
-// TODO(crbug.com/1273162): Fix for ProductivityLauncher.
-TEST_F(AppListPresenterTest, TapAutoHideShelfWithAppListOpened) {
+TEST_F(AppListPresenterTest, TapAppListThenSystemTrayShowsAutoHiddenShelf) {
   Shelf* shelf = GetPrimaryShelf();
   shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlways);
 
@@ -3789,13 +3798,22 @@ TEST_F(AppListPresenterTest, TapAutoHideShelfWithAppListOpened) {
   EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
 
   // Tap to dismiss the app list and the auto-hide shelf.
-  ui::test::EventGenerator* generator = GetEventGenerator();
-  generator->GestureTapAt(gfx::Point(0, 0));
+  GetEventGenerator()->GestureTapAt(gfx::Point(0, 0));
   EXPECT_FALSE(GetPrimaryUnifiedSystemTray()->IsBubbleShown());
   EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->GetAutoHideState());
   GetAppListTestHelper()->CheckVisibility(false);
+}
 
-  // Show the AppList again.
+TEST_F(AppListPresenterTest, TapAppListThenShelfHidesAutoHiddenShelf) {
+  Shelf* shelf = GetPrimaryShelf();
+  shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlways);
+
+  // Create a normal unmaximized window; the shelf should be hidden.
+  std::unique_ptr<views::Widget> window = CreateTestWidget();
+  window->SetBounds(gfx::Rect(0, 0, 100, 100));
+  EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->GetAutoHideState());
+
+  // Show the AppList.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
   EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
@@ -3812,8 +3830,9 @@ TEST_F(AppListPresenterTest, TapAutoHideShelfWithAppListOpened) {
 
   // Test that tapping the auto-hidden shelf dismisses the app list when tapping
   // part of the shelf that does not contain the apps.
-  generator->GestureTapAt(shelf_view->GetBoundsInScreen().left_center() +
-                          gfx::Vector2d(10, 0));
+  GetEventGenerator()->GestureTapAt(
+      shelf_view->GetBoundsInScreen().left_center() + gfx::Vector2d(10, 0));
+  base::RunLoop().RunUntilIdle();  // Wait for autohide to be recomputed.
   GetAppListTestHelper()->CheckVisibility(false);
   EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->GetAutoHideState());
 

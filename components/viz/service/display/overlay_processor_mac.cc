@@ -48,6 +48,10 @@ gfx::Rect OverlayProcessorMac::GetAndResetOverlayDamage() {
   return result;
 }
 
+void OverlayProcessorMac::SetIsVideoCaptureEnabled(bool enabled) {
+  ca_layer_overlay_processor_->SetIsVideoCaptureEnabled(enabled);
+}
+
 void OverlayProcessorMac::ProcessForOverlays(
     DisplayResourceProvider* resource_provider,
     AggregatedRenderPassList* render_passes,
@@ -109,6 +113,10 @@ void OverlayProcessorMac::AdjustOutputSurfaceOverlay(
 
 bool OverlayProcessorMac::NeedsSurfaceDamageRectList() const {
   return false;
+}
+
+gfx::CALayerResult OverlayProcessorMac::GetCALayerErrorCode() const {
+  return ca_layer_overlay_processor_->ca_layer_result();
 }
 
 }  // namespace viz

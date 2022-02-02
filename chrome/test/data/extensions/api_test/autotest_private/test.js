@@ -181,6 +181,18 @@ var defaultTests = [
       });
     });
   },
+
+  async function douleStopArc() {
+    try {
+      await promisify(
+          chrome.autotestPrivate.stopArc);
+          chrome.test.fail();
+    } catch (error) {
+      chrome.test.assertEq("ARC is already stopped", error.message);
+      chrome.test.succeed();
+    }
+  },
+
   // This test verifies that Play Store window is not shown by default but
   // Chrome is shown.
   function isAppShown() {
@@ -926,6 +938,19 @@ var defaultTests = [
       });
     });
   },
+  function startSmoothnessTrackingExplicitThroughputInterval() {
+    chrome.autotestPrivate.startSmoothnessTracking(100, async function() {
+      chrome.test.assertNoLastError();
+
+      await sleep(200);
+
+      chrome.autotestPrivate.stopSmoothnessTracking(function(data) {
+        chrome.test.assertNoLastError();
+        chrome.test.assertTrue(data.hasOwnProperty('throughput'));
+        chrome.test.succeed();
+      });
+    });
+  },
   function startSmoothnessTrackingExplicitDisplay() {
     const badDisplay = '-1';
     chrome.autotestPrivate.startSmoothnessTracking(badDisplay, function() {
@@ -1173,6 +1198,27 @@ var arcEnabledTests = [
           chrome.test.assertFalse(appLaunched);
           chrome.test.succeed();
         });
+  },
+
+  async function douleStartArc() {
+    try {
+      await promisify(
+          chrome.autotestPrivate.startArc);
+          chrome.test.fail();
+    } catch (error) {
+      chrome.test.assertEq("ARC is already started", error.message);
+      chrome.test.succeed();
+    }
+  },
+
+  // This test verifies restating ARC.
+  function restartArc() {
+    chrome.autotestPrivate.stopArc(function() {
+          chrome.test.assertNoLastError();
+          chrome.autotestPrivate.startArc(
+              chrome.test.callbackPass(function() {
+          }));
+    });
   },
 ];
 

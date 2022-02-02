@@ -17,7 +17,6 @@
 #include "ios/chrome/browser/history/history_service_factory.h"
 #import "ios/chrome/browser/ui/toolbar/test/toolbar_test_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/test_web_thread.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -42,9 +41,11 @@ class BrowserViewControllerHelperTest : public PlatformTest {
     test_cbs_builder.AddTestingFactory(
         ios::HistoryServiceFactory::GetInstance(),
         ios::HistoryServiceFactory::GetDefaultFactory());
+    test_cbs_builder.AddTestingFactory(
+        ios::BookmarkModelFactory::GetInstance(),
+        ios::BookmarkModelFactory::GetDefaultFactory());
 
     chrome_browser_state_ = test_cbs_builder.Build();
-    chrome_browser_state_->CreateBookmarkModel(true);
     bookmarks::test::WaitForBookmarkModelToLoad(
         ios::BookmarkModelFactory::GetForBrowserState(
             chrome_browser_state_.get()));

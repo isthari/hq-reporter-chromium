@@ -8,63 +8,182 @@
 
 namespace blink {
 
-const TrackSpanProperties& GridItemData::GetTrackSpanProperties(
-    const GridTrackSizingDirection track_direction) const {
-  return (track_direction == kForColumns) ? column_span_properties
-                                          : row_span_properties;
+namespace {
+
+// Given an |item_style| determines the correct |AxisEdge| alignment.
+// Additionally will determine:
+//  - The behavior of 'auto' via the |auto_behavior| out-parameter.
+//  - If the alignment is safe via the |is_overflow_safe| out-parameter.
+AxisEdge AxisEdgeFromItemPosition(const bool is_inline_axis,
+                                  const bool is_replaced,
+                                  const bool is_out_of_flow,
+                                  const ComputedStyle& item_style,
+                                  const ComputedStyle& container_style,
+                                  NGAutoBehavior* auto_behavior,
+                                  bool* is_overflow_safe) {
+  DCHECK(auto_behavior && is_overflow_safe);
+
+  const auto& alignment = is_inline_axis
+                              ? item_style.ResolvedJustifySelf(
+                                    ItemPosition::kNormal, &container_style)
+                              : item_style.ResolvedAlignSelf(
+                                    ItemPosition::kNormal, &container_style);
+
+  *auto_behavior = NGAutoBehavior::kFitContent;
+  *is_overflow_safe = alignment.Overflow() == OverflowAlignment::kSafe;
+
+  // Auto-margins take precedence over any alignment properties.
+  if (item_style.MayHaveMargin() && !is_out_of_flow) {
+    const bool is_start_auto =
+        is_inline_axis ? item_style.MarginStartUsing(container_style).IsAuto()
+                       : item_style.MarginBeforeUsing(container_style).IsAuto();
+    const bool is_end_auto =
+        is_inline_axis ? item_style.MarginEndUsing(container_style).IsAuto()
+                       : item_style.MarginAfterUsing(container_style).IsAuto();
+
+    // 'auto' margin alignment is always "safe".
+    if (is_start_auto || is_end_auto)
+      *is_overflow_safe = true;
+
+    if (is_start_auto && is_end_auto)
+      return AxisEdge::kCenter;
+    else if (is_start_auto)
+      return AxisEdge::kEnd;
+    else if (is_end_auto)
+      return AxisEdge::kStart;
+  }
+
+  const auto container_writing_direction =
+      container_style.GetWritingDirection();
+  const auto item_position = alignment.GetPosition();
+
+  switch (item_position) {
+    case ItemPosition::kSelfStart:
+    case ItemPosition::kSelfEnd: {
+      // In order to determine the correct "self" axis-edge without a
+      // complicated set of if-branches we use two converters.
+
+      // First use the grid-item's writing-direction to convert the logical
+      // edge into the physical coordinate space.
+      LogicalToPhysical<AxisEdge> physical(item_style.GetWritingDirection(),
+                                           AxisEdge::kStart, AxisEdge::kEnd,
+                                           AxisEdge::kStart, AxisEdge::kEnd);
+
+      // Then use the container's writing-direction to convert the physical
+      // edges, into our logical coordinate space.
+      PhysicalToLogical<AxisEdge> logical(container_writing_direction,
+                                          physical.Top(), physical.Right(),
+                                          physical.Bottom(), physical.Left());
+
+      if (is_inline_axis) {
+        return item_position == ItemPosition::kSelfStart ? logical.InlineStart()
+                                                         : logical.InlineEnd();
+      }
+      return item_position == ItemPosition::kSelfStart ? logical.BlockStart()
+                                                       : logical.BlockEnd();
+    }
+    case ItemPosition::kCenter:
+      return AxisEdge::kCenter;
+    case ItemPosition::kFlexStart:
+    case ItemPosition::kStart:
+      return AxisEdge::kStart;
+    case ItemPosition::kFlexEnd:
+    case ItemPosition::kEnd:
+      return AxisEdge::kEnd;
+    case ItemPosition::kStretch:
+      *auto_behavior = NGAutoBehavior::kStretchExplicit;
+      return AxisEdge::kStart;
+    case ItemPosition::kBaseline:
+    case ItemPosition::kLastBaseline:
+      return AxisEdge::kBaseline;
+    case ItemPosition::kLeft:
+      DCHECK(is_inline_axis);
+      return container_writing_direction.IsLtr() ? AxisEdge::kStart
+                                                 : AxisEdge::kEnd;
+    case ItemPosition::kRight:
+      DCHECK(is_inline_axis);
+      return container_writing_direction.IsRtl() ? AxisEdge::kStart
+                                                 : AxisEdge::kEnd;
+    case ItemPosition::kNormal:
+      *auto_behavior = is_replaced ? NGAutoBehavior::kFitContent
+                                   : NGAutoBehavior::kStretchImplicit;
+      return AxisEdge::kStart;
+    case ItemPosition::kLegacy:
+    case ItemPosition::kAuto:
+      NOTREACHED();
+      return AxisEdge::kStart;
+  }
 }
 
-void GridItemData::SetTrackSpanProperty(
-    const TrackSpanProperties::PropertyId property,
-    const GridTrackSizingDirection track_direction) {
-  if (track_direction == kForColumns)
-    column_span_properties.SetProperty(property);
-  else
-    row_span_properties.SetProperty(property);
+// Determines whether the track direction, grid container writing mode, and
+// grid item writing mode are part of the same alignment context as specified in
+// https://www.w3.org/TR/css-align-3/#baseline-sharing-group
+// In particular, 'Boxes share an alignment context, along a particular axis,
+// and established by a particular box, when they are grid items in the same
+// row, along the grid’s row (inline) axis, established by the grid container.'
+//
+// TODO(kschmi): Some of these conditions are non-intuitive, so investigate
+// whether these conditions are correct or if the test expectations are off.
+BaselineType DetermineBaselineType(
+    const GridTrackSizingDirection track_direction,
+    const WritingMode container_writing_mode,
+    const WritingMode child_writing_mode) {
+  bool is_major = false;
+  switch (container_writing_mode) {
+    case WritingMode::kHorizontalTb:
+      is_major = (track_direction == kForRows)
+                     ? true
+                     : (child_writing_mode == WritingMode::kVerticalLr ||
+                        child_writing_mode == WritingMode::kHorizontalTb);
+      break;
+    case WritingMode::kVerticalLr:
+      is_major = (track_direction == kForRows)
+                     ? (child_writing_mode == WritingMode::kVerticalLr ||
+                        child_writing_mode == WritingMode::kHorizontalTb)
+                     : true;
+      break;
+    case WritingMode::kVerticalRl:
+      is_major = (track_direction == kForRows)
+                     ? (child_writing_mode == WritingMode::kVerticalRl ||
+                        child_writing_mode == WritingMode::kHorizontalTb)
+                     : true;
+      break;
+    default:
+      is_major = true;
+      break;
+  }
+  return is_major ? BaselineType::kMajor : BaselineType::kMinor;
 }
 
-bool GridItemData::IsSpanningFlexibleTrack(
-    const GridTrackSizingDirection track_direction) const {
-  return GetTrackSpanProperties(track_direction)
-      .HasProperty(TrackSpanProperties::kHasFlexibleTrack);
-}
+}  // namespace
 
-bool GridItemData::IsSpanningIntrinsicTrack(
-    const GridTrackSizingDirection track_direction) const {
-  return GetTrackSpanProperties(track_direction)
-      .HasProperty(TrackSpanProperties::kHasIntrinsicTrack);
-}
+GridItemData::GridItemData(const NGBlockNode node,
+                           const ComputedStyle& container_style,
+                           const WritingMode container_writing_mode)
+    : node(node), is_sizing_dependent_on_block_size(false) {
+  const auto& style = node.Style();
 
-bool GridItemData::IsSpanningAutoMinimumTrack(
-    const GridTrackSizingDirection track_direction) const {
-  return GetTrackSpanProperties(track_direction)
-      .HasProperty(TrackSpanProperties::kHasAutoMinimumTrack);
-}
+  const bool is_replaced = node.IsReplaced();
+  const bool is_out_of_flow = node.IsOutOfFlowPositioned();
 
-bool GridItemData::IsSpanningFixedMinimumTrack(
-    const GridTrackSizingDirection track_direction) const {
-  return GetTrackSpanProperties(track_direction)
-      .HasProperty(TrackSpanProperties::kHasFixedMinimumTrack);
-}
+  // Determine the alignment for the grid item ahead of time (we may need to
+  // know if it stretches to correctly determine any block axis contribution).
+  bool is_overflow_safe;
+  inline_axis_alignment = AxisEdgeFromItemPosition(
+      /* is_inline_axis */ true, is_replaced, is_out_of_flow, style,
+      container_style, &inline_auto_behavior, &is_overflow_safe);
+  is_inline_axis_overflow_safe = is_overflow_safe;
 
-bool GridItemData::IsSpanningFixedMaximumTrack(
-    const GridTrackSizingDirection track_direction) const {
-  return GetTrackSpanProperties(track_direction)
-      .HasProperty(TrackSpanProperties::kHasFixedMaximumTrack);
-}
+  block_axis_alignment = AxisEdgeFromItemPosition(
+      /* is_inline_axis */ false, is_replaced, is_out_of_flow, style,
+      container_style, &block_auto_behavior, &is_overflow_safe);
+  is_block_axis_overflow_safe = is_overflow_safe;
 
-bool GridItemData::IsBaselineAlignedForDirection(
-    const GridTrackSizingDirection track_direction) const {
-  return (track_direction == kForColumns)
-             ? InlineAxisAlignment() == AxisEdge::kBaseline
-             : BlockAxisAlignment() == AxisEdge::kBaseline;
-}
-
-bool GridItemData::IsBaselineSpecifiedForDirection(
-    const GridTrackSizingDirection track_direction) const {
-  return (track_direction == kForColumns)
-             ? inline_axis_alignment == AxisEdge::kBaseline
-             : block_axis_alignment == AxisEdge::kBaseline;
+  const auto item_writing_mode = style.GetWritingDirection().GetWritingMode();
+  column_baseline_type = DetermineBaselineType(
+      kForColumns, container_writing_mode, item_writing_mode);
+  row_baseline_type = DetermineBaselineType(kForRows, container_writing_mode,
+                                            item_writing_mode);
 }
 
 void GridItemData::SetAlignmentFallback(
@@ -164,18 +283,6 @@ void GridItemData::ComputeSetIndices(
   DCHECK_LT(set_indices.begin, set_indices.end);
 }
 
-const GridItemIndices& GridItemData::SetIndices(
-    const GridTrackSizingDirection track_direction) const {
-  return (track_direction == kForColumns) ? column_set_indices
-                                          : row_set_indices;
-}
-
-GridItemIndices& GridItemData::RangeIndices(
-    const GridTrackSizingDirection track_direction) {
-  return (track_direction == kForColumns) ? column_range_indices
-                                          : row_range_indices;
-}
-
 void GridItemData::ComputeOutOfFlowItemPlacement(
     const NGGridLayoutAlgorithmTrackCollection& track_collection,
     const NGGridPlacement& grid_placement) {
@@ -251,16 +358,6 @@ void GridItemData::ComputeOutOfFlowItemPlacement(
       end_offset -= track_collection.RangeTrackNumber(end_range_index);
     }
   }
-}
-
-void GridItems::Append(const GridItemData& new_item_data) {
-  reordered_item_indices.push_back(item_data.size());
-  item_data.emplace_back(new_item_data);
-}
-
-void GridItems::ReserveCapacity(wtf_size_t capacity) {
-  reordered_item_indices.ReserveCapacity(capacity);
-  item_data.ReserveCapacity(capacity);
 }
 
 }  // namespace blink

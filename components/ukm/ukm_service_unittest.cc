@@ -57,7 +57,7 @@ const char* kTestEvent1Metric2 = TestEvent1::kNet_CacheBytes2Name;
 using TestEvent2 = builders::Memory_Experimental;
 const char* kTestEvent2Metric1 = TestEvent2::kArrayBufferName;
 const char* kTestEvent2Metric2 = TestEvent2::kBlinkGCName;
-using TestEvent3 = builders::Previews;
+using TestEvent3 = builders::PageWithPassword;
 using TestProviderEvent = builders::ScreenBrightness;
 
 SourceId ConvertSourceIdToWhitelistedType(SourceId id, SourceIdType type) {
@@ -484,9 +484,6 @@ TEST_F(UkmServiceTest, AddEntryWithEmptyMetrics) {
 }
 
 TEST_F(UkmServiceTest, MetricsProviderTest) {
-  ScopedUkmFeatureParams params(
-      {{"WhitelistEntries", std::string(TestProviderEvent::kEntryName)}});
-
   UkmService service(&prefs_, &client_,
                      std::make_unique<MockDemographicMetricsProvider>());
   TestRecordingHelper recorder(&service);

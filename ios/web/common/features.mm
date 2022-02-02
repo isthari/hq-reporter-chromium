@@ -50,11 +50,10 @@ const base::Feature kDisableNonHTMLScreenshotOnIOS15{
     "DisableNonHTMLScreenshotOnIOS15", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kIOSSharedHighlightingColorChange{
-    "IOSSharedHighlightingColorChange", base::FEATURE_DISABLED_BY_DEFAULT};
+    "IOSSharedHighlightingColorChange", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kCreatePendingItemForPostFormSubmission{
-    "CreatePendingItemForPostFormSubmission",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    "CreatePendingItemForPostFormSubmission", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kEnableNewDownloadAPI{"EnableNewDownloadAPI",
                                           base::FEATURE_DISABLED_BY_DEFAULT};

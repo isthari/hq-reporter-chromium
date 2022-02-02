@@ -419,7 +419,7 @@ void CloudPolicyClient::FetchPolicy() {
         fetch_request->set_invalidation_payload(invalidation_payload_);
       }
     }
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
     // Only set browser device identifier for CBCM Chrome cloud policy on
     // desktop.
     if (base::FeatureList::IsEnabled(
@@ -1440,9 +1440,7 @@ void CloudPolicyClient::OnRemoteCommandsFetched(
     DeviceManagementStatus status,
     int net_error,
     const em::DeviceManagementResponse& response) {
-  DeviceManagementStatus decoded_status;
-  std::vector<em::SignedData> commands;
-  std::tie(decoded_status, commands) = DecodeRemoteCommands(status, response);
+  auto [decoded_status, commands] = DecodeRemoteCommands(status, response);
 
   std::move(callback).Run(decoded_status, commands);
   RemoveJob(job);

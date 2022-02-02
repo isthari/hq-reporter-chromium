@@ -62,8 +62,6 @@ namespace test {
 
 namespace {
 
-const int kValidityStateBitfield = 1984;
-
 std::string GetRandomCardNumber() {
   const size_t length = 16;
   std::string value;
@@ -75,7 +73,7 @@ std::string GetRandomCardNumber() {
 
 }  // namespace
 
-LocalFrameToken GetLocalFrameToken(RandomizeFrame randomize) {
+LocalFrameToken MakeLocalFrameToken(RandomizeFrame randomize) {
   if (*randomize) {
     return LocalFrameToken(base::UnguessableToken::Create());
   } else {
@@ -94,11 +92,11 @@ FieldRendererId MakeFieldRendererId() {
 }
 
 FormGlobalId MakeFormGlobalId(RandomizeFrame randomize) {
-  return {GetLocalFrameToken(randomize), MakeFormRendererId()};
+  return {MakeLocalFrameToken(randomize), MakeFormRendererId()};
 }
 
 FieldGlobalId MakeFieldGlobalId(RandomizeFrame randomize) {
-  return {GetLocalFrameToken(randomize), MakeFieldRendererId()};
+  return {MakeLocalFrameToken(randomize), MakeFieldRendererId()};
 }
 
 void SetFormGroupValues(FormGroup& form_group,
@@ -155,7 +153,7 @@ void CreateTestFormField(const char* label,
                          const char* value,
                          const char* type,
                          FormFieldData* field) {
-  field->host_frame = GetLocalFrameToken();
+  field->host_frame = MakeLocalFrameToken();
   field->unique_renderer_id = MakeFieldRendererId();
   field->label = ASCIIToUTF16(label);
   field->name = ASCIIToUTF16(name);
@@ -218,7 +216,7 @@ void CreateTestAddressFormData(FormData* form, const char* unique_id) {
 void CreateTestAddressFormData(FormData* form,
                                std::vector<ServerFieldTypeSet>* types,
                                const char* unique_id) {
-  form->host_frame = GetLocalFrameToken();
+  form->host_frame = MakeLocalFrameToken();
   form->unique_renderer_id = MakeFormRendererId();
   form->name = u"MyForm" + ASCIIToUTF16(unique_id ? unique_id : "");
   form->button_titles = {std::make_pair(
@@ -447,8 +445,6 @@ AutofillProfile GetServerProfile() {
   profile.SetRawInfo(ADDRESS_HOME_DEPENDENT_LOCALITY, u"Santa Clara");
 
   profile.set_language_code("en");
-  profile.SetClientValidityFromBitfieldValue(kValidityStateBitfield);
-  profile.set_is_client_validity_states_updated(true);
   profile.set_use_count(7);
   profile.set_use_date(base::Time::FromTimeT(54321));
 
@@ -469,8 +465,6 @@ AutofillProfile GetServerProfile2() {
   profile.SetRawInfo(ADDRESS_HOME_DEPENDENT_LOCALITY, u"Santa Monica");
 
   profile.set_language_code("en");
-  profile.SetClientValidityFromBitfieldValue(kValidityStateBitfield);
-  profile.set_is_client_validity_states_updated(true);
   profile.set_use_count(14);
   profile.set_use_date(base::Time::FromTimeT(98765));
 

@@ -170,6 +170,7 @@ flood-color: rgb(0, 0, 0)
 flood-opacity: 1
 font-kerning: auto
 font-optical-sizing: auto
+font-palette: normal
 font-size: 16px
 font-size-adjust: none
 font-stretch: 100%
@@ -322,7 +323,7 @@ text-decoration-line: none
 text-decoration-skip-ink: auto
 text-decoration-style: solid
 text-emphasis-color: rgb(0, 0, 0)
-text-emphasis-position: over right
+text-emphasis-position: over
 text-emphasis-style: none
 text-indent: 0px
 text-justify: auto

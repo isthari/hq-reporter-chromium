@@ -6,8 +6,7 @@
 // Absolutely all of this is therefore #[cfg(test)] to avoid
 // 'unused' warnings.
 
-#[cfg(test)]
+mod json;
 mod rs_glue;
-
-#[cfg(test)]
 mod values;
+mod values_deserialization;

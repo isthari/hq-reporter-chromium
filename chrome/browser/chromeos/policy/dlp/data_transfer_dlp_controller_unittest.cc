@@ -76,6 +76,13 @@ class MockDlpController : public DataTransferDlpController {
                void(const ui::DataTransferEndpoint* const data_src,
                     const ui::DataTransferEndpoint* const data_dst,
                     base::OnceClosure drop_cb));
+
+ protected:
+  base::TimeDelta GetSkipReportingTimeout() override {
+    // Override with a very high value to ensure that tests are passing on slow
+    // debug builds.
+    return base::Milliseconds(1000);
+  }
 };
 
 absl::optional<ui::DataTransferEndpoint> CreateEndpoint(
@@ -168,6 +175,17 @@ TEST_F(DataTransferDlpControllerTest, ClipboardHistoryDst) {
   histogram_tester_.ExpectUniqueSample(
       GetDlpHistogramPrefix() + dlp::kClipboardReadBlockedUMA, false, 1);
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+TEST_F(DataTransferDlpControllerTest, LacrosDst) {
+  ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
+  ui::DataTransferEndpoint data_dst(ui::EndpointType::kLacros);
+  EXPECT_EQ(true, dlp_controller_.IsClipboardReadAllowed(&data_src, &data_dst,
+                                                         absl::nullopt));
+  histogram_tester_.ExpectUniqueSample(
+      GetDlpHistogramPrefix() + dlp::kClipboardReadBlockedUMA, false, 1);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 TEST_F(DataTransferDlpControllerTest, PasteIfAllowed_Allow) {
   ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
@@ -510,9 +528,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(DlpControllerVMsTest, Allow) {
   ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  absl::optional<ui::EndpointType> endpoint_type;
-  bool do_notify;
-  std::tie(endpoint_type, do_notify) = GetParam();
+  auto [endpoint_type, do_notify] = GetParam();
   ASSERT_TRUE(endpoint_type.has_value());
   ui::DataTransferEndpoint data_dst(endpoint_type.value(), do_notify);
 
@@ -619,9 +635,7 @@ TEST_P(DlpControllerVMsTest, Report_DropIfAllowed) {
 
 TEST_P(DlpControllerVMsTest, Warn_IsClipboardReadAllowed) {
   ui::DataTransferEndpoint data_src(url::Origin::Create(GURL(kExample1Url)));
-  absl::optional<ui::EndpointType> endpoint_type;
-  bool do_notify;
-  std::tie(endpoint_type, do_notify) = GetParam();
+  auto [endpoint_type, do_notify] = GetParam();
   ASSERT_TRUE(endpoint_type.has_value());
   ui::DataTransferEndpoint data_dst(endpoint_type.value(), do_notify);
 

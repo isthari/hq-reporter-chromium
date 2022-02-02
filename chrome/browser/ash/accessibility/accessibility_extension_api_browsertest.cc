@@ -45,26 +45,71 @@ class AccessibilityPrivateApiTest
         ::features::kExperimentalAccessibilityDictationCommands);
   }
 
-  bool RunSubtest(const char* subtest) WARN_UNUSED_RESULT {
+  [[nodiscard]] bool RunSubtest(const char* subtest) {
     return RunExtensionTest("accessibility_private", {.custom_arg = subtest});
   }
 
-  bool IsDictationBubbleVisible() {
+  DictationBubbleController* GetDictationBubbleController() {
     DictationBubbleController* controller =
         Shell::Get()
             ->accessibility_controller()
             ->GetDictationBubbleControllerForTest();
     DCHECK(controller != nullptr);
-    return controller->widget_->IsVisible();
+    return controller;
+  }
+
+  bool IsDictationBubbleVisible() {
+    return GetDictationBubbleController()->widget_->IsVisible();
   }
 
   std::u16string GetDictationBubbleText() {
-    DictationBubbleController* controller =
-        Shell::Get()
-            ->accessibility_controller()
-            ->GetDictationBubbleControllerForTest();
-    DCHECK(controller != nullptr);
-    return controller->dictation_bubble_view_->GetTextForTesting();
+    return GetDictationBubbleController()
+        ->dictation_bubble_view_->GetTextForTesting();
+  }
+
+  bool IsDictationBubbleStandbyViewVisible() {
+    return GetDictationBubbleController()
+        ->dictation_bubble_view_->IsStandbyViewVisibleForTesting();
+  }
+
+  bool IsDictationBubbleMacroSucceededImageVisible() {
+    return GetDictationBubbleController()
+        ->dictation_bubble_view_->IsMacroSucceededImageVisibleForTesting();
+  }
+
+  bool IsDictationBubbleMacroFailedImageVisible() {
+    return GetDictationBubbleController()
+        ->dictation_bubble_view_->IsMacroFailedImageVisibleForTesting();
+  }
+
+  DictationBubbleIconType GetDictationBubbleVisibleIcon() {
+    DCHECK_GE(1, IsDictationBubbleStandbyViewVisible() +
+                     IsDictationBubbleMacroSucceededImageVisible() +
+                     IsDictationBubbleMacroFailedImageVisible())
+        << "No more than one icon should be visible!";
+    if (IsDictationBubbleStandbyViewVisible())
+      return DictationBubbleIconType::kStandby;
+    if (IsDictationBubbleMacroSucceededImageVisible())
+      return DictationBubbleIconType::kMacroSuccess;
+    if (IsDictationBubbleMacroFailedImageVisible())
+      return DictationBubbleIconType::kMacroFail;
+    return DictationBubbleIconType::kHidden;
+  }
+
+  bool DictationBubbleHasVisibleHints(
+      const std::vector<std::u16string>& expected) {
+    std::vector<std::u16string> actual =
+        GetDictationBubbleController()
+            ->dictation_bubble_view_->GetVisibleHintsForTesting();
+    if (expected.size() != actual.size())
+      return false;
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      if (expected[i] != actual[i])
+        return false;
+    }
+
+    return true;
   }
 
  private:
@@ -226,27 +271,69 @@ IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest, UpdateDictationBubble) {
 
   // This test requires some back and forth communication between C++ and JS.
   // Use message listeners to force the synchronicity of this test.
-  ExtensionTestMessageListener show_listener("Show", /*will_reply=*/true);
-  ExtensionTestMessageListener update_listener("Update", /*will_reply=*/true);
+  ExtensionTestMessageListener standby_listener("Standby", /*will_reply=*/true);
+  ExtensionTestMessageListener show_text_listener("Show text",
+                                                  /*will_reply=*/true);
+  ExtensionTestMessageListener macro_success_listener("Show macro success",
+                                                      /*will_reply=*/true);
+  ExtensionTestMessageListener reset_listener("Reset", /*will_reply=*/true);
   ExtensionTestMessageListener hide_listener("Hide", /*will_reply=*/false);
 
   extensions::ResultCatcher result_catcher;
   ASSERT_TRUE(RunSubtest("testUpdateDictationBubble")) << message_;
 
-  ASSERT_TRUE(show_listener.WaitUntilSatisfied());
+  ASSERT_TRUE(standby_listener.WaitUntilSatisfied());
+  EXPECT_TRUE(IsDictationBubbleVisible());
+  EXPECT_EQ(std::u16string(), GetDictationBubbleText());
+  EXPECT_EQ(DictationBubbleIconType::kStandby, GetDictationBubbleVisibleIcon());
+  standby_listener.Reply("Continue");
+
+  ASSERT_TRUE(show_text_listener.WaitUntilSatisfied());
   EXPECT_TRUE(IsDictationBubbleVisible());
   EXPECT_EQ(u"Hello", GetDictationBubbleText());
-  show_listener.Reply("Continue");
+  EXPECT_EQ(DictationBubbleIconType::kHidden, GetDictationBubbleVisibleIcon());
+  show_text_listener.Reply("Continue");
 
-  ASSERT_TRUE(update_listener.WaitUntilSatisfied());
+  ASSERT_TRUE(macro_success_listener.WaitUntilSatisfied());
   EXPECT_TRUE(IsDictationBubbleVisible());
-  EXPECT_EQ(u"Hello world", GetDictationBubbleText());
-  update_listener.Reply("Continue");
+  EXPECT_EQ(u"Hello", GetDictationBubbleText());
+  EXPECT_EQ(DictationBubbleIconType::kMacroSuccess,
+            GetDictationBubbleVisibleIcon());
+  macro_success_listener.Reply("Continue");
+
+  ASSERT_TRUE(reset_listener.WaitUntilSatisfied());
+  EXPECT_TRUE(IsDictationBubbleVisible());
+  EXPECT_EQ(std::u16string(), GetDictationBubbleText());
+  EXPECT_EQ(DictationBubbleIconType::kStandby, GetDictationBubbleVisibleIcon());
+  reset_listener.Reply("Continue");
 
   ASSERT_TRUE(hide_listener.WaitUntilSatisfied());
   EXPECT_FALSE(IsDictationBubbleVisible());
-  // Text remains unchanged.
-  EXPECT_EQ(u"Hello world", GetDictationBubbleText());
+  EXPECT_EQ(std::u16string(), GetDictationBubbleText());
+  EXPECT_EQ(DictationBubbleIconType::kHidden, GetDictationBubbleVisibleIcon());
+
+  ASSERT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
+}
+
+IN_PROC_BROWSER_TEST_P(AccessibilityPrivateApiTest,
+                       UpdateDictationBubbleWithHints) {
+  Shell::Get()->accessibility_controller()->dictation().SetEnabled(true);
+  ExtensionTestMessageListener show_listener("Some hints", /*will_reply=*/true);
+  ExtensionTestMessageListener no_hints_listener("No hints",
+                                                 /*will_reply=*/false);
+  extensions::ResultCatcher result_catcher;
+  ASSERT_TRUE(RunSubtest("testUpdateDictationBubbleWithHints")) << message_;
+
+  ASSERT_TRUE(show_listener.WaitUntilSatisfied());
+  EXPECT_TRUE(IsDictationBubbleVisible());
+  EXPECT_TRUE(DictationBubbleHasVisibleHints(
+      std::vector<std::u16string>{u"One", u"Two", u"Three"}));
+  show_listener.Reply("Continue");
+
+  ASSERT_TRUE(no_hints_listener.WaitUntilSatisfied());
+  EXPECT_TRUE(IsDictationBubbleVisible());
+  EXPECT_TRUE(DictationBubbleHasVisibleHints(std::vector<std::u16string>()));
+
   ASSERT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 

@@ -62,6 +62,7 @@ import org.chromium.chrome.browser.accessibility_tab_switcher.OverviewListLayout
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.app.metrics.LaunchCauseMetrics;
 import org.chromium.chrome.browser.app.metrics.TabbedActivityLaunchCauseMetrics;
+import org.chromium.chrome.browser.app.omnibox.OmniboxPedalDelegateImpl;
 import org.chromium.chrome.browser.app.tabmodel.AsyncTabParamsManagerSingleton;
 import org.chromium.chrome.browser.app.tabmodel.ChromeNextTabPolicySupplier;
 import org.chromium.chrome.browser.app.tabmodel.TabModelOrchestrator;
@@ -102,7 +103,6 @@ import org.chromium.chrome.browser.incognito.IncognitoStartup;
 import org.chromium.chrome.browser.incognito.IncognitoTabLauncher;
 import org.chromium.chrome.browser.incognito.IncognitoTabSnapshotController;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
-import org.chromium.chrome.browser.infobar.DataReductionPromoInfoBar;
 import org.chromium.chrome.browser.infobar.SyncErrorInfoBar;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
@@ -164,6 +164,7 @@ import org.chromium.chrome.browser.tasks.EngagementTimeUtil;
 import org.chromium.chrome.browser.tasks.JourneyManager;
 import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.chrome.browser.tasks.TasksUma;
+import org.chromium.chrome.browser.tasks.tab_management.CloseAllTabsDialog;
 import org.chromium.chrome.browser.tasks.tab_management.TabGroupUi;
 import org.chromium.chrome.browser.tasks.tab_management.TabManagementDelegate;
 import org.chromium.chrome.browser.tasks.tab_management.TabManagementModuleProvider;
@@ -677,10 +678,6 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
             // clang-format off
             mLayoutManager = new LayoutManagerChromePhone(compositorViewHolder, mContentContainer,
                     mStartSurfaceSupplier.get(), getTabContentManagerSupplier(),
-                    () -> {
-                        if (!getCompositorViewHolderSupplier().hasValue()) return null;
-                        return getCompositorViewHolderSupplier().get().getLayerTitleCache();
-                    },
                     mOverviewModeBehaviorSupplier,
                     mRootUiCoordinator::getTopUiThemeColorProvider, mJankTracker);
             mLayoutStateProviderOneshotSupplier.set(mLayoutManager);
@@ -705,10 +702,6 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
             // clang-format off
             mLayoutManager = new LayoutManagerChromeTablet(compositorViewHolder, mContentContainer,
                     mStartSurfaceSupplier.get(), getTabContentManagerSupplier(),
-                    () -> {
-                        if (!getCompositorViewHolderSupplier().hasValue()) return null;
-                        return getCompositorViewHolderSupplier().get().getLayerTitleCache();
-                    },
                     mOverviewModeBehaviorSupplier,
                     mRootUiCoordinator::getTopUiThemeColorProvider, mJankTracker);
             mLayoutStateProviderOneshotSupplier.set(mLayoutManager);
@@ -966,6 +959,7 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
         mLocaleManager.stopObservingPhoneChanges();
 
         NavigationPredictorBridge.onPause();
+        StartSurfaceUserData.getInstance().setUnusedTabRestoredAtStartup(false);
 
         super.onPauseWithNative();
     }
@@ -1623,6 +1617,7 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
                 mEphemeralTabCoordinatorSupplier, getIntentRequestTracker(),
                 getControlContainerHeightResource(), this::getInsetObserverView,
                 this::backShouldCloseTab, getTabReparentingControllerSupplier(),
+                new OmniboxPedalDelegateImpl(this),
                 // TODO(sinansahin): This currently only checks for incognito extras in the intent.
                 // We should make it more robust by using more signals.
                 IntentHandler.hasAnyIncognitoExtra(getIntent().getExtras()));
@@ -1821,9 +1816,6 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
                 if (!navigation.hasCommitted() || !navigation.isInPrimaryMainFrame()) {
                     return;
                 }
-                DataReductionPromoInfoBar.maybeLaunchPromoInfoBar(ChromeTabbedActivity.this,
-                        tab.getWebContents(), navigation.getUrl(), tab.isShowingErrorPage(),
-                        navigation.isFragmentNavigation(), navigation.httpStatusCode());
                 if (SyncErrorPromptUtils.isMessageUiEnabled()) {
                     SyncErrorMessage.maybeShowMessageUi(
                             getWindowAndroid(), ChromeTabbedActivity.this);
@@ -2059,8 +2051,15 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
             getCurrentTabModel().closeTab(currentTab, true, false, true);
             RecordUserAction.record("MobileTabClosed");
         } else if (id == R.id.close_all_tabs_menu_id) {
-            // Close both incognito and normal tabs
-            getTabModelSelector().closeAllTabs();
+            if (ChromeFeatureList.isEnabled(ChromeFeatureList.CLOSE_ALL_TABS_MODAL_DIALOG)) {
+                CloseAllTabsDialog.show(this, getModalDialogManagerSupplier(),
+                        ()
+                                -> getTabModelSelector().closeAllTabs(),
+                        HomepageManager.shouldCloseAppWithZeroTabs());
+            } else {
+                // Close both incognito and normal tabs.
+                getTabModelSelector().closeAllTabs();
+            }
             RecordUserAction.record("MobileMenuCloseAllTabs");
         } else if (id == R.id.close_all_incognito_tabs_menu_id) {
             // Close only incognito tabs
@@ -2216,7 +2215,7 @@ public class ChromeTabbedActivity extends ChromeActivity<ChromeActivityComponent
                 return true;
             }
         } else if (shouldCloseTab) {
-            currentTab.getWebContents().dispatchBeforeUnload(false);
+            if (webContents != null) webContents.dispatchBeforeUnload(false);
             return true;
         }
 

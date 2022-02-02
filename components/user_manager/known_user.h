@@ -9,6 +9,8 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "components/user_manager/user_manager_export.h"
@@ -20,7 +22,6 @@ class PrefRegistrySimple;
 class PrefService;
 
 namespace base {
-class DictionaryValue;
 class Value;
 }
 
@@ -50,35 +51,36 @@ class USER_MANAGER_EXPORT KnownUser final {
   KnownUser(const KnownUser& other) = delete;
   KnownUser& operator=(const KnownUser& other) = delete;
 
-  // Performs a lookup of properties associated with |account_id|. If found,
-  // returns |true| and fills |out_value|. |out_value| can be NULL, if
-  // only existence check is required.
-  bool FindPrefs(const AccountId& account_id,
-                 const base::DictionaryValue** out_value);
+  // Updates (or creates) properties associated with |account_id|. Updates
+  // value found by |path| with |opt_value|. If |opt_value| has no value it
+  // clears the |path| in properties.
+  void SetPath(const AccountId& account_id,
+               const std::string& path,
+               absl::optional<base::Value> opt_value);
 
-  // Updates (or creates) properties associated with |account_id| based
-  // on |values|. |clear| defines if existing properties are cleared (|true|)
-  // or if it is just a incremental update (|false|).
-  void UpdatePrefs(const AccountId& account_id,
-                   const base::DictionaryValue& values,
-                   bool clear);
+  // Returns `nullptr` if value is not found or not a string.
+  const std::string* FindStringPath(const AccountId& account_id,
+                                    base::StringPiece path);
 
   // Returns true if |account_id| preference by |path| does exist,
   // fills in |out_value|. Otherwise returns false.
-  bool GetStringPref(const AccountId& account_id,
-                     const std::string& path,
-                     std::string* out_value);
+  bool GetStringPrefForTest(const AccountId& account_id,
+                            const std::string& path,
+                            std::string* out_value);
 
   // Updates user's identified by |account_id| string preference |path|.
   void SetStringPref(const AccountId& account_id,
                      const std::string& path,
                      const std::string& in_value);
 
+  absl::optional<bool> FindBoolPath(const AccountId& account_id,
+                                    base::StringPiece path) const;
+
   // Returns true if |account_id| preference by |path| does exist,
   // fills in |out_value|. Otherwise returns false.
-  bool GetBooleanPref(const AccountId& account_id,
-                      const std::string& path,
-                      bool* out_value);
+  bool GetBooleanPrefForTest(const AccountId& account_id,
+                             const std::string& path,
+                             bool* out_value);
 
   // Updates user's identified by |account_id| boolean preference |path|.
   void SetBooleanPref(const AccountId& account_id,
@@ -101,11 +103,6 @@ class USER_MANAGER_EXPORT KnownUser final {
   bool GetPref(const AccountId& account_id,
                const std::string& path,
                const base::Value** out_value);
-
-  // Updates user's identified by |account_id| value preference |path|.
-  void SetPref(const AccountId& account_id,
-               const std::string& path,
-               base::Value in_value);
 
   // Removes user's identified by |account_id| preference |path|.
   void RemovePref(const AccountId& account_id, const std::string& path);
@@ -130,12 +127,8 @@ class USER_MANAGER_EXPORT KnownUser final {
   // |account_id.GetObjGuid()| for user with |account_id|.
   void UpdateId(const AccountId& account_id);
 
-  // Find GAIA ID for user with |account_id|, fill in |out_value| and return
-  // true
-  // if GAIA ID was found or false otherwise.
-  // TODO(antrim): Update this once AccountId contains GAIA ID
-  // (crbug.com/548926).
-  bool FindGaiaID(const AccountId& account_id, std::string* out_value);
+  // Find GAIA ID for user with `account_id`, returns `nullptr` if not found.
+  const std::string* FindGaiaID(const AccountId& account_id);
 
   // Setter and getter for DeviceId known user string preference.
   void SetDeviceId(const AccountId& account_id, const std::string& device_id);
@@ -209,12 +202,11 @@ class USER_MANAGER_EXPORT KnownUser final {
 
   void SetAccountManager(const AccountId& account_id,
                          const std::string& manager);
-  bool GetAccountManager(const AccountId& account_id, std::string* manager);
+  const std::string* GetAccountManager(const AccountId& account_id);
   void SetUserLastLoginInputMethodId(const AccountId& account_id,
                                      const std::string& input_method_id);
 
-  bool GetUserLastInputMethodId(const AccountId& account_id,
-                                std::string* input_method_id);
+  const std::string* GetUserLastInputMethodId(const AccountId& account_id);
 
   // Exposes the user's PIN length in local state for PIN auto submit.
   void SetUserPinLength(const AccountId& account_id, int pin_length);
@@ -255,10 +247,13 @@ class USER_MANAGER_EXPORT KnownUser final {
 
   std::string GetPendingOnboardingScreen(const AccountId& account_id);
 
+  bool UserExists(const AccountId& account_id);
+
   // Register known user prefs.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
+  friend class KnownUserTest;
   friend class UserManagerBase;
 
   FRIEND_TEST_ALL_PREFIXES(KnownUserTest,
@@ -266,8 +261,9 @@ class USER_MANAGER_EXPORT KnownUser final {
   FRIEND_TEST_ALL_PREFIXES(KnownUserTest, CleanObsoletePrefs);
   FRIEND_TEST_ALL_PREFIXES(KnownUserTest, MigrateOfflineSigninLimit);
 
-  // Removes |path| from account_id's known user dictionary.
-  void ClearPref(const AccountId& account_id, const std::string& path);
+  // Performs a lookup of properties associated with |account_id|. Returns
+  // nullptr if not found.
+  const base::Value* FindPrefs(const AccountId& account_id) const;
 
   // Removes all user preferences associated with |account_id|.
   // Not exported as code should not be calling this outside this component
@@ -282,7 +278,7 @@ class USER_MANAGER_EXPORT KnownUser final {
   // Removes all obsolete prefs from all users.
   void CleanObsoletePrefs();
 
-  PrefService* const local_state_;
+  const base::raw_ptr<PrefService> local_state_;
 };
 
 // Legacy interface of KnownUsersDatabase.
@@ -290,44 +286,12 @@ class USER_MANAGER_EXPORT KnownUser final {
 namespace known_user {
 // Methods for storage/retrieval of per-user properties in Local State.
 
-// Performs a lookup of properties associated with |account_id|. If found,
-// returns |true| and fills |out_value|. |out_value| can be NULL, if
-// only existence check is required.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::FindPrefs
-// instead.
-bool USER_MANAGER_EXPORT FindPrefs(const AccountId& account_id,
-                                   const base::DictionaryValue** out_value);
-
-// Updates (or creates) properties associated with |account_id| based
-// on |values|. |clear| defines if existing properties are cleared (|true|)
-// or if it is just a incremental update (|false|).
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser:: instead.
-void USER_MANAGER_EXPORT UpdatePrefs(const AccountId& account_id,
-                                     const base::DictionaryValue& values,
-                                     bool clear);
-
-// Returns true if |account_id| preference by |path| does exist,
-// fills in |out_value|. Otherwise returns false.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::GetStringPref
-// instead.
-bool USER_MANAGER_EXPORT GetStringPref(const AccountId& account_id,
-                                       const std::string& path,
-                                       std::string* out_value);
-
 // Updates user's identified by |account_id| string preference |path|.
 // TODO(https://crbug.com/1150434): Deprecated, use KnownUser::SetStringPref
 // instead.
 void USER_MANAGER_EXPORT SetStringPref(const AccountId& account_id,
                                        const std::string& path,
                                        const std::string& in_value);
-
-// Returns true if |account_id| preference by |path| does exist,
-// fills in |out_value|. Otherwise returns false.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::GetBooleanPref
-// instead.
-bool USER_MANAGER_EXPORT GetBooleanPref(const AccountId& account_id,
-                                        const std::string& path,
-                                        bool* out_value);
 
 // Updates user's identified by |account_id| boolean preference |path|.
 // TODO(https://crbug.com/1150434): Deprecated, use KnownUser::SetBooleanPref
@@ -357,12 +321,6 @@ void USER_MANAGER_EXPORT SetIntegerPref(const AccountId& account_id,
 bool USER_MANAGER_EXPORT GetPref(const AccountId& account_id,
                                  const std::string& path,
                                  const base::Value** out_value);
-
-// Updates user's identified by |account_id| value preference |path|.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::SetPref instead.
-void USER_MANAGER_EXPORT SetPref(const AccountId& account_id,
-                                 const std::string& path,
-                                 base::Value in_value);
 
 // Removes user's identified by |account_id| preference |path|.
 // TODO(https://crbug.com/1150434): Deprecated, use KnownUser::RemovePref
@@ -396,16 +354,6 @@ void USER_MANAGER_EXPORT SaveKnownUser(const AccountId& account_id);
 // |account_id.GetObjGuid()| for user with |account_id|.
 // TODO(https://crbug.com/1150434): Deprecated, use KnownUser::UpdateId instead.
 void USER_MANAGER_EXPORT UpdateId(const AccountId& account_id);
-
-// Find GAIA ID for user with |account_id|, fill in |out_value| and return
-// true
-// if GAIA ID was found or false otherwise.
-// TODO(antrim): Update this once AccountId contains GAIA ID
-// (crbug.com/548926).
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::FindGaiaID
-// instead.
-bool USER_MANAGER_EXPORT FindGaiaID(const AccountId& account_id,
-                                    std::string* out_value);
 
 // Setter and getter for DeviceId known user string preference.
 // TODO(https://crbug.com/1150434): Deprecated, use KnownUser::SetDeviceId
@@ -537,43 +485,11 @@ bool USER_MANAGER_EXPORT GetIsEnterpriseManaged(const AccountId& account_id);
 // instead.
 void USER_MANAGER_EXPORT SetAccountManager(const AccountId& account_id,
                                            const std::string& manager);
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::GetAccountManager
-// instead.
-bool USER_MANAGER_EXPORT GetAccountManager(const AccountId& account_id,
-                                           std::string* manager);
 // TODO(https://crbug.com/1150434): Deprecated, use
 // KnownUser::SetUserLastLoginInputMethodId instead.
 void USER_MANAGER_EXPORT
 SetUserLastLoginInputMethodId(const AccountId& account_id,
                               const std::string& input_method_id);
-
-// TODO(https://crbug.com/1150434): Deprecated, use
-// KnownUser::GetUserLastInputMethodId instead.
-bool USER_MANAGER_EXPORT GetUserLastInputMethodId(const AccountId& account_id,
-                                                  std::string* input_method_id);
-
-// Exposes the user's PIN length in local state for PIN auto submit.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::SetUserPinLength
-// instead.
-void USER_MANAGER_EXPORT SetUserPinLength(const AccountId& account_id,
-                                          int pin_length);
-
-// Returns the user's PIN length if available, otherwise 0.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser::GetUserPinLength
-// instead.
-int USER_MANAGER_EXPORT GetUserPinLength(const AccountId& account_id);
-
-// Whether the user needs to have their pin auto submit preferences backfilled.
-// TODO(crbug.com/1104164) - Remove this once most users have their
-// preferences backfilled.
-// TODO(https://crbug.com/1150434): Deprecated, use KnownUser:: equivalents
-// instead.
-bool USER_MANAGER_EXPORT
-PinAutosubmitIsBackfillNeeded(const AccountId& account_id);
-void USER_MANAGER_EXPORT
-PinAutosubmitSetBackfillNotNeeded(const AccountId& account_id);
-void USER_MANAGER_EXPORT
-PinAutosubmitSetBackfillNeededForTests(const AccountId& account_id);
 
 // Setter and getter for password sync token used for syncing SAML passwords
 // across multiple user devices.

@@ -281,6 +281,9 @@ public class SyncConsentFragmentTest {
 
         launchActivityWithFragment(fragment);
         Assert.assertEquals(1, startPageHistogram.getDelta());
+        // TODO(https://crbug.com/1291903): Rewrite this test when RenderTestRule is integrated with
+        // Espresso.
+        onView(withId(R.id.positive_button)).check(matches(isDisplayed()));
         mRenderTestRule.render(mActivityTestRule.getActivity().findViewById(android.R.id.content),
                 "sync_consent_fragment_with_regular_child");
     }

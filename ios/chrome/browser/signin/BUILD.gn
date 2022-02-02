@@ -25,8 +25,6 @@ source_set("signin") {
     "chrome_account_manager_service_factory.mm",
     "chrome_account_manager_service_observer_bridge.h",
     "chrome_account_manager_service_observer_bridge.mm",
-    "chrome_identity_service_observer_bridge.h",
-    "chrome_identity_service_observer_bridge.mm",
     "device_accounts_provider_impl.h",
     "device_accounts_provider_impl.mm",
     "gaia_auth_fetcher_ios.h",
@@ -35,13 +33,13 @@ source_set("signin") {
     "gaia_auth_fetcher_ios_bridge.mm",
     "gaia_auth_fetcher_ios_ns_url_session_bridge.h",
     "gaia_auth_fetcher_ios_ns_url_session_bridge.mm",
-    "identity_manager_factory.cc",
     "identity_manager_factory.h",
+    "identity_manager_factory.mm",
     "identity_manager_factory_observer.h",
     "ios_chrome_signin_client.h",
     "ios_chrome_signin_client.mm",
-    "ios_chrome_signin_status_metrics_provider_delegate.cc",
     "ios_chrome_signin_status_metrics_provider_delegate.h",
+    "ios_chrome_signin_status_metrics_provider_delegate.mm",
     "pattern_account_restriction.h",
     "pattern_account_restriction.mm",
     "resized_avatar_cache.h",
@@ -80,6 +78,7 @@ source_set("signin") {
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/content_settings",
     "//ios/chrome/browser/crash_report",
+    "//ios/chrome/browser/policy:policy_util",
     "//ios/chrome/browser/reading_list:reading_list_remover",
     "//ios/chrome/browser/ui/authentication/signin:signin_headers",
     "//ios/chrome/browser/ui/commands",
@@ -193,7 +192,6 @@ source_set("unit_tests") {
     "authentication_service_unittest.mm",
     "chrome_account_manager_service_observer_bridge_unittest.mm",
     "chrome_account_manager_service_unittest.mm",
-    "chrome_identity_service_observer_bridge_unittest.mm",
     "gaia_auth_fetcher_ios_ns_url_session_bridge_unittests.mm",
     "gaia_auth_fetcher_ios_unittest.mm",
     "pattern_account_restriction_unittest.mm",
@@ -219,6 +217,7 @@ source_set("unit_tests") {
     "//ios/chrome/browser/browser_state:browser_state_impl",
     "//ios/chrome/browser/browser_state:test_support",
     "//ios/chrome/browser/content_settings",
+    "//ios/chrome/browser/policy:policy_util",
     "//ios/chrome/browser/prefs:browser_prefs",
     "//ios/chrome/browser/sync",
     "//ios/chrome/browser/sync:test_support",
@@ -237,4 +236,23 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//third_party/ocmock",
   ]
+}
+
+source_set("eg2_tests") {
+  configs += [
+    "//build/config/compiler:enable_arc",
+    "//build/config/ios:xctest_config",
+  ]
+  testonly = true
+  sources = [ "authentication_service_egtest.mm" ]
+  deps = [
+    "//base",
+    "//ios/chrome/browser/ui/authentication:eg_test_support+eg2",
+    "//ios/chrome/test/earl_grey:eg_test_support+eg2",
+    "//ios/public/provider/chrome/browser/signin:fake_chrome_identity",
+    "//ios/testing/earl_grey:eg_test_support+eg2",
+    "//ios/third_party/earl_grey2:test_lib",
+    "//ui/base",
+  ]
+  frameworks = [ "UIKit.framework" ]
 }

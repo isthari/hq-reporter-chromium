@@ -844,18 +844,17 @@ namespace {
 // TODO(avi): Move this to be a lambda when P0839R0 lands in C++.
 void AddTextNodesToVector(const ui::AXNode* node,
                           std::vector<std::u16string>* strings) {
-  const ui::AXNodeData& node_data = node->data();
-
-  if (node_data.role == ax::mojom::Role::kStaticText) {
-    if (node_data.HasStringAttribute(ax::mojom::StringAttribute::kName)) {
-      strings->emplace_back(
-          node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
-    }
+  if (node->GetRole() == ax::mojom::Role::kStaticText) {
+    std::u16string value;
+    if (node->GetString16Attribute(ax::mojom::StringAttribute::kName, &value))
+      strings->emplace_back(value);
     return;
   }
 
-  for (size_t i = 0; i < node->GetUnignoredChildCount(); ++i)
-    AddTextNodesToVector(node->GetUnignoredChildAtIndex(i), strings);
+  for (auto iter = node->UnignoredChildrenBegin();
+       iter != node->UnignoredChildrenEnd(); ++iter) {
+    AddTextNodesToVector(iter.get(), strings);
+  }
 }
 
 using SpeechCallback = base::OnceCallback<void(const std::u16string&)>;
@@ -1073,14 +1072,17 @@ gfx::Range RenderWidgetHostViewMac::ConvertCharacterRangeToCompositionRange(
   if (composition_info->range.is_reversed())
     return gfx::Range::InvalidRange();
 
-  if (request_range.start() < composition_info->range.start() ||
-      request_range.start() > composition_info->range.end() ||
-      request_range.end() > composition_info->range.end()) {
+  if (request_range.start() < composition_info->range.start())
     return gfx::Range::InvalidRange();
-  }
 
-  return gfx::Range(request_range.start() - composition_info->range.start(),
-                    request_range.end() - composition_info->range.start());
+  // Heuristic: truncate the request range within the composition range.
+  uint32_t truncated_request_start =
+      std::min(request_range.start(), composition_info->range.end());
+  uint32_t truncated_request_end =
+      std::min(request_range.end(), composition_info->range.end());
+
+  return gfx::Range(truncated_request_start - composition_info->range.start(),
+                    truncated_request_end - composition_info->range.start());
 }
 
 WebContents* RenderWidgetHostViewMac::GetWebContents() {
@@ -1103,8 +1105,9 @@ bool RenderWidgetHostViewMac::GetCachedFirstRectForCharacterRange(
   if (!selection)
     return false;
 
-  // If requested range is same as caret location, we can just return it.
-  if (selection->range().is_empty() && requested_range == selection->range()) {
+  // If requested range is right after caret, we can just return it.
+  if (selection->range().is_empty() &&
+      requested_range.start() == selection->range().end()) {
     DCHECK(GetFocusedWidget());
     if (actual_range)
       *actual_range = requested_range;
@@ -1138,15 +1141,16 @@ bool RenderWidgetHostViewMac::GetCachedFirstRectForCharacterRange(
     return true;
   }
 
+  // If firstRectForCharacterRange in WebFrame is failed in renderer,
+  // ImeCompositionRangeChanged will be sent with empty vector.
+  if (!composition_info || composition_info->character_bounds.empty())
+    return false;
+
   const gfx::Range request_range_in_composition =
       ConvertCharacterRangeToCompositionRange(requested_range);
   if (request_range_in_composition == gfx::Range::InvalidRange())
     return false;
 
-  // If firstRectForCharacterRange in WebFrame is failed in renderer,
-  // ImeCompositionRangeChanged will be sent with empty vector.
-  if (!composition_info || composition_info->character_bounds.empty())
-    return false;
   DCHECK_EQ(composition_info->character_bounds.size(),
             composition_info->range.length());
 
@@ -1915,13 +1919,10 @@ void RenderWidgetHostViewMac::SyncGetCharacterIndexAtPoint(
 
 bool RenderWidgetHostViewMac::SyncGetFirstRectForRange(
     const gfx::Range& requested_range,
-    const gfx::Rect& in_rect,
-    const gfx::Range& in_actual_range,
     gfx::Rect* rect,
     gfx::Range* actual_range,
     bool* success) {
-  *rect = in_rect;
-  *actual_range = in_actual_range;
+  *actual_range = requested_range;
   if (!GetFocusedWidget()) {
     *success = false;
     return true;
@@ -1931,24 +1932,21 @@ bool RenderWidgetHostViewMac::SyncGetFirstRectForRange(
                                            actual_range)) {
     // https://crbug.com/121917
     base::ScopedAllowBlocking allow_wait;
+    // TODO(thakis): Pipe |actualRange| through TextInputClientMac machinery.
     *rect = TextInputClientMac::GetInstance()->GetFirstRectForRange(
         GetFocusedWidget(), requested_range);
-    // TODO(thakis): Pipe |actualRange| through TextInputClientMac machinery.
-    *actual_range = requested_range;
   }
   return true;
 }
 
 void RenderWidgetHostViewMac::SyncGetFirstRectForRange(
     const gfx::Range& requested_range,
-    const gfx::Rect& rect,
-    const gfx::Range& actual_range,
     SyncGetFirstRectForRangeCallback callback) {
   gfx::Rect out_rect;
   gfx::Range out_actual_range;
   bool success;
-  SyncGetFirstRectForRange(requested_range, rect, actual_range, &out_rect,
-                           &out_actual_range, &success);
+  SyncGetFirstRectForRange(requested_range, &out_rect, &out_actual_range,
+                           &success);
   std::move(callback).Run(out_rect, out_actual_range, success);
 }
 

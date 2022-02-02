@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.share.link_to_text;
 
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.url.GURL;
 
 /**
@@ -17,12 +18,16 @@ public class LinkToTextBridge {
         return LinkToTextBridgeJni.get().shouldOfferLinkToText(url);
     }
 
-    public static void logFailureMetrics(@LinkGenerationError int error) {
-        LinkToTextBridgeJni.get().logFailureMetrics(error);
+    public static boolean isAmpUrl(GURL url) {
+        return LinkToTextBridgeJni.get().isAmpUrl(url);
     }
 
-    public static void logSuccessMetrics() {
-        LinkToTextBridgeJni.get().logSuccessMetrics();
+    public static void logFailureMetrics(WebContents webContents, @LinkGenerationError int error) {
+        LinkToTextBridgeJni.get().logFailureMetrics(webContents, error);
+    }
+
+    public static void logSuccessMetrics(WebContents webContents) {
+        LinkToTextBridgeJni.get().logSuccessMetrics(webContents);
     }
 
     public static void logLinkRequestedBeforeStatus(
@@ -30,12 +35,18 @@ public class LinkToTextBridge {
         LinkToTextBridgeJni.get().logLinkRequestedBeforeStatus(status, readyStatus);
     }
 
+    public static void logLinkToTextReshareStatus(@LinkToTextReshareStatus int status) {
+        LinkToTextBridgeJni.get().logLinkToTextReshareStatus(status);
+    }
+
     @NativeMethods
     interface Natives {
         boolean shouldOfferLinkToText(GURL url);
-        void logFailureMetrics(@LinkGenerationError int error);
-        void logSuccessMetrics();
+        boolean isAmpUrl(GURL url);
+        void logFailureMetrics(WebContents webContents, @LinkGenerationError int error);
+        void logSuccessMetrics(WebContents webContents);
         void logLinkRequestedBeforeStatus(
                 @LinkGenerationStatus int status, @LinkGenerationReadyStatus int readyStatus);
+        void logLinkToTextReshareStatus(@LinkToTextReshareStatus int status);
     }
 }

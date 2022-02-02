@@ -15,6 +15,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_feature.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
@@ -25,6 +26,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/views/chrome_views_test_base.h"
+#include "components/media_router/browser/presentation/start_presentation_context.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "components/prefs/pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -85,10 +87,10 @@ class MockCastDialogController : public CastDialogController {
   MOCK_METHOD2(StartCasting,
                void(const std::string& sink_id, MediaCastMode cast_mode));
   MOCK_METHOD1(StopCasting, void(const std::string& route_id));
-  MOCK_METHOD1(
-      ChooseLocalFile,
-      void(base::OnceCallback<void(const ui::SelectedFileInfo*)> callback));
   MOCK_METHOD1(ClearIssue, void(const Issue::Id& issue_id));
+  MOCK_METHOD0(GetInitiator, content::WebContents*());
+  MOCK_METHOD0(TakeStartPresentationContext,
+               std::unique_ptr<StartPresentationContext>());
 };
 
 class CastDialogViewTest : public ChromeViewsTestBase {

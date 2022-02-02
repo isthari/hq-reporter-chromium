@@ -11,18 +11,15 @@
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
-namespace views {
-class TableLayout;
-}  // namespace views
-
 namespace ash {
 
 class DesksTemplatesEventHandler;
 class DesksTemplatesItemView;
 class DeskTemplate;
+class PillButton;
 
-// A view that acts as the content view of the desks templates widget.
-// TODO(richui): Add details and ASCII.
+// A view that acts as the content view of the desks templates widget. Displays
+// each desk template as a DesksTemplatesItemView.
 class DesksTemplatesGridView : public views::View, public aura::WindowObserver {
  public:
   METADATA_HEADER(DesksTemplatesGridView);
@@ -34,8 +31,6 @@ class DesksTemplatesGridView : public views::View, public aura::WindowObserver {
 
   // Creates and returns the widget that contains the DesksTemplatesGridView in
   // overview mode. This does not show the widget.
-  // TODO(sammiequon): We might want this view to be part of the DesksWidget
-  // depending on the animations.
   static std::unique_ptr<views::Widget> CreateDesksTemplatesGridWidget(
       aura::Window* root);
 
@@ -53,6 +48,7 @@ class DesksTemplatesGridView : public views::View, public aura::WindowObserver {
   bool IsTemplateNameBeingModified() const;
 
   // views::View:
+  void Layout() override;
   void AddedToWidget() override;
 
   // aura::WindowObserver:
@@ -60,20 +56,21 @@ class DesksTemplatesGridView : public views::View, public aura::WindowObserver {
 
  private:
   friend class DesksTemplatesEventHandler;
-  friend class DesksTemplatesGridViewTestApi;
 
   // Updates the visibility state of the hover buttons on all the `grid_items_`
   // as a result of mouse and gesture events.
   void OnLocatedEvent(ui::LocatedEvent* event, bool is_touch);
 
-  // Owned by the views hierarchy.
-  // TODO(richui): This is temporary until we decide what is the best way to
-  // layout the grid which may be 2x3 or 3x2 depending on the display size and
-  // needs to support animations when items are added or removed.
-  views::TableLayout* layout_ = nullptr;
+  // Called when the feedback button is pressed. Shows the feedback dialog with
+  // desks templates information.
+  void OnFeedbackButtonPressed();
 
   // The views representing templates. They're owned by views hierarchy.
   std::vector<DesksTemplatesItemView*> grid_items_;
+
+  // Owned by views hierarchy. Temporary button to help users give feedback.
+  // TODO(crbug.com/1289880): Remove this button when it is no longer needed.
+  PillButton* feedback_button_ = nullptr;
 
   // The underlying window of the templates grid widget.
   aura::Window* widget_window_ = nullptr;

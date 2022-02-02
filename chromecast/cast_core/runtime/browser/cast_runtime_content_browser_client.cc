@@ -5,6 +5,7 @@
 #include "chromecast/cast_core/runtime/browser/cast_runtime_content_browser_client.h"
 
 #include "base/ranges/algorithm.h"
+#include "chromecast/browser/cast_web_contents.h"
 #include "chromecast/browser/service_manager_connection.h"
 #include "chromecast/browser/webui/constants.h"
 #include "chromecast/cast_core/runtime/browser/cast_core_switches.h"
@@ -46,7 +47,8 @@ std::unique_ptr<CastService> CastRuntimeContentBrowserClient::CreateCastService(
       },
       this);
   auto cast_runtime_service = std::make_unique<CastRuntimeService>(
-      web_service, std::move(network_context_getter));
+      web_service, std::move(network_context_getter), video_plane_controller,
+      this);
   cast_runtime_service_ = cast_runtime_service.get();
   return cast_runtime_service;
 }
@@ -111,17 +113,11 @@ CastRuntimeContentBrowserClient::CreateURLLoaderThrottles(
 std::unique_ptr<blink::URLLoaderThrottle>
 CastRuntimeContentBrowserClient::CreateUrlRewriteRulesThrottle(
     content::WebContents* web_contents) {
-  CastRuntimeService* cast_runtime_service = GetCastRuntimeService();
-  DCHECK(cast_runtime_service);
+  DCHECK(runtime_application_);
 
-  RuntimeApplication* app = cast_runtime_service->GetRuntimeApplication();
-  DCHECK(app);
-
-  url_rewrite::UrlRequestRewriteRulesManager* url_rewrite_rules_manager =
-      app->GetUrlRewriteRulesManager();
-  DCHECK(url_rewrite_rules_manager);
-
-  const auto& rules = url_rewrite_rules_manager->GetCachedRules();
+  const auto& rules = runtime_application_->GetCastWebContents()
+                          ->url_rewrite_rules_manager()
+                          ->GetCachedRules();
   if (!rules) {
     LOG(WARNING) << "Can't create URL throttle as URL rules are not available";
     return nullptr;
@@ -129,6 +125,19 @@ CastRuntimeContentBrowserClient::CreateUrlRewriteRulesThrottle(
 
   return std::make_unique<url_rewrite::URLLoaderThrottle>(
       rules, base::BindRepeating(&IsHeaderCorsExempt));
+}
+
+bool CastRuntimeContentBrowserClient::IsBufferingEnabled() {
+  bool is_buffering_enabled = !is_runtime_application_for_streaming_.load();
+  LOG_IF(INFO, !is_buffering_enabled) << "Buffering has been disabled!";
+  return is_buffering_enabled;
+}
+
+void CastRuntimeContentBrowserClient::OnRuntimeApplicationChanged(
+    RuntimeApplication* application) {
+  runtime_application_ = application;
+  is_runtime_application_for_streaming_.store(
+      runtime_application_ && runtime_application_->IsStreamingApplication());
 }
 
 }  // namespace chromecast

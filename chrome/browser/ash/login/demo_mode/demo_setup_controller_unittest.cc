@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/components/cryptohome/system_salt_getter.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
@@ -21,7 +22,6 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/cryptohome/system_salt_getter.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "chromeos/system/fake_statistics_provider.h"
@@ -399,27 +399,62 @@ TEST_F(DemoSetupControllerTest, EnrollTwice) {
 TEST_F(DemoSetupControllerTest, GetSubOrganizationEmail) {
   std::string email = DemoSetupController::GetSubOrganizationEmail();
 
-  // kDemoModeCountry defaults to "us" which is the root organisation.
-  EXPECT_EQ(email, "");
+  // kDemoModeCountry defaults to "US".
+  EXPECT_EQ(email, "admin-us@cros-demo-mode.com");
 
   // Test other supported countries.
-  const std::string testing_supported_countries[] = {"be", "de", "es", "fr",
-                                                     "ie", "jp", "nl", "se"};
+  const std::string testing_supported_countries[] = {
+      "US", "BE", "CA", "DK", "FI", "FR", "DE", "IE",
+      "IT", "JP", "LU", "NL", "NO", "ES", "SE", "GB"};
 
   for (auto country : testing_supported_countries) {
     g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
                                                 country);
     email = DemoSetupController::GetSubOrganizationEmail();
-    EXPECT_EQ(email, "admin-" + country + "@" + policy::kDemoModeDomain);
+
+    std::string country_lowercase = base::ToLowerASCII(country);
+    EXPECT_EQ(email,
+              "admin-" + country_lowercase + "@" + policy::kDemoModeDomain);
   }
 
   // Test unsupported country string.
-  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "kr");
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "KR");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+
+  // Test unsupported region string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
+                                              "NORDIC");
   email = DemoSetupController::GetSubOrganizationEmail();
   EXPECT_EQ(email, "");
 
   // Test random string.
   g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "foo");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+}
+
+TEST_F(DemoSetupControllerTest, GetSubOrganizationEmailWithLowercase) {
+  std::string email = DemoSetupController::GetSubOrganizationEmail();
+
+  // kDemoModeCountry defaults to "US".
+  EXPECT_EQ(email, "admin-us@cros-demo-mode.com");
+
+  // Test other supported countries.
+  const std::string testing_supported_countries[] = {
+      "us", "be", "ca", "dk", "fi", "fr", "de", "ie",
+      "it", "jp", "lu", "nl", "no", "es", "se", "gb"};
+
+  for (auto country : testing_supported_countries) {
+    g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
+                                                country);
+    email = DemoSetupController::GetSubOrganizationEmail();
+
+    EXPECT_EQ(email, "admin-" + country + "@" + policy::kDemoModeDomain);
+  }
+
+  // Test unsupported country string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "kr");
   email = DemoSetupController::GetSubOrganizationEmail();
   EXPECT_EQ(email, "");
 }

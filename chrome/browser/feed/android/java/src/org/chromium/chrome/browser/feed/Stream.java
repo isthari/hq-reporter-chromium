@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.feed;
 
-import android.view.View;
-
 import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -77,13 +75,6 @@ public interface Stream {
      */
     void hidePlaceholder();
 
-    /**
-     * Returns the options for this stream if one exists.
-     */
-    default View getOptionsView() {
-        return null;
-    }
-
     /** Record that user tapped ManageInterests. */
     default void recordActionManageInterests() {}
 
@@ -95,6 +86,9 @@ public interface Stream {
 
     /** Record that user tapped Learn More. */
     default void recordActionLearnMore() {}
+
+    /** Record that user tapped Manage. */
+    default void recordActionManage() {}
 
     /** Whether activity logging is enabled for this feed. */
     default boolean isActivityLoggingEnabled() {
@@ -137,6 +131,13 @@ public interface Stream {
      *     prevent abrupt scroll jumps.
      */
     void unbind(boolean shouldPlaceSpacer);
+
+    /**
+     * Whether this stream supports alternate sort options.
+     */
+    default boolean supportsOptions() {
+        return false;
+    }
 
     /**
      * Returns a value that uniquely identifies the state of the Stream's content. If this value

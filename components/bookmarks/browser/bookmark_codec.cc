@@ -29,7 +29,7 @@ using base::Time;
 namespace bookmarks {
 
 const char BookmarkCodec::kRootsKey[] = "roots";
-const char BookmarkCodec::kRootFolderNameKey[] = "bookmark_bar";
+const char BookmarkCodec::kBookmarkBarFolderNameKey[] = "bookmark_bar";
 const char BookmarkCodec::kOtherBookmarkFolderNameKey[] = "other";
 // The value is left as 'synced' for historical reasons.
 const char BookmarkCodec::kMobileBookmarkFolderNameKey[] = "synced";
@@ -76,7 +76,7 @@ base::Value BookmarkCodec::Encode(
   guids_reassigned_ = false;
   InitializeChecksum();
   base::Value roots(base::Value::Type::DICTIONARY);
-  roots.SetKey(kRootFolderNameKey, EncodeNode(bookmark_bar_node));
+  roots.SetKey(kBookmarkBarFolderNameKey, EncodeNode(bookmark_bar_node));
   roots.SetKey(kOtherBookmarkFolderNameKey, EncodeNode(other_folder_node));
   roots.SetKey(kMobileBookmarkFolderNameKey, EncodeNode(mobile_folder_node));
   if (model_meta_info_map)
@@ -193,32 +193,18 @@ bool BookmarkCodec::DecodeHelper(BookmarkNode* bb_node,
   const base::Value* roots = value.FindDictKey(kRootsKey);
   if (!roots)
     return false;  // No roots, or invalid type for roots.
-  const base::Value* root_folder_value = roots->FindDictKey(kRootFolderNameKey);
+  const base::Value* bb_value = roots->FindDictKey(kBookmarkBarFolderNameKey);
   const base::Value* other_folder_value =
       roots->FindDictKey(kOtherBookmarkFolderNameKey);
-  if (!root_folder_value || !other_folder_value) {
-    return false;  // Invalid type for root folder and/or other
-                   // folder.
-  }
-  DecodeNode(*root_folder_value, nullptr, bb_node);
-  DecodeNode(*other_folder_value, nullptr, other_folder_node);
-
-  // Fail silently if we can't deserialize mobile bookmarks. We can't require
-  // them to exist in order to be backwards-compatible with older versions of
-  // chrome.
   const base::Value* mobile_folder_value =
       roots->FindDictKey(kMobileBookmarkFolderNameKey);
-  if (mobile_folder_value) {
-    DecodeNode(*mobile_folder_value, nullptr, mobile_folder_node);
-  } else {
-    // If we didn't find the mobile folder, we're almost guaranteed to have a
-    // duplicate id when we add the mobile folder. Consequently, if we don't
-    // intend to reassign ids in the future (ids_valid_ is still true), then at
-    // least reassign the mobile bookmarks to avoid it colliding with anything
-    // else.
-    if (ids_valid_)
-      ReassignIDsHelper(mobile_folder_node);
-  }
+
+  if (!bb_value || !other_folder_value || !mobile_folder_value)
+    return false;
+
+  DecodeNode(*bb_value, nullptr, bb_node);
+  DecodeNode(*other_folder_value, nullptr, other_folder_node);
+  DecodeNode(*mobile_folder_value, nullptr, mobile_folder_node);
 
   if (!DecodeMetaInfo(*roots, &model_meta_info_map_))
     return false;

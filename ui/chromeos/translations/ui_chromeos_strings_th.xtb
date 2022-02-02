@@ -296,6 +296,7 @@
 <translation id="3556731189587832921">อังกฤษ (สหรัฐฯ) ด้วยแป้นพิมพ์พีซีแบบสากล</translation>
 <translation id="3567221313191587603">เลือกไฟล์แล้วเปิด <ph name="OFFLINE_CHECKBOX_NAME" /> เพื่อเข้าถึงไฟล์แบบออฟไลน์</translation>
 <translation id="357479282490346887">ลิทัวเนีย</translation>
+<translation id="3587482841069643663">ทั้งหมด</translation>
 <translation id="3592251141500063301">ทำให้ <ph name="FILE_NAME" /> ใช้งานแบบออฟไลน์ไม่ได้</translation>
 <translation id="3601151620448429694"><ph name="NETWORK_NAME" /> · <ph name="CARRIER_NAME" /></translation>
 <translation id="3603385196401704894">ฝรั่งเศสแบบแคนาดา</translation>
@@ -680,6 +681,7 @@
 <translation id="6935521024859866267">กลับหัว</translation>
 <translation id="6943836128787782965">การรับ HTTP ล้มเหลว</translation>
 <translation id="6949408524333579394">เซอร์เบีย (การทับศัพท์)</translation>
+<translation id="6954309393500027528">ผู้ดูแลระบบได้บล็อกการวางไฟล์นี้</translation>
 <translation id="6960565108681981554">ไม่ได้เปิดการใช้งาน โปรดติดต่อผู้ให้บริการเครือข่าย</translation>
 <translation id="696203921837389374">เปิดใช้การซิงค์ผ่านข้อมูลมือถือ</translation>
 <translation id="6965382102122355670">ตกลง</translation>

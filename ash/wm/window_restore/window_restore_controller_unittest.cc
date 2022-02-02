@@ -25,9 +25,7 @@
 #include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/scoped_observation.h"
-#include "base/test/scoped_feature_list.h"
 #include "components/account_id/account_id.h"
-#include "components/app_restore/features.h"
 #include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_utils.h"
 #include "components/app_restore/window_properties.h"
@@ -255,9 +253,6 @@ class WindowRestoreControllerTest : public AshTestBase,
 
   // AshTestBase:
   void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        full_restore::features::kFullRestore);
-
     AshTestBase::SetUp();
 
     WindowRestoreController::Get()->SetSaveWindowCallbackForTesting(
@@ -332,8 +327,6 @@ class WindowRestoreControllerTest : public AshTestBase,
   base::flat_map<int32_t, WindowInfo> fake_window_restore_file_;
 
   base::ScopedObservation<aura::Env, aura::EnvObserver> env_observation_{this};
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Tests window save with setting on or off.
@@ -1058,7 +1051,7 @@ TEST_F(WindowRestoreControllerTest, ArcAppWindowCreatedWithoutTask) {
 
   // Simulate having the task ready. Our `restored_window` should now be
   // parented to the desk associated with desk 3, which is desk D.
-  WindowRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+  WindowRestoreController::Get()->OnParentWindowToValidContainer(
       restored_window);
   EXPECT_EQ(Shell::GetContainer(root_window, kShellWindowId_DeskContainerD),
             restored_window->parent());
@@ -1103,7 +1096,7 @@ TEST_F(WindowRestoreControllerTest,
   EXPECT_EQ(Shell::GetContainer(secondary_root_window,
                                 kShellWindowId_UnparentedContainer),
             restored_window1->parent());
-  WindowRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+  WindowRestoreController::Get()->OnParentWindowToValidContainer(
       restored_window1);
   EXPECT_EQ(
       Shell::GetContainer(secondary_root_window, kShellWindowId_DeskContainerD),
@@ -1125,7 +1118,7 @@ TEST_F(WindowRestoreControllerTest,
   display_info_list.push_back(primary_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
 
-  WindowRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+  WindowRestoreController::Get()->OnParentWindowToValidContainer(
       restored_window2);
   EXPECT_EQ(
       Shell::GetContainer(primary_root_window, kShellWindowId_DeskContainerD),

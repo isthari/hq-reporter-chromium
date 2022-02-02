@@ -13,9 +13,9 @@
 #include "media/gpu/chromeos/video_decoder_pipeline.h"
 #include "media/gpu/ipc/service/vda_video_decoder.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chromeos/components/cdm_factory_daemon/chromeos_cdm_factory.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 namespace media {
 
@@ -23,7 +23,8 @@ std::unique_ptr<VideoDecoder> CreatePlatformVideoDecoder(
     const VideoDecoderTraits& traits) {
   switch (GetPlatformDecoderImplementationType(
       *traits.gpu_workarounds, traits.gpu_preferences, traits.gpu_info)) {
-    case VideoDecoderType::kVaapi: {
+    case VideoDecoderType::kVaapi:
+    case VideoDecoderType::kV4L2: {
       auto frame_pool = std::make_unique<PlatformVideoFramePool>(
           traits.gpu_memory_buffer_factory);
       auto frame_converter = MailboxVideoFrameConverter::Create(
@@ -55,14 +56,15 @@ GetPlatformSupportedVideoDecoderConfigs(
   VideoDecoderType decoder_implementation =
       GetPlatformDecoderImplementationType(gpu_workarounds, gpu_preferences,
                                            gpu_info);
-#if defined(OS_LINUX)
-  base::UmaHistogramEnumeration("Media.VaapiLinux.Supported",
+#if BUILDFLAG(IS_LINUX)
+  base::UmaHistogramEnumeration("Media.VaapiLinux.SupportedVideoDecoder",
                                 decoder_implementation);
 #endif
   switch (decoder_implementation) {
     case VideoDecoderType::kVda:
       return std::move(get_vda_configs).Run();
     case VideoDecoderType::kVaapi:
+    case VideoDecoderType::kV4L2:
       return VideoDecoderPipeline::GetSupportedConfigs(gpu_workarounds);
     default:
       return absl::nullopt;
@@ -73,9 +75,14 @@ VideoDecoderType GetPlatformDecoderImplementationType(
     gpu::GpuDriverBugWorkarounds gpu_workarounds,
     gpu::GpuPreferences gpu_preferences,
     const gpu::GPUInfo& gpu_info) {
-#if defined(OS_CHROMEOS)
-  if (gpu_preferences.enable_chromeos_direct_video_decoder)
+#if BUILDFLAG(IS_CHROMEOS)
+  if (gpu_preferences.enable_chromeos_direct_video_decoder) {
+#if BUILDFLAG(USE_VAAPI)
     return VideoDecoderType::kVaapi;
+#elif BUILDFLAG(USE_V4L2_CODEC)
+    return VideoDecoderType::kV4L2;
+#endif
+  }
   return VideoDecoderType::kVda;
 #elif BUILDFLAG(ENABLE_VULKAN)
   if (!base::FeatureList::IsEnabled(kVaapiVideoDecodeLinux))
@@ -115,17 +122,17 @@ std::unique_ptr<AudioDecoder> CreatePlatformAudioDecoder(
   return nullptr;
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
 class CdmFactory {};
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 std::unique_ptr<CdmFactory> CreatePlatformCdmFactory(
     mojom::FrameInterfaceFactory* frame_interfaces) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
   return std::make_unique<chromeos::ChromeOsCdmFactory>(frame_interfaces);
-#else   // defined(OS_CHROMEOS)
+#else   // BUILDFLAG(IS_CHROMEOS)
   return nullptr;
-#endif  // else defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 }
 
 }  // namespace media

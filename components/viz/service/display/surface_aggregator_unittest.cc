@@ -5990,7 +5990,7 @@ TEST_F(SurfaceAggregatorValidSurfaceTest, ColorSpaceTestWin) {
   display_color_spaces.SetOutputColorSpaceAndBufferFormat(
       gfx::ContentColorUsage::kWideColorGamut, false /* needs_alpha */,
       gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
-                      gfx::ColorSpace::TransferID::IEC61966_2_1),
+                      gfx::ColorSpace::TransferID::SRGB),
       gfx::BufferFormat::RGBA_8888);
   display_color_spaces.SetOutputColorSpaceAndBufferFormat(
       gfx::ContentColorUsage::kWideColorGamut, true /* needs_alpha */,
@@ -6075,7 +6075,7 @@ TEST_F(SurfaceAggregatorValidSurfaceTest, ColorSpaceTestWin) {
   display_color_spaces.SetOutputColorSpaceAndBufferFormat(
       gfx::ContentColorUsage::kHDR, false /* needs_alpha */,
       gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
-                      gfx::ColorSpace::TransferID::IEC61966_2_1),
+                      gfx::ColorSpace::TransferID::SRGB),
       gfx::BufferFormat::BGRA_1010102);
   display_color_spaces.SetOutputColorSpaceAndBufferFormat(
       gfx::ContentColorUsage::kHDR, true /* needs_alpha */,
@@ -9111,9 +9111,9 @@ TEST_F(SurfaceAggregatorWithResourcesTest, TransitionDirectiveFrameBehind) {
         CompositorFrameTransitionDirective::Effect::kCoverLeft);
 
     root_sink_->SubmitCompositorFrame(local_surface_id, std::move(frame));
-    auto* surface = root_sink_->GetLastCreatedSurfaceForTesting();
-    ASSERT_TRUE(surface);
-    surface->GetSurfaceSavedFrameStorage()->CompleteForTesting();
+    root_sink_->GetSurfaceAnimationManagerForTesting()
+        ->GetSurfaceSavedFrameStorageForTesting()
+        ->CompleteForTesting();
   }
   AggregateFrame(surface_id);
 

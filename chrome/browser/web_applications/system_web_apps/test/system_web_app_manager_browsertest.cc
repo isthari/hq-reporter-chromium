@@ -1147,6 +1147,10 @@ class SystemWebAppManagerInstallAllAppsBrowserTest
 // aforementioned crbug is fixed.
 IN_PROC_BROWSER_TEST_P(SystemWebAppManagerInstallAllAppsBrowserTest,
                        WebAppProtoEntryDefined) {
+  // Wait for apps to install before performing assertions, otherwise the test
+  // might flake. See https://crbug.com/1286600#c6.
+  WaitForSystemAppsSynchronized();
+
   const auto& app_map = GetManager().GetRegisteredSystemAppsForTesting();
   ASSERT_GT(app_map.size(), 0U);
 
@@ -1430,7 +1434,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppManagerAppSuspensionBrowserTest,
   {
     ListPrefUpdate update(TestingBrowserProcess::GetGlobal()->local_state(),
                           policy::policy_prefs::kSystemFeaturesDisableList);
-    base::ListValue* list = update.Get();
+    base::Value* list = update.Get();
     list->Append(policy::SystemFeature::kOsSettings);
   }
   WaitForTestSystemAppInstall();
@@ -1446,7 +1450,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppManagerAppSuspensionBrowserTest,
   {
     ListPrefUpdate update(TestingBrowserProcess::GetGlobal()->local_state(),
                           policy::policy_prefs::kSystemFeaturesDisableList);
-    base::ListValue* list = update.Get();
+    base::Value* list = update.Get();
     list->ClearList();
   }
   GetAppServiceProxy(browser()->profile())->FlushMojoCallsForTesting();
@@ -1468,7 +1472,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppManagerAppSuspensionBrowserTest,
   {
     ListPrefUpdate update(TestingBrowserProcess::GetGlobal()->local_state(),
                           policy::policy_prefs::kSystemFeaturesDisableList);
-    base::ListValue* list = update.Get();
+    base::Value* list = update.Get();
     list->Append(policy::SystemFeature::kOsSettings);
   }
 
@@ -1482,7 +1486,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppManagerAppSuspensionBrowserTest,
   {
     ListPrefUpdate update(TestingBrowserProcess::GetGlobal()->local_state(),
                           policy::policy_prefs::kSystemFeaturesDisableList);
-    base::ListValue* list = update.Get();
+    base::Value* list = update.Get();
     list->ClearList();
   }
   proxy->FlushMojoCallsForTesting();

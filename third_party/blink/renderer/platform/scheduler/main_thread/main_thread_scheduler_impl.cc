@@ -253,9 +253,8 @@ MainThreadSchedulerImpl::MainThreadSchedulerImpl(
   // Compositor task queue and default task queue should be managed by
   // WebThreadScheduler. Control task queue should not.
   task_runners_.emplace(helper_.DefaultMainThreadTaskQueue(), nullptr);
-  task_runners_.emplace(
-      compositor_task_queue_,
-      compositor_task_queue_->GetTaskQueue()->CreateQueueEnabledVoter());
+  task_runners_.emplace(compositor_task_queue_,
+                        compositor_task_queue_->CreateQueueEnabledVoter());
   main_thread_only().idle_time_estimator.AddCompositorTaskQueue(
       compositor_task_queue_);
 
@@ -722,13 +721,13 @@ scoped_refptr<MainThreadTaskQueue> MainThreadSchedulerImpl::NewTaskQueue(
   std::unique_ptr<TaskQueue::QueueEnabledVoter> voter;
   if (params.queue_traits.can_be_deferred ||
       params.queue_traits.can_be_paused || params.queue_traits.can_be_frozen) {
-    voter = task_queue->GetTaskQueue()->CreateQueueEnabledVoter();
+    voter = task_queue->CreateQueueEnabledVoter();
   }
 
   if (task_queue->GetPrioritisationType() ==
       MainThreadTaskQueue::QueueTraits::PrioritisationType::kCompositor) {
     DCHECK(!voter);
-    voter = task_queue->GetTaskQueue()->CreateQueueEnabledVoter();
+    voter = task_queue->CreateQueueEnabledVoter();
     main_thread_only().idle_time_estimator.AddCompositorTaskQueue(task_queue);
   }
 
@@ -1080,7 +1079,7 @@ void MainThreadSchedulerImpl::OnMainFrameRequestedForInput() {
       scheduling_settings().prioritize_compositing_after_input);
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 void MainThreadSchedulerImpl::PauseTimersForAndroidWebView() {
   main_thread_only().pause_timers_for_webview = true;
   UpdatePolicy();
@@ -1415,8 +1414,7 @@ bool MainThreadSchedulerImpl::ShouldYieldForHighPriorityWork() {
         if (pair.first->GetPrioritisationType() ==
                 MainThreadTaskQueue::QueueTraits::PrioritisationType::
                     kCompositor &&
-            pair.first->GetTaskQueue()
-                ->HasTaskToRunImmediatelyOrReadyDelayedTask())
+            pair.first->HasTaskToRunImmediatelyOrReadyDelayedTask())
           return true;
       }
       return main_thread_only().blocking_input_expected_soon;
@@ -2227,11 +2225,11 @@ void MainThreadSchedulerImpl::SetTopLevelBlameContext(
   //
   // TODO(altimin): automatically enter top-level for all task queues associated
   // with renderer scheduler which do not have a corresponding frame.
-  control_task_queue_->GetTaskQueue()->SetBlameContext(blame_context);
-  DefaultTaskQueue()->GetTaskQueue()->SetBlameContext(blame_context);
-  compositor_task_queue_->GetTaskQueue()->SetBlameContext(blame_context);
+  control_task_queue_->SetBlameContext(blame_context);
+  DefaultTaskQueue()->SetBlameContext(blame_context);
+  compositor_task_queue_->SetBlameContext(blame_context);
   idle_helper_.IdleTaskRunner()->SetBlameContext(blame_context);
-  v8_task_queue_->GetTaskQueue()->SetBlameContext(blame_context);
+  v8_task_queue_->SetBlameContext(blame_context);
 }
 
 void MainThreadSchedulerImpl::AddRAILModeObserver(RAILModeObserver* observer) {

@@ -13,6 +13,7 @@
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "components/services/app_service/public/cpp/file_handler.h"
+#include "content/public/common/alternative_error_page_override_info.mojom.h"
 
 class GURL;
 class Profile;
@@ -26,6 +27,8 @@ class BrowserContext;
 }
 
 namespace web_app {
+
+class WebAppProvider;
 
 // These functions return true if the WebApp System or its subset is allowed
 // for a given profile.
@@ -44,6 +47,12 @@ content::BrowserContext* GetBrowserContextForWebApps(
     content::BrowserContext* context);
 content::BrowserContext* GetBrowserContextForWebAppMetrics(
     content::BrowserContext* context);
+
+// Gets information from web app's manifest, including theme color, background
+// color and app short name, and returns this inside a struct.
+content::mojom::AlternativeErrorPageOverrideInfoPtr GetAppManifestInfo(
+    const GURL& url,
+    content::BrowserContext* browser_context);
 
 // Returns a root directory for all Web Apps themed data.
 //
@@ -115,12 +124,28 @@ void PersistFileHandlersUserChoice(Profile* profile,
                                    bool allowed,
                                    base::OnceClosure update_finished_callback);
 
+// Updates the file handler registration with the OS to match the app's
+// settings. Note that this tries to avoid extra work by no-oping if the current
+// OS state matches what is calculated to be the desired stated. For example, if
+// Chromium has already registered file handlers with the OS, and finds that
+// file handlers *should* be registered with the OS, this function will no-op.
+// This will not account for what the current file handlers actually are. The
+// actual set of file handlers can only change on app update, and that path must
+// go through `OsIntegrationManager::UpdateOsHooks()`, which always clobbers and
+// renews the entire set of OS-registered file handlers (and other OS hooks).
+void UpdateFileHandlerOsIntegration(WebAppProvider* provider,
+                                    const AppId& app_id,
+                                    base::OnceClosure update_finished_callback);
+
 // Check if only |specified_sources| exist in the |sources|
 bool HasAnySpecifiedSourcesAndNoOtherSources(WebAppSources sources,
                                              WebAppSources specified_sources);
 
 // Check if all types of |sources| are uninstallable by the user.
 bool CanUserUninstallWebApp(WebAppSources sources);
+
+// Check if |url|'s path is an installed web app.
+bool HasAppSettingsPage(Profile* profile, const GURL& url);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // The kLacrosPrimary and kWebAppsCrosapi features are each independently

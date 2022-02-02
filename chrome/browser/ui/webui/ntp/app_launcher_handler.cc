@@ -57,12 +57,12 @@
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_params.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_sync_bridge.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
@@ -277,10 +277,11 @@ void AppLauncherHandler::CreateWebAppInfo(const web_app::AppId& app_id,
       base::FeatureList::IsEnabled(features::kDesktopPWAsRunOnOsLogin) &&
           is_locally_installed);
 
+  // TODO(crbug.com/1280773): This should use the WebAppRegistrar to determine
+  // if the user can configure Run on OS Login.
   value->SetBoolean(
       "mayToggleRunOnOsLoginMode",
-      web_app_provider_->policy_manager().GetUrlRunOnOsLoginPolicy(
-          policy_installed_apps_[app_id]) ==
+      web_app_provider_->policy_manager().GetUrlRunOnOsLoginPolicy(app_id) ==
           web_app::RunOnOsLoginPolicy::kAllowed);
 
   std::string runOnOsLoginModeString =
@@ -305,7 +306,7 @@ void AppLauncherHandler::CreateExtensionInfo(const Extension* extension,
       base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode));
 
   bool is_deprecated_app = false;
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
   is_deprecated_app = extensions::IsExtensionUnsupportedDeprecatedApp(
       extension_service_->GetBrowserContext(), extension->id());
 #endif
@@ -635,7 +636,7 @@ void AppLauncherHandler::FillAppDictionary(base::DictionaryValue* dictionary) {
   const base::Value* app_page_names = prefs->GetList(prefs::kNtpAppPageNames);
   if (!app_page_names || !app_page_names->GetList().size()) {
     ListPrefUpdate update(prefs, prefs::kNtpAppPageNames);
-    base::ListValue* list = update.Get();
+    base::Value* list = update.Get();
     list->Append(l10n_util::GetStringUTF16(IDS_APP_DEFAULT_PAGE_NAME));
     dictionary->SetKey("appPageNames", list->Clone());
   } else {
@@ -695,10 +696,6 @@ void AppLauncherHandler::HandleGetApps(const base::ListValue* args) {
     }
   }
 
-  policy_installed_apps_ =
-      web_app_provider_->registrar().GetExternallyInstalledApps(
-          web_app::ExternalInstallSource::kExternalPolicy);
-
   FillAppDictionary(&dictionary);
   web_ui()->CallJavascriptFunctionUnsafe("ntp.getAppsCallback", dictionary);
 
@@ -738,7 +735,7 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
 
   Profile* profile = extension_service_->profile();
 
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
   if (extensions::IsExtensionUnsupportedDeprecatedApp(profile, extension_id)) {
     // TODO(crbug.com/1225779): Show the deprecated apps dialog.
     return;
@@ -1075,7 +1072,7 @@ void AppLauncherHandler::HandleSaveAppPageName(const base::ListValue* args) {
   base::AutoReset<bool> auto_reset(&ignore_changes_, true);
   PrefService* prefs = Profile::FromWebUI(web_ui())->GetPrefs();
   ListPrefUpdate update(prefs, prefs::kNtpAppPageNames);
-  base::ListValue* list = update.Get();
+  base::Value* list = update.Get();
   if (page_index < list->GetList().size()) {
     list->GetList()[page_index] = base::Value(name);
   } else {
@@ -1170,7 +1167,7 @@ void AppLauncherHandler::HandleRunOnOsLogin(const base::ListValue* args) {
 void AppLauncherHandler::OnFaviconForAppInstallFromLink(
     std::unique_ptr<AppInstallInfo> install_info,
     const favicon_base::FaviconImageResult& image_result) {
-  auto web_app = std::make_unique<WebApplicationInfo>();
+  auto web_app = std::make_unique<WebAppInstallInfo>();
   web_app->title = install_info->title;
   web_app->start_url = install_info->app_url;
 
@@ -1331,8 +1328,8 @@ void AppLauncherHandler::InstallOsHooks(const web_app::AppId& app_id) {
   options.os_hooks[web_app::OsHookType::kUninstallationViaOsSettings] =
       web_app->CanUserUninstallWebApp();
 
-#if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
+    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
   options.os_hooks[web_app::OsHookType::kUrlHandlers] = true;
 #else
   options.os_hooks[web_app::OsHookType::kUrlHandlers] = false;

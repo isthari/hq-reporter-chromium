@@ -739,7 +739,7 @@ IN_PROC_BROWSER_TEST_F(ClipboardHistoryWithMultiProfileBrowserTest,
 
   // Create a browser and cache its active web contents.
   auto* browser = CreateBrowser(
-      chromeos::ProfileHelper::Get()->GetProfileByAccountId(account_id1_));
+      ash::ProfileHelper::Get()->GetProfileByAccountId(account_id1_));
   auto* web_contents = browser->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(web_contents);
 
@@ -809,7 +809,7 @@ IN_PROC_BROWSER_TEST_F(ClipboardHistoryWithMultiProfileBrowserTest,
       content::TitleWatcher(web_contents, u"Paste 1").WaitAndGetTitle();
 
   // Confirm the expected paste data.
-  base::ListValue last_paste = GetLastPaste();
+  base::Value last_paste = GetLastPaste();
   ASSERT_EQ(last_paste.GetList().size(), 2u);
   EXPECT_EQ(last_paste.GetList()[0].GetString(), "text/plain: A");
   EXPECT_EQ(last_paste.GetList()[1].GetString(), "text/html: <span>A</span>");

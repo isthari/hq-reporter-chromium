@@ -51,7 +51,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "components/app_restore/features.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
@@ -112,10 +111,6 @@ void BrowserProcessPlatformPart::BrowserRestoreObserver::OnBrowserAdded(
 
 bool BrowserProcessPlatformPart::BrowserRestoreObserver::ShouldRestoreUrls(
     Browser* browser) {
-  // If the full restore feature is not enabled, don't open urls.
-  if (!full_restore::features::IsFullRestoreEnabled())
-    return false;
-
   Profile* profile = browser->profile();
 
   // Only open urls for regular sign in users.
@@ -301,8 +296,8 @@ void BrowserProcessPlatformPart::InitializePrimaryProfileServices(
               &BrowserProcessPlatformPart::ShutdownPrimaryProfileServices,
               base::Unretained(this)));
 
-  if (chromeos::SystemProxyManager::Get()) {
-    chromeos::SystemProxyManager::Get()->StartObservingPrimaryProfilePrefs(
+  if (ash::SystemProxyManager::Get()) {
+    ash::SystemProxyManager::Get()->StartObservingPrimaryProfilePrefs(
         primary_profile);
   }
 
@@ -318,8 +313,8 @@ void BrowserProcessPlatformPart::ShutdownPrimaryProfileServices() {
   if (manager)
     manager->policy_service()->StopObservingPrimaryProfilePrefs();
 
-  if (chromeos::SystemProxyManager::Get())
-    chromeos::SystemProxyManager::Get()->StopObservingPrimaryProfilePrefs();
+  if (ash::SystemProxyManager::Get())
+    ash::SystemProxyManager::Get()->StopObservingPrimaryProfilePrefs();
   in_session_password_change_manager_.reset();
 }
 
@@ -364,8 +359,8 @@ ash::TimeZoneResolver* BrowserProcessPlatformPart::GetTimezoneResolver() {
         ash::SimpleGeolocationProvider::DefaultGeolocationProviderURL(),
         base::BindRepeating(&ash::system::ApplyTimeZone),
         base::BindRepeating(
-            &chromeos::DelayNetworkCall,
-            base::Milliseconds(chromeos::kDefaultNetworkRetryDelayMS)),
+            &ash::DelayNetworkCall,
+            base::Milliseconds(ash::kDefaultNetworkRetryDelayMS)),
         g_browser_process->local_state());
   }
   return timezone_resolver_.get();

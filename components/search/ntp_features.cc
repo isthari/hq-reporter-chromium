@@ -7,6 +7,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 
@@ -31,10 +32,15 @@ const base::Feature kDismissPromos{"DismissNtpPromos",
 const base::Feature kNtpRepeatableQueries{"NtpRepeatableQueries",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Depends on kRealbox being enabled. If enabled, the NTP "realbox" will be
-// themed like the omnibox (same background/text/selected/hover colors).
+// If enabled, the NTP "realbox" will be themed like the omnibox
+// (same background/text/selected/hover colors).
 const base::Feature kRealboxMatchOmniboxTheme{
     "NtpRealboxMatchOmniboxTheme", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, the NTP "realbox" will be themed like the searchbox (same border/
+// drop shadow on hover state/rounded corners).
+const base::Feature kRealboxMatchSearchboxTheme{
+    "NtpRealboxMatchSearchboxTheme", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // If enabled, the real search box ("realbox") on the New Tab page will show a
 // Google (g) icon instead of the typical magnifying glass (aka loupe).
@@ -84,6 +90,11 @@ const base::Feature kNtpShoppingTasksModule{"NtpShoppingTasksModule",
 // If enabled, chrome cart module will be shown.
 const base::Feature kNtpChromeCartModule{"NtpChromeCartModule",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
+#if !defined(OFFICIAL_BUILD)
+// If enabled, dummy modules will be shown.
+const base::Feature kNtpDummyModules{"NtpDummyModules",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // If enabled, redesigned modules will be shown.
 const base::Feature kNtpModulesRedesigned{"NtpModulesRedesigned",
@@ -102,6 +113,11 @@ const base::Feature kNtpDriveModule{"NtpDriveModule",
 const base::Feature kNtpPhotosModule{"NtpPhotosModule",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
+// If enabled, Google Photos opt-in card will show a button to soft opt-out.
+const base::Feature kNtpPhotosModuleSoftOptOut(
+    "NtpPhotosModuleSoftOptOut",
+    base::FEATURE_DISABLED_BY_DEFAULT);
+
 // If enabled, SafeBrowsing module will be shown to a target user.
 const base::Feature kNtpSafeBrowsingModule{"NtpSafeBrowsingModule",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
@@ -112,6 +128,7 @@ const base::Feature kNtpModulesDragAndDrop{"NtpModulesDragAndDrop",
 
 const char kNtpModulesLoadTimeoutMillisecondsParam[] =
     "NtpModulesLoadTimeoutMillisecondsParam";
+const char kNtpModulesOrderParam[] = "NtpModulesOrderParam";
 const char kNtpShoppingTasksModuleDataParam[] =
     "NtpShoppingTasksModuleDataParam";
 const char kNtpRecipeTasksModuleDataParam[] = "NtpRecipeTasksModuleDataParam";
@@ -139,6 +156,10 @@ const char kNtpSafeBrowsingModuleCooldownPeriodDaysParam[] =
     "NtpSafeBrowsingModuleCooldownPeriodDaysParam";
 const char kNtpSafeBrowsingModuleCountMaxParam[] =
     "NtpSafeBrowsingModuleCountMaxParam";
+const char kRealboxMatchOmniboxThemeVariantParam[] =
+    "RealboxMatchOmniboxThemeVariantParam";
+const char kRealboxMatchSearchboxThemeParam[] =
+    "RealboxMatchSearchboxThemeParam";
 
 base::TimeDelta GetModulesLoadTimeout() {
   std::string param_value = base::GetFieldTrialParamValueByFeature(
@@ -150,6 +171,13 @@ base::TimeDelta GetModulesLoadTimeout() {
     return base::Seconds(3);
   }
   return base::Milliseconds(param_value_as_int);
+}
+
+std::vector<std::string> GetModulesOrder() {
+  return base::SplitString(
+      base::GetFieldTrialParamValueByFeature(kModules, kNtpModulesOrderParam),
+      ",:;", base::WhitespaceHandling::TRIM_WHITESPACE,
+      base::SplitResult::SPLIT_WANT_NONEMPTY);
 }
 
 }  // namespace ntp_features

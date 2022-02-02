@@ -6,7 +6,8 @@
 
 #include "base/check.h"
 #include "base/time/time.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/sql_utils.h"
 #include "net/base/schemeful_site.h"
 #include "sql/database.h"
@@ -28,18 +29,17 @@ constexpr AttributionType kAttributionTypes[] = {
     AttributionType::kAggregate,
 };
 
-WARN_UNUSED_RESULT AttributionType
-AttributionTypeFromSourceType(StorableSource::SourceType source_type) {
+AttributionType AttributionTypeFromSourceType(
+    CommonSourceInfo::SourceType source_type) {
   switch (source_type) {
-    case StorableSource::SourceType::kNavigation:
+    case CommonSourceInfo::SourceType::kNavigation:
       return AttributionType::kNavigation;
-    case StorableSource::SourceType::kEvent:
+    case CommonSourceInfo::SourceType::kEvent:
       return AttributionType::kEvent;
   }
 }
 
-WARN_UNUSED_RESULT int SerializeAttributionType(
-    AttributionType attribution_type) {
+int SerializeAttributionType(AttributionType attribution_type) {
   return static_cast<int>(attribution_type);
 }
 
@@ -114,29 +114,30 @@ bool RateLimitTable::CreateTable(sql::Database* db) {
 }
 
 bool RateLimitTable::AddRateLimit(sql::Database* db,
-                                  const EventAttributionReport& report) {
+                                  const AttributionReport& report) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(report.source().impression_id().has_value());
 
-  return AddRow(db,
-                AttributionTypeFromSourceType(report.source().source_type()),
-                *report.source().impression_id(),
-                report.source().ImpressionSite().Serialize(),
-                SerializeOrigin(report.source().impression_origin()),
-                report.source().ConversionDestination().Serialize(),
-                SerializeOrigin(report.source().conversion_origin()),
-                report.conversion_time(),
-                // Rate limits for the event-level API do not have a bucket.
-                /*bucket=*/"",
-                // By supplying 1 here, rate limits for the event-level API act
-                // as a count.
-                /*value=*/1u);
+  return AddRow(
+      db,
+      AttributionTypeFromSourceType(
+          report.source().common_info().source_type()),
+      report.source().source_id(),
+      report.source().common_info().ImpressionSite().Serialize(),
+      SerializeOrigin(report.source().common_info().impression_origin()),
+      report.source().common_info().ConversionDestination().Serialize(),
+      SerializeOrigin(report.source().common_info().conversion_origin()),
+      report.trigger_time(),
+      // Rate limits for the event-level API do not have a bucket.
+      /*bucket=*/"",
+      // By supplying 1 here, rate limits for the event-level API act
+      // as a count.
+      /*value=*/1u);
 }
 
 bool RateLimitTable::AddRow(
     sql::Database* db,
     AttributionType attribution_type,
-    StorableSource::Id source_id,
+    StoredSource::Id source_id,
     const std::string& serialized_impression_site,
     const std::string& serialized_impression_origin,
     const std::string& serialized_conversion_destination,
@@ -177,17 +178,19 @@ bool RateLimitTable::AddRow(
 
 AttributionAllowedStatus RateLimitTable::AttributionAllowed(
     sql::Database* db,
-    const EventAttributionReport& report,
+    const AttributionReport& report,
     base::Time now) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   const std::string serialized_impression_site =
-      report.source().ImpressionSite().Serialize();
+      report.source().common_info().ImpressionSite().Serialize();
   const std::string serialized_conversion_destination =
-      report.source().ConversionDestination().Serialize();
+      report.source().common_info().ConversionDestination().Serialize();
 
   const int64_t capacity = GetCapacity(
-      db, AttributionTypeFromSourceType(report.source().source_type()),
+      db,
+      AttributionTypeFromSourceType(
+          report.source().common_info().source_type()),
       serialized_impression_site, serialized_conversion_destination, now);
   // This should only be possible if there is DB corruption.
   if (capacity < 0)
@@ -240,7 +243,6 @@ int64_t RateLimitTable::GetCapacity(
 bool RateLimitTable::ClearAllDataInRange(sql::Database* db,
                                          base::Time delete_begin,
                                          base::Time delete_end) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!((delete_begin.is_null() || delete_begin.is_min()) &&
            delete_end.is_max()));
 
@@ -282,53 +284,48 @@ bool RateLimitTable::ClearDataForOriginsInRange(
     base::Time delete_end,
     base::RepeatingCallback<bool(const url::Origin&)> filter) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!filter.is_null());
+  if (filter.is_null())
+    return ClearAllDataInRange(db, delete_begin, delete_end);
 
-  std::vector<int64_t> rate_limit_ids_to_delete;
-  {
-    static constexpr char kScanCandidateData[] =
-        "SELECT rate_limit_id,impression_site,impression_origin,"
-        "conversion_destination,conversion_origin FROM rate_limits "
-        DCHECK_SQL_INDEXED_BY("rate_limit_attribution_type_conversion_time_idx")
-        "WHERE attribution_type = ? AND conversion_time BETWEEN ? AND ?";
-    sql::Statement statement(
-        db->GetCachedStatement(SQL_FROM_HERE, kScanCandidateData));
-
-    // Issue deletes for different attribution_types so this can be easily
-    // optimized by the rate_limit_attribution_type_conversion_time_idx.
-    for (AttributionType attribution_type : kAttributionTypes) {
-      statement.Reset(/*clear_bound_vars=*/true);
-      statement.BindInt(0, SerializeAttributionType(attribution_type));
-      statement.BindTime(1, delete_begin);
-      statement.BindTime(2, delete_end);
-
-      while (statement.Step()) {
-        int64_t rate_limit_id = statement.ColumnInt64(0);
-        if (filter.Run(DeserializeOrigin(statement.ColumnString(1))) ||
-            filter.Run(DeserializeOrigin(statement.ColumnString(2))) ||
-            filter.Run(DeserializeOrigin(statement.ColumnString(3))) ||
-            filter.Run(DeserializeOrigin(statement.ColumnString(4)))) {
-          rate_limit_ids_to_delete.push_back(rate_limit_id);
-        }
-      }
-
-      if (!statement.Succeeded())
-        return false;
-    }
-  }
+  static constexpr char kDeleteSql[] =
+      "DELETE FROM rate_limits WHERE rate_limit_id=?";
+  sql::Statement delete_statement(
+      db->GetCachedStatement(SQL_FROM_HERE, kDeleteSql));
 
   sql::Transaction transaction(db);
   if (!transaction.Begin())
     return false;
 
-  static constexpr char kDeleteRateLimitSql[] =
-      "DELETE FROM rate_limits WHERE rate_limit_id = ?";
-  sql::Statement statement(
-      db->GetCachedStatement(SQL_FROM_HERE, kDeleteRateLimitSql));
-  for (int64_t rate_limit_id : rate_limit_ids_to_delete) {
-    statement.Reset(/*clear_bound_vars=*/true);
-    statement.BindInt64(0, rate_limit_id);
-    if (!statement.Run())
+  static constexpr char kSelectSql[] =
+      "SELECT rate_limit_id,impression_origin,conversion_origin "
+      "FROM rate_limits "
+      DCHECK_SQL_INDEXED_BY("rate_limit_attribution_type_conversion_time_idx")
+      "WHERE attribution_type=? AND conversion_time BETWEEN ? AND ?";
+  sql::Statement select_statement(
+      db->GetCachedStatement(SQL_FROM_HERE, kSelectSql));
+  select_statement.BindTime(1, delete_begin);
+  select_statement.BindTime(2, delete_end);
+
+  // Issue SELECTs for different attribution_types so this can be easily
+  // optimized by the rate_limit_attribution_type_conversion_time_idx.
+  for (AttributionType attribution_type : kAttributionTypes) {
+    select_statement.Reset(/*clear_bound_vars=*/false);
+    select_statement.BindInt(0, SerializeAttributionType(attribution_type));
+
+    while (select_statement.Step()) {
+      int64_t rate_limit_id = select_statement.ColumnInt64(0);
+      if (filter.Run(DeserializeOrigin(select_statement.ColumnString(1))) ||
+          filter.Run(DeserializeOrigin(select_statement.ColumnString(2)))) {
+        // See https://www.sqlite.org/isolation.html for why it's OK for this
+        // DELETE to be interleaved in the surrounding SELECT.
+        delete_statement.Reset(/*clear_bound_vars=*/false);
+        delete_statement.BindInt64(0, rate_limit_id);
+        if (!delete_statement.Run())
+          return false;
+      }
+    }
+
+    if (!select_statement.Succeeded())
       return false;
   }
 
@@ -354,7 +351,7 @@ bool RateLimitTable::DeleteExpiredRateLimits(sql::Database* db,
 
 bool RateLimitTable::ClearDataForSourceIds(
     sql::Database* db,
-    const std::vector<StorableSource::Id>& source_ids) {
+    const std::vector<StoredSource::Id>& source_ids) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   sql::Transaction transaction(db);
@@ -366,7 +363,7 @@ bool RateLimitTable::ClearDataForSourceIds(
   sql::Statement statement(
       db->GetCachedStatement(SQL_FROM_HERE, kDeleteRateLimitSql));
 
-  for (StorableSource::Id id : source_ids) {
+  for (StoredSource::Id id : source_ids) {
     statement.Reset(/*clear_bound_vars=*/true);
     statement.BindInt64(0, *id);
     if (!statement.Run())
@@ -379,17 +376,16 @@ bool RateLimitTable::ClearDataForSourceIds(
 AttributionAllowedStatus
 RateLimitTable::AddAggregateHistogramContributionsForTesting(
     sql::Database* db,
-    const StorableSource& source,
+    const StoredSource& source,
     const std::vector<AggregateHistogramContribution>& contributions) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(source.impression_id().has_value());
 
   base::Time now = base::Time::Now();
 
   const std::string serialized_impression_site =
-      source.ImpressionSite().Serialize();
+      source.common_info().ImpressionSite().Serialize();
   const std::string serialized_conversion_destination =
-      source.ConversionDestination().Serialize();
+      source.common_info().ConversionDestination().Serialize();
 
   const int64_t capacity =
       GetCapacity(db, AttributionType::kAggregate, serialized_impression_site,
@@ -414,12 +410,12 @@ RateLimitTable::AddAggregateHistogramContributionsForTesting(
     return AttributionAllowedStatus::kError;
 
   const std::string serialized_impression_origin =
-      SerializeOrigin(source.impression_origin());
+      SerializeOrigin(source.common_info().impression_origin());
   const std::string serialized_conversion_origin =
-      SerializeOrigin(source.conversion_origin());
+      SerializeOrigin(source.common_info().conversion_origin());
 
   for (const auto& contribution : contributions) {
-    if (!AddRow(db, AttributionType::kAggregate, *source.impression_id(),
+    if (!AddRow(db, AttributionType::kAggregate, source.source_id(),
                 serialized_impression_site, serialized_impression_origin,
                 serialized_conversion_destination, serialized_conversion_origin,
                 now, contribution.bucket, contribution.value)) {

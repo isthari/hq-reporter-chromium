@@ -33,6 +33,7 @@
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/paint_cache.h"
 #include "cc/paint/paint_op_buffer_serializer.h"
+#include "cc/paint/skottie_serialization_history.h"
 #include "cc/paint/transfer_cache_entry.h"
 #include "cc/paint/transfer_cache_serialize_helper.h"
 #include "gpu/command_buffer/client/gpu_control.h"
@@ -1404,7 +1405,8 @@ void RasterImplementation::RasterCHROMIUM(const cc::DisplayItemList* list,
       cc::PaintOp::SerializeOptions(
           &stashing_image_provider, &transfer_cache_serialize_helper,
           GetOrCreatePaintCache(), font_manager_.strike_server(),
-          raster_properties_->color_space, raster_properties_->can_use_lcd_text,
+          raster_properties_->color_space, &skottie_serialization_history_,
+          raster_properties_->can_use_lcd_text,
           capabilities().context_supports_distance_field_text,
           capabilities().max_texture_size, raw_draw_));
   if (preserve_recording) {
@@ -1428,6 +1430,8 @@ void RasterImplementation::EndRasterCHROMIUM() {
     ClearPaintCache();
   else
     FlushPaintCachePurgedEntries();
+
+  skottie_serialization_history_.RequestInactiveAnimationsPurge();
 }
 
 SyncToken RasterImplementation::ScheduleImageDecode(
@@ -1482,6 +1486,14 @@ void RasterImplementation::ReadbackImagePixelsINTERNAL(
   std::unique_ptr<ScopedMappedMemoryPtr> scoped_shared_memory =
       std::make_unique<ScopedMappedMemoryPtr>(total_size, helper(),
                                               mapped_memory_.get());
+
+  if (!scoped_shared_memory->valid()) {
+    // Note, that this runs callback out of order.
+    if (readback_done)
+      std::move(readback_done).Run(kTopLeft_GrSurfaceOrigin, /*success=*/false);
+    return;
+  }
+
   GLint shm_id = scoped_shared_memory->shm_id();
   GLuint shm_offset = scoped_shared_memory->offset();
   void* shm_address = scoped_shared_memory->address();

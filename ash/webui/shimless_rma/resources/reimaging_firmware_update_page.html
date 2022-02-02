@@ -1,12 +1,12 @@
 <style include="cr-shared-style shimless-rma-shared">
 </style>
 
-<base-page orientation="column">
-  <div slot="header">
+<base-page>
+  <div slot="left-pane">
     <h1>[[i18n('firmwareUpdatePageTitleText')]]</h1>
-    <div id="firmwareUpdateStatus">[[statusString_]]</div>
+    <div id="firmwareUpdateStatus" class="instructions">[[statusString_]]</div>
   </div>
-  <div slot="body">
+  <div slot="right-pane">
     <!-- TODO(gavindodd): Replace with spinner -->
     <iron-icon icon="shimless:shimless-placeholder"
         class="large-icon"></iron-icon>

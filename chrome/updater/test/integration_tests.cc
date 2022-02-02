@@ -23,6 +23,7 @@
 #include "base/version.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/persisted_data.h"
 #include "chrome/updater/prefs.h"
@@ -37,7 +38,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <shlobj.h>
 
 #include "base/strings/utf_string_conversions.h"
@@ -45,13 +46,13 @@
 #include "chrome/updater/app/server/win/updater_legacy_idl.h"
 #include "chrome/updater/win/win_constants.h"
 #include "chrome/updater/win/win_util.h"
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
 namespace updater {
 namespace test {
 namespace {
 
-#if defined(OS_WIN) || !defined(COMPONENT_BUILD)
+#if BUILDFLAG(IS_WIN) || !defined(COMPONENT_BUILD)
 
 void ExpectNoUpdateSequence(ScopedServer* test_server,
                             const std::string& app_id) {
@@ -75,7 +76,7 @@ void ExpectNoUpdateSequence(ScopedServer* test_server,
                          app_id.c_str()));
 }
 
-#endif  // defined(OS_WIN) || !defined(COMPONENT_BUILD)
+#endif  // BUILDFLAG(IS_WIN) || !defined(COMPONENT_BUILD)
 
 }  // namespace
 
@@ -143,7 +144,7 @@ class IntegrationTest : public ::testing::Test {
 
   void ExpectActiveUpdater() { test_commands_->ExpectActiveUpdater(); }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   void ExpectInterfacesRegistered() {
     test_commands_->ExpectInterfacesRegistered();
   }
@@ -160,7 +161,7 @@ class IntegrationTest : public ::testing::Test {
   }
 
   void RunUninstallCmdLine() { test_commands_->RunUninstallCmdLine(); }
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
 
   void SetupFakeUpdaterHigherVersion() {
     test_commands_->SetupFakeUpdaterHigherVersion();
@@ -168,6 +169,10 @@ class IntegrationTest : public ::testing::Test {
 
   void SetupFakeUpdaterLowerVersion() {
     test_commands_->SetupFakeUpdaterLowerVersion();
+  }
+
+  void SetupRealUpdaterLowerVersion() {
+    test_commands_->SetupRealUpdaterLowerVersion();
   }
 
   void SetActive(const std::string& app_id) {
@@ -204,6 +209,10 @@ class IntegrationTest : public ::testing::Test {
 
   void RunWake(int exit_code) { test_commands_->RunWake(exit_code); }
 
+  void RunWakeActive(int exit_code) {
+    test_commands_->RunWakeActive(exit_code);
+  }
+
   void Update(const std::string& app_id) { test_commands_->Update(app_id); }
 
   void UpdateAll() { test_commands_->UpdateAll(); }
@@ -215,15 +224,15 @@ class IntegrationTest : public ::testing::Test {
   void WaitForUpdaterExit() { test_commands_->WaitForUpdaterExit(); }
 
   void SetUpTestService() {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     test_commands_->SetUpTestService();
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
   }
 
   void TearDownTestService() {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     test_commands_->TearDownTestService();
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
   }
 
   void ExpectUpdateSequence(ScopedServer* test_server,
@@ -232,6 +241,10 @@ class IntegrationTest : public ::testing::Test {
                             const base::Version& to_version) {
     test_commands_->ExpectUpdateSequence(test_server, app_id, from_version,
                                          to_version);
+  }
+
+  void ExpectSelfUpdateSequence(ScopedServer* test_server) {
+    test_commands_->ExpectSelfUpdateSequence(test_server);
   }
 
   void ExpectRegistrationEvent(ScopedServer* test_server,
@@ -252,6 +265,18 @@ class IntegrationTest : public ::testing::Test {
     test_commands_->CallServiceUpdate(app_id, policy_same_version_update);
   }
 
+  void SetupFakeLegacyUpdaterData() {
+    test_commands_->SetupFakeLegacyUpdaterData();
+  }
+
+  void ExpectLegacyUpdaterDataMigrated() {
+    test_commands_->ExpectLegacyUpdaterDataMigrated();
+  }
+
+  void ExpectLastChecked() { test_commands_->ExpectLastChecked(); }
+
+  void ExpectLastStarted() { test_commands_->ExpectLastStarted(); }
+
   scoped_refptr<IntegrationTestCommands> test_commands_;
 
  private:
@@ -262,7 +287,7 @@ class IntegrationTest : public ::testing::Test {
 // the build directory. Therefore, installation of component builds is not
 // expected to work and these tests do not run on component builders.
 // See crbug.com/1112527.
-#if defined(OS_WIN) || !defined(COMPONENT_BUILD)
+#if BUILDFLAG(IS_WIN) || !defined(COMPONENT_BUILD)
 
 TEST_F(IntegrationTest, InstallUninstall) {
   Install();
@@ -270,12 +295,12 @@ TEST_F(IntegrationTest, InstallUninstall) {
   ExpectInstalled();
   ExpectVersionActive(kUpdaterVersion);
   ExpectActiveUpdater();
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // Tests the COM registration after the install. For now, tests that the
   // COM interfaces are registered, which is indirectly testing the type
   // library separation for the public, private, and legacy interfaces.
   ExpectInterfacesRegistered();
-#endif  // OS_WIN
+#endif  // BUILDFLAG(IS_WIN)
   Uninstall();
 }
 
@@ -403,6 +428,8 @@ TEST_F(IntegrationTest, UpdateApp) {
   Update(kAppId);
   WaitForUpdaterExit();
   ExpectAppVersion(kAppId, v2);
+  ExpectLastChecked();
+  ExpectLastStarted();
 
   Uninstall();
   Clean();
@@ -436,7 +463,7 @@ TEST_F(IntegrationTest, MultipleUpdateAllsMultipleNetRequests) {
   Clean();
 }
 
-#if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if BUILDFLAG(IS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
 TEST_F(IntegrationTest, LegacyUpdate3Web) {
   ScopedServer test_server(test_commands_);
   ExpectRegistrationEvent(&test_server, kUpdaterAppId);
@@ -499,8 +526,6 @@ TEST_F(IntegrationTest, UninstallCmdLine) {
   WaitForUpdaterExit();
   ExpectInstalled();
 
-  // TODO(crbug.com/1270520) - use a switch that can uninstall immediately if
-  // unused, instead of requiring server starts.
   SetServerStarts(24);
 
   // Uninstall the idle updater.
@@ -508,7 +533,7 @@ TEST_F(IntegrationTest, UninstallCmdLine) {
   WaitForUpdaterExit();
   ExpectClean();
 }
-#endif  // defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#endif  // BUILDFLAG(IS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
 TEST_F(IntegrationTest, UnregisterUninstalledApp) {
   Install();
@@ -545,6 +570,7 @@ TEST_F(IntegrationTest, UninstallUpdaterWhenAllAppsUninstalled) {
   RegisterApp("test1");
   ExpectInstalled();
   WaitForUpdaterExit();
+  // TODO(crbug.com/1287235): The test is flaky without the following line.
   SetServerStarts(24);
   RunWake(0);
   WaitForUpdaterExit();
@@ -559,7 +585,7 @@ TEST_F(IntegrationTest, UninstallUpdaterWhenAllAppsUninstalled) {
 
 // Windows does not currently have a concept of app ownership, so this
 // test need not run on Windows.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 TEST_F(IntegrationTest, UnregisterUnownedApp) {
   Install();
   ExpectInstalled();
@@ -578,7 +604,39 @@ TEST_F(IntegrationTest, UnregisterUnownedApp) {
 
   Uninstall();
 }
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
+
+// Google-branded builds will eventually support this test, but for
+// now only Chromium-branded updaters are available in third_party.
+#if BUILDFLAG(CHROMIUM_BRANDING)
+// TODO(crbug.com/1268555): Even on Windows, component builds do not work.
+#if !defined(COMPONENT_BUILD)
+TEST_F(IntegrationTest, SelfUpdateFromOldReal) {
+  ScopedServer test_server(test_commands_);
+  ExpectRegistrationEvent(&test_server, kUpdaterAppId);
+  SetupRealUpdaterLowerVersion();
+  ExpectVersionNotActive(kUpdaterVersion);
+
+  // Trigger an old instance update check.
+  ExpectSelfUpdateSequence(&test_server);
+  RunWakeActive(0);
+
+  // Qualify the new instance.
+  ExpectRegistrationEvent(&test_server, kQualificationAppId);
+  ExpectUpdateSequence(&test_server, kQualificationAppId, base::Version("0.1"),
+                       base::Version("0.2"));
+  RunWake(0);
+  WaitForUpdaterExit();
+
+  // Activate the new instance. (It should not check itself for updates.)
+  RunWake(0);
+  WaitForUpdaterExit();
+
+  ExpectVersionActive(kUpdaterVersion);
+  Uninstall();
+}
+#endif
+#endif
 
 TEST_F(IntegrationTest, UpdateServiceStress) {
   Install();
@@ -628,7 +686,15 @@ TEST_F(IntegrationTest, SameVersionUpdate) {
   Uninstall();
 }
 
-#endif  // defined(OS_WIN) || !defined(COMPONENT_BUILD)
+TEST_F(IntegrationTest, MigrateLegacyUpdater) {
+  SetupFakeLegacyUpdaterData();
+  Install();
+  ExpectInstalled();
+  ExpectLegacyUpdaterDataMigrated();
+  Uninstall();
+}
+
+#endif  // BUILDFLAG(IS_WIN) || !defined(COMPONENT_BUILD)
 
 }  // namespace test
 }  // namespace updater

@@ -160,10 +160,9 @@ class DisplayPrefsTest : public AshTestBase {
 
     DCHECK(!name.empty());
 
-    base::DictionaryValue* pref_data = update.Get();
+    base::Value* pref_data = update.Get();
     base::Value layout_value(base::Value::Type::DICTIONARY);
-    base::Value* value = nullptr;
-    if (pref_data->Get(name, &value) && value != nullptr)
+    if (const base::Value* value = pref_data->FindKey(name))
       layout_value = value->Clone();
     if (display::DisplayLayoutToJson(display_layout, &layout_value))
       pref_data->SetPath(name, std::move(layout_value));
@@ -171,19 +170,17 @@ class DisplayPrefsTest : public AshTestBase {
 
   void StoreDisplayPropertyForList(const display::DisplayIdList& list,
                                    const std::string& key,
-                                   std::unique_ptr<base::Value> value) {
+                                   base::Value value) {
     std::string name = display::DisplayIdListToString(list);
 
     DictionaryPrefUpdate update(local_state(), prefs::kSecondaryDisplays);
-    base::DictionaryValue* pref_data = update.Get();
+    base::Value* pref_data = update.Get();
 
-    base::Value* layout_value = pref_data->FindKey(name);
-    if (layout_value) {
-      layout_value->SetPath(key,
-                            base::Value::FromUniquePtrValue(std::move(value)));
+    if (base::Value* existing_layout_value = pref_data->FindKey(name)) {
+      existing_layout_value->SetKey(key, std::move(value));
     } else {
-      base::DictionaryValue layout_value;
-      layout_value.SetBoolean(key, value != nullptr);
+      base::Value layout_value(base::Value::Type::DICTIONARY);
+      layout_value.SetBoolKey(key, true);
       pref_data->SetPath(name, std::move(layout_value));
     }
   }
@@ -191,8 +188,7 @@ class DisplayPrefsTest : public AshTestBase {
   void StoreDisplayBoolPropertyForList(const display::DisplayIdList& list,
                                        const std::string& key,
                                        bool value) {
-    StoreDisplayPropertyForList(list, key,
-                                std::make_unique<base::Value>(value));
+    StoreDisplayPropertyForList(list, key, base::Value(value));
   }
 
   void StoreDisplayLayoutPrefForList(const display::DisplayIdList& list,
@@ -205,12 +201,12 @@ class DisplayPrefsTest : public AshTestBase {
     DictionaryPrefUpdate update(local_state(), prefs::kDisplayProperties);
     const std::string name = base::NumberToString(id);
 
-    base::DictionaryValue* pref_data = update.Get();
-    base::DictionaryValue insets_value;
-    insets_value.SetInteger("insets_top", insets.top());
-    insets_value.SetInteger("insets_left", insets.left());
-    insets_value.SetInteger("insets_bottom", insets.bottom());
-    insets_value.SetInteger("insets_right", insets.right());
+    base::Value* pref_data = update.Get();
+    base::Value insets_value(base::Value::Type::DICTIONARY);
+    insets_value.SetIntKey("insets_top", insets.top());
+    insets_value.SetIntKey("insets_left", insets.left());
+    insets_value.SetIntKey("insets_bottom", insets.bottom());
+    insets_value.SetIntKey("insets_right", insets.right());
     pref_data->SetKey(name, std::move(insets_value));
   }
 
@@ -224,10 +220,10 @@ class DisplayPrefsTest : public AshTestBase {
   void StoreExternalDisplayMirrorInfo(
       const std::set<int64_t>& external_display_mirror_info) {
     ListPrefUpdate update(local_state(), prefs::kExternalDisplayMirrorInfo);
-    base::ListValue* pref_data = update.Get();
+    base::Value* pref_data = update.Get();
     pref_data->ClearList();
     for (const auto& id : external_display_mirror_info)
-      pref_data->Append(base::Value(base::NumberToString(id)));
+      pref_data->Append(base::NumberToString(id));
   }
 
   std::string GetRegisteredDisplayPlacementStr(
@@ -333,7 +329,7 @@ TEST_F(DisplayPrefsTest, ListedLayoutOverrides) {
       chromeos::DISPLAY_POWER_INTERNAL_OFF_EXTERNAL_ON);
 
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      chromeos::switches::kFirstExecAfterBoot);
+      switches::kFirstExecAfterBoot);
   LoadDisplayPreferences();
 
   // requested_power_state_ should be chromeos::DISPLAY_POWER_ALL_ON at boot
@@ -1226,8 +1222,7 @@ TEST_F(DisplayPrefsTest, RestoreUnifiedMode) {
       display::test::CreateDisplayIdList2(first_display_id, second_display_id);
   StoreDisplayBoolPropertyForList(list, "default_unified", true);
   StoreDisplayPropertyForList(
-      list, "primary-id",
-      std::make_unique<base::Value>(base::NumberToString(first_display_id)));
+      list, "primary-id", base::Value(base::NumberToString(first_display_id)));
   LoadDisplayPreferences();
 
   // Should not restore to unified unless unified desktop is enabled.
@@ -1397,7 +1392,7 @@ TEST_F(DisplayPrefsTest, ExternalDisplayMirrorInfo) {
   LoggedInAsUser();
 
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      chromeos::switches::kFirstExecAfterBoot);
+      switches::kFirstExecAfterBoot);
 
   const int64_t internal_display_id =
       display::test::DisplayManagerTestApi(display_manager())
@@ -1495,7 +1490,7 @@ TEST_F(DisplayPrefsTest, ExternalDisplayConnectedBeforeLoadingPrefs) {
   LoggedInAsUser();
 
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      chromeos::switches::kFirstExecAfterBoot);
+      switches::kFirstExecAfterBoot);
 
   const int64_t internal_display_id =
       display::test::DisplayManagerTestApi(display_manager())

@@ -144,8 +144,8 @@ void UserImageSyncObserver::UpdateSyncedImageFromLocal() {
   if (GetSyncedImageIndex(&synced_index) && (synced_index == local_index))
     return;
   DictionaryPrefUpdate update(prefs_, kUserImageInfo);
-  base::DictionaryValue* dict = update.Get();
-  dict->SetInteger(kImageIndex, local_index);
+  base::Value* dict = update.Get();
+  dict->SetIntKey(kImageIndex, local_index);
   VLOG(1) << "Saved avatar index " << local_index << " to sync.";
 }
 

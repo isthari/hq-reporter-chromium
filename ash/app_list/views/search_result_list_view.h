@@ -77,6 +77,7 @@ class ASH_EXPORT SearchResultListView : public SearchResultContainerView {
       AppListViewDelegate* view_delegate,
       SearchResultPageDialogController* dialog_controller,
       SearchResultView::SearchResultViewType search_result_view_type,
+      bool animates_result_updates,
       absl::optional<size_t> productivity_launcher_index);
 
   SearchResultListView(const SearchResultListView&) = delete;
@@ -97,12 +98,10 @@ class ASH_EXPORT SearchResultListView : public SearchResultContainerView {
   gfx::Size CalculatePreferredSize() const override;
   const char* GetClassName() const override;
 
-  // Overridden from ui::ListModelObserver:
-  void ListItemsRemoved(size_t start, size_t count) override;
-
   // Overridden from SearchResultContainerView:
   SearchResultView* GetResultViewAt(size_t index) override;
-  int ScheduleResultAnimations(int preceeding_result_count) override;
+  absl::optional<ResultsAnimationInfo> ScheduleResultAnimations(
+      const ResultsAnimationInfo& aggregate_animation_info) override;
 
   // Fades the view in and animates a vertical transform based on the view's
   // position in the overall search container view.
@@ -120,10 +119,6 @@ class ASH_EXPORT SearchResultListView : public SearchResultContainerView {
   SearchResultListType list_type_for_test() { return list_type_.value(); }
 
   views::Label* title_label_for_test() { return title_label_; }
-
- protected:
-  // Overridden from views::View:
-  void VisibilityChanged(View* starting_from, bool is_visible) override;
 
  private:
   friend class test::SearchResultListViewTest;
@@ -174,6 +169,11 @@ class ASH_EXPORT SearchResultListView : public SearchResultContainerView {
   AppListMainView* main_view_;          // Owned by views hierarchy.
   AppListViewDelegate* view_delegate_;  // Not owned.
 
+  // Whether the result updates will be animated. If set,
+  // `ScheduleResultAnimations()` is expected to be called whenever list of
+  // results shown in the list changes.
+  const bool animates_result_updates_;
+
   views::View* results_container_;
 
   std::vector<SearchResultView*> search_result_views_;  // Not owned.
@@ -206,6 +206,11 @@ class ASH_EXPORT SearchResultListView : public SearchResultContainerView {
 
   // The number of results shown by the list view.
   size_t num_results_ = 0;
+
+  // The most recent container's index within the search UI - the index
+  // indicates the number of result and title views that appear before this
+  // container.
+  int last_container_start_index_ = -1;
 };
 
 }  // namespace ash

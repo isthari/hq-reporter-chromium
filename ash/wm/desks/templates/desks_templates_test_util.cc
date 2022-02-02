@@ -5,13 +5,17 @@
 #include "ash/wm/desks/templates/desks_templates_test_util.h"
 
 #include "ash/shell.h"
+#include "ash/style/close_button.h"
 #include "ash/wm/desks/desks_bar_view.h"
 #include "ash/wm/desks/expanded_desks_bar_button.h"
+#include "ash/wm/desks/templates/desks_templates_dialog_controller.h"
 #include "ash/wm/desks/templates/desks_templates_item_view.h"
 #include "ash/wm/desks/templates/desks_templates_presenter.h"
 #include "ash/wm/desks/zero_state_button.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "ash/wm/overview/overview_test_util.h"
+#include "ui/views/widget/widget_delegate.h"
+#include "ui/views/window/dialog_delegate.h"
 
 namespace ash {
 
@@ -42,14 +46,6 @@ void DesksTemplatesPresenterTestApi::SetOnUpdateUiClosure(
   presenter_->on_update_ui_closure_for_testing_ = std::move(closure);
 }
 
-DesksTemplatesGridViewTestApi::DesksTemplatesGridViewTestApi(
-    const DesksTemplatesGridView* grid_view)
-    : grid_view_(grid_view) {
-  DCHECK(grid_view_);
-}
-
-DesksTemplatesGridViewTestApi::~DesksTemplatesGridViewTestApi() = default;
-
 DesksTemplatesItemViewTestApi::DesksTemplatesItemViewTestApi(
     const DesksTemplatesItemView* item_view)
     : item_view_(item_view) {
@@ -76,14 +72,6 @@ DesksTemplatesIconViewTestApi::DesksTemplatesIconViewTestApi(
 
 DesksTemplatesIconViewTestApi::~DesksTemplatesIconViewTestApi() = default;
 
-DesksTemplatesNameViewTestApi::DesksTemplatesNameViewTestApi(
-    const DesksTemplatesNameView* desks_templates_name_view)
-    : desks_templates_name_view_(desks_templates_name_view) {
-  DCHECK(desks_templates_name_view_);
-}
-
-DesksTemplatesNameViewTestApi::~DesksTemplatesNameViewTestApi() = default;
-
 DesksTemplatesItemView* GetItemViewFromTemplatesGrid(int grid_item_index) {
   const auto* overview_grid = GetPrimaryOverviewGrid();
   if (!overview_grid)
@@ -97,7 +85,7 @@ DesksTemplatesItemView* GetItemViewFromTemplatesGrid(int grid_item_index) {
   DCHECK(templates_grid_view);
 
   std::vector<DesksTemplatesItemView*> grid_items =
-      DesksTemplatesGridViewTestApi(templates_grid_view).grid_items();
+      templates_grid_view->grid_items();
   DesksTemplatesItemView* item_view = grid_items.at(grid_item_index);
   DCHECK(item_view);
   return item_view;
@@ -131,8 +119,7 @@ views::Button* GetSaveDeskAsTemplateButton() {
   const auto* overview_grid = GetPrimaryOverviewGrid();
   if (!overview_grid)
     return nullptr;
-  views::Widget* widget =
-      overview_grid->save_desk_as_template_widget_for_testing();
+  views::Widget* widget = overview_grid->save_desk_as_template_widget();
   return widget ? static_cast<views::Button*>(widget->GetContentsView())
                 : nullptr;
 }
@@ -140,6 +127,21 @@ views::Button* GetSaveDeskAsTemplateButton() {
 views::Button* GetTemplateItemButton(int index) {
   auto* item = GetItemViewFromTemplatesGrid(index);
   return item ? static_cast<views::Button*>(item) : nullptr;
+}
+
+views::Button* GetTemplateItemDeleteButton(int index) {
+  auto* item = GetItemViewFromTemplatesGrid(index);
+  return item ? static_cast<views::Button*>(const_cast<CloseButton*>(
+                    DesksTemplatesItemViewTestApi(item).delete_button()))
+              : nullptr;
+}
+
+views::Button* GetDesksTemplatesDialogAcceptButton() {
+  const views::Widget* dialog_widget =
+      DesksTemplatesDialogController::Get()->dialog_widget();
+  if (!dialog_widget)
+    return nullptr;
+  return dialog_widget->widget_delegate()->AsDialogDelegate()->GetOkButton();
 }
 
 void WaitForDesksTemplatesUI() {

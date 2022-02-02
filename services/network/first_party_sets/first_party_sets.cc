@@ -11,6 +11,7 @@
 
 #include "base/check.h"
 #include "base/containers/contains.h"
+#include "base/containers/flat_map.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
@@ -102,6 +103,15 @@ void FirstPartySets::SetManuallySpecifiedSet(const std::string& flag_value) {
 void FirstPartySets::ParseAndSet(base::File sets_file) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!enabled_ || component_sets_parse_progress_ != Progress::kNotStarted) {
+    if (sets_file.IsValid()) {
+      base::ThreadPool::PostTask(
+          FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+          base::BindOnce(
+              [](base::File sets_file) {
+                // Run `sets_file`'s dtor in the threadpool.
+              },
+              std::move(sets_file)));
+    }
     return;
   }
 
@@ -167,10 +177,11 @@ bool FirstPartySets::IsContextSamePartyWithSite(
   return base::ranges::all_of(party_context, is_owned_by_site_owner);
 }
 
-net::FirstPartySetMetadata FirstPartySets::ComputeMetadata(
+void FirstPartySets::ComputeMetadata(
     const net::SchemefulSite& site,
     const net::SchemefulSite* top_frame_site,
-    const std::set<net::SchemefulSite>& party_context) const {
+    const std::set<net::SchemefulSite>& party_context,
+    base::OnceCallback<void(net::FirstPartySetMetadata)> callback) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   const base::ElapsedTimer timer;
 
@@ -193,9 +204,12 @@ net::FirstPartySetMetadata FirstPartySets::ComputeMetadata(
   net::FirstPartySetsContextType first_party_sets_context_type =
       ComputeContextType(site, top_frame_site, party_context);
 
-  return net::FirstPartySetMetadata(context,
-                                    base::OptionalOrNullptr(FindOwner(site)),
-                                    first_party_sets_context_type);
+  absl::optional<net::SchemefulSite> top_frame_owner =
+      top_frame_site ? FindOwner(*top_frame_site) : absl::nullopt;
+
+  std::move(callback).Run(net::FirstPartySetMetadata(
+      context, base::OptionalOrNullptr(FindOwner(site)),
+      base::OptionalOrNullptr(top_frame_owner), first_party_sets_context_type));
 }
 
 net::FirstPartySetsContextType FirstPartySets::ComputeContextType(
@@ -254,8 +268,25 @@ const absl::optional<net::SchemefulSite> FirstPartySets::FindOwner(
   return FindOwner(site, /*infer_singleton_sets=*/false);
 }
 
-base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>
-FirstPartySets::Sets() const {
+base::flat_map<net::SchemefulSite, net::SchemefulSite>
+FirstPartySets::FindOwners(
+    const base::flat_set<net::SchemefulSite>& sites) const {
+  std::vector<std::pair<net::SchemefulSite, net::SchemefulSite>>
+      sites_to_owners;
+  for (const net::SchemefulSite& site : sites) {
+    const absl::optional<net::SchemefulSite> owner = FindOwner(site);
+    if (owner.has_value()) {
+      sites_to_owners.emplace_back(site, owner.value());
+    }
+  }
+
+  return sites_to_owners;
+}
+
+void FirstPartySets::Sets(
+    base::OnceCallback<
+        void(base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>)>
+        callback) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>> sets;
 
@@ -270,7 +301,7 @@ FirstPartySets::Sets() const {
     }
   }
 
-  return sets;
+  std::move(callback).Run(sets);
 }
 
 void FirstPartySets::ApplyManuallySpecifiedSet() {

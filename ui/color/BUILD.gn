@@ -4,6 +4,7 @@
 
 import("//build/buildflag_header.gni")
 import("//build/config/chromeos/ui_mode.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 import("//ui/base/ui_features.gni")
 
@@ -20,6 +21,7 @@ source_set("color_headers") {
   ]
 
   public_deps = [
+    ":mojom",
     "//base",
     "//skia",
   ]
@@ -149,7 +151,9 @@ component("mixers") {
 
   public_deps = [ "//base" ]
 
-  if (is_mac) {
+  if (is_chromeos) {
+    sources += [ "chromeos/native_color_mixers_chromeos.cc" ]
+  } else if (is_mac) {
     frameworks = [ "AppKit.framework" ]
     sources += [
       "mac/native_color_mixers_mac.mm",
@@ -163,4 +167,8 @@ component("mixers") {
       ":color_switches",
     ]
   }
+}
+
+mojom("mojom") {
+  sources = [ "color_id.mojom" ]
 }

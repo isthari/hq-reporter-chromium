@@ -81,12 +81,12 @@ class MockBrowserViewLayoutDelegate : public BrowserViewLayoutDelegate {
   bool SupportsWindowFeature(
       const Browser::WindowFeature feature) const override {
     static const base::NoDestructor<base::flat_set<Browser::WindowFeature>>
-        supported_features({
+        supported_features{{
             Browser::FEATURE_TABSTRIP,
             Browser::FEATURE_TOOLBAR,
             Browser::FEATURE_LOCATIONBAR,
             Browser::FEATURE_BOOKMARKBAR,
-        });
+        }};
     return base::Contains(*supported_features, feature);
   }
   gfx::NativeView GetHostView() const override { return nullptr; }
@@ -129,8 +129,8 @@ class MockImmersiveModeController : public ImmersiveModeController {
       const gfx::Size& top_container_size) const override {
     return 0;
   }
-  ImmersiveRevealedLock* GetRevealedLock(AnimateReveal animate_reveal) override
-      WARN_UNUSED_RESULT {
+  [[nodiscard]] ImmersiveRevealedLock* GetRevealedLock(
+      AnimateReveal animate_reveal) override {
     return nullptr;
   }
   void OnFindBarVisibleBoundsChanged(

@@ -50,7 +50,7 @@ bool IsHandledCriticalExtension(const ParsedExtension& extension) {
     //   qualifier), or MUST reject the certificate.
     std::vector<der::Input> unused_policies;
     CertErrors unused_errors;
-    return ParseCertificatePoliciesExtension(
+    return ParseCertificatePoliciesExtensionOids(
         extension.value, true /*fail_parsing_unknown_qualifier_oids*/,
         &unused_policies, &unused_errors);
 
@@ -91,7 +91,7 @@ void VerifyNoUnconsumedCriticalExtensions(const ParsedCertificate& cert,
 //    support key rollover or changes in certificate policies.  These
 //    self-issued certificates are not counted when evaluating path length
 //    or name constraints.
-WARN_UNUSED_RESULT bool IsSelfIssued(const ParsedCertificate& cert) {
+[[nodiscard]] bool IsSelfIssued(const ParsedCertificate& cert) {
   return cert.normalized_subject() == cert.normalized_issuer();
 }
 

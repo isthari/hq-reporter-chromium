@@ -78,10 +78,10 @@ class TypedURLSyncBridge : public syncer::ModelTypeSyncBridge,
 
   // Return true if this function successfully converts the passed URL
   // information to a TypedUrlSpecifics structure for writing to the sync DB.
-  static bool WriteToTypedUrlSpecifics(const URLRow& url,
-                                       const VisitVector& visits,
-                                       sync_pb::TypedUrlSpecifics* specifics)
-      WARN_UNUSED_RESULT;
+  [[nodiscard]] static bool WriteToTypedUrlSpecifics(
+      const URLRow& url,
+      const VisitVector& visits,
+      sync_pb::TypedUrlSpecifics* specifics);
 
  private:
   friend class TypedURLSyncBridgeTest;
@@ -240,7 +240,7 @@ class TypedURLSyncBridge : public syncer::ModelTypeSyncBridge,
 
   // Whether we're currently processing changes from the syncer. While this is
   // true, we ignore any local url changes, since we triggered them.
-  bool processing_syncer_changes_;
+  bool processing_syncer_changes_ = false;
 
   // A non-owning pointer to the database, which is for storing typed urls sync
   // metadata and state.

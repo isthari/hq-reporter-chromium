@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
+#include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/html_collection.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
@@ -5286,6 +5287,86 @@ TEST_F(StyleEngineTest,
   UpdateAllLifecyclePhases();
   element_count = GetStyleEngine().StyleForElementCount() - start_count;
   ASSERT_EQ(0U, element_count);
+}
+
+TEST_F(StyleEngineTest, HasPseudoClassInvalidationLinkInHas) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      .a:has(:link) { background-color: lime; }
+    </style>
+    <div id=div1 class='a'>
+      <a href="unvisited"></a>
+    </div>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+
+  unsigned start_count = GetStyleEngine().StyleForElementCount();
+  auto* anchor = MakeGarbageCollected<HTMLAnchorElement>(GetDocument());
+  anchor->setAttribute(html_names::kIdAttr, "anchor1");
+  GetDocument().getElementById("div1")->AppendChild(anchor);
+  UpdateAllLifecyclePhases();
+  unsigned element_count =
+      GetStyleEngine().StyleForElementCount() - start_count;
+  ASSERT_EQ(2U, element_count);
+
+  start_count = GetStyleEngine().StyleForElementCount();
+  GetDocument().getElementById("div1")->RemoveChild(
+      GetDocument().getElementById("anchor1"));
+  UpdateAllLifecyclePhases();
+  element_count = GetStyleEngine().StyleForElementCount() - start_count;
+  ASSERT_EQ(1U, element_count);
+}
+
+TEST_F(StyleEngineTest, HasPseudoClassInvalidationIgnoreVisitedPseudoInHas) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      .a:has(:visited) { background-color: lime; }
+    </style>
+    <div id=div1 class='a'>
+      <a href="unvisited"></a>
+    </div>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+
+  unsigned start_count = GetStyleEngine().StyleForElementCount();
+  auto* anchor = MakeGarbageCollected<HTMLAnchorElement>(GetDocument());
+  anchor->SetHref("");
+  anchor->setAttribute(html_names::kIdAttr, "anchor1");
+  GetDocument().getElementById("div1")->AppendChild(anchor);
+  UpdateAllLifecyclePhases();
+  unsigned element_count =
+      GetStyleEngine().StyleForElementCount() - start_count;
+  ASSERT_EQ(1U, element_count);
+
+  start_count = GetStyleEngine().StyleForElementCount();
+  GetDocument().getElementById("div1")->RemoveChild(
+      GetDocument().getElementById("anchor1"));
+  UpdateAllLifecyclePhases();
+  element_count = GetStyleEngine().StyleForElementCount() - start_count;
+  ASSERT_EQ(0U, element_count);
+}
+
+TEST_F(StyleEngineTest, CSSComparisonFunctionsUseCount) {
+  ClearUseCounter(WebFeature::kCSSComparisonFunctions);
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      div { width: calc(10px + 20%); }
+    </style>
+  )HTML");
+  UpdateAllLifecyclePhases();
+  EXPECT_FALSE(IsUseCounted(WebFeature::kCSSComparisonFunctions));
+  ClearUseCounter(WebFeature::kCSSComparisonFunctions);
+
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      div { width: calc(min(10px, 20%) + max(20px, 10%)); }
+    </style>
+  )HTML");
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(IsUseCounted(WebFeature::kCSSComparisonFunctions));
+  ClearUseCounter(WebFeature::kCSSComparisonFunctions);
 }
 
 }  // namespace blink

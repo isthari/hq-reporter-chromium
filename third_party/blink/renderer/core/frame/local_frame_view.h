@@ -36,7 +36,7 @@
 #include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/document_transition/document_transition.h"
+#include "third_party/blink/renderer/core/document_transition/document_transition_request.h"
 #include "third_party/blink/renderer/core/dom/document_lifecycle.h"
 #include "third_party/blink/renderer/core/frame/frame_view.h"
 #include "third_party/blink/renderer/core/frame/layout_subtree_root_list.h"
@@ -52,6 +52,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
 #include "third_party/blink/renderer/platform/graphics/paint_invalidation_reason.h"
 #include "third_party/blink/renderer/platform/graphics/subtree_paint_property_update_reason.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -249,10 +250,6 @@ class CORE_EXPORT LocalFrameView final
     return layout_size_fixed_to_frame_size_;
   }
 
-  void SetInitialViewportSize(const gfx::Size&);
-  int InitialViewportWidth() const;
-  int InitialViewportHeight() const;
-
   bool GetIntrinsicSizingInfo(IntrinsicSizingInfo&) const override;
   bool HasIntrinsicSizingInfo() const override;
 
@@ -330,13 +327,6 @@ class CORE_EXPORT LocalFrameView final
   void UpdateDocumentAnnotatedRegions() const;
 
   void DidAttachDocument();
-
-  bool SafeToPropagateScrollToParent() const {
-    return safe_to_propagate_scroll_to_parent_;
-  }
-  void SetSafeToPropagateScrollToParent(bool is_safe) {
-    safe_to_propagate_scroll_to_parent_ = is_safe;
-  }
 
   void AddPartToUpdate(LayoutEmbeddedObject&);
 
@@ -551,7 +541,7 @@ class CORE_EXPORT LocalFrameView final
   // PaintClean state when these functions are called.
   void PaintOutsideOfLifecycle(
       GraphicsContext&,
-      const GlobalPaintFlags,
+      PaintFlags,
       const CullRect& cull_rect = CullRect::Infinite());
 
   // For testing paint with a custom cull rect.
@@ -841,11 +831,11 @@ class CORE_EXPORT LocalFrameView final
 
   // EmbeddedContentView implementation
   void Paint(GraphicsContext&,
-             const GlobalPaintFlags,
+             PaintFlags,
              const CullRect&,
              const gfx::Vector2d&) const final;
 
-  void PaintFrame(GraphicsContext&, GlobalPaintFlags) const;
+  void PaintFrame(GraphicsContext&, PaintFlags = PaintFlag::kNoFlag) const;
 
   LayoutSVGRoot* EmbeddedReplacedContent() const;
 
@@ -993,7 +983,7 @@ class CORE_EXPORT LocalFrameView final
   void VerifySharedElementsForDocumentTransition();
   // Append document transition requests from this view into the given vector.
   void AppendDocumentTransitionRequests(
-      WTF::Vector<std::unique_ptr<DocumentTransition::Request>>&);
+      WTF::Vector<std::unique_ptr<DocumentTransitionRequest>>&);
 
   bool AnyFrameIsPrintingOrPaintingPreview();
 
@@ -1029,8 +1019,6 @@ class CORE_EXPORT LocalFrameView final
   AtomicString media_type_;
   AtomicString media_type_when_not_printing_;
 
-  bool safe_to_propagate_scroll_to_parent_;
-
   unsigned visually_non_empty_character_count_;
   uint64_t visually_non_empty_pixel_count_;
   bool is_visually_non_empty_;
@@ -1048,7 +1036,6 @@ class CORE_EXPORT LocalFrameView final
   Member<FrameViewAutoSizeInfo> auto_size_info_;
 
   gfx::Size layout_size_;
-  gfx::Size initial_viewport_size_;
   bool layout_size_fixed_to_frame_size_;
 
   bool needs_update_geometries_;

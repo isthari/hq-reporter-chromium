@@ -1400,10 +1400,6 @@
         "name": "blink_perf.webaudio/biquad-filter-node.html"
     },
     {
-        "duration": "112.0",
-        "name": "blink_perf.webaudio/dynamics-compressor-node.html"
-    },
-    {
         "duration": "88.0",
         "name": "blink_perf.webaudio/gain-node.html"
     },
@@ -2172,10 +2168,6 @@
         "name": "rendering.mobile/card_flying"
     },
     {
-        "duration": "11.0",
-        "name": "rendering.mobile/cats_viewport_width"
-    },
-    {
         "duration": "36.0",
         "name": "rendering.mobile/cc_poster_circle"
     },
@@ -2214,10 +2206,6 @@
     {
         "duration": "17.0",
         "name": "rendering.mobile/coordinated_animation"
-    },
-    {
-        "duration": "4.0",
-        "name": "rendering.mobile/core_scroll_header_panel"
     },
     {
         "duration": "23.0",
@@ -2740,10 +2728,6 @@
         "name": "rendering.mobile/list_recycle_transform"
     },
     {
-        "duration": "56.0",
-        "name": "rendering.mobile/lost_crypt"
-    },
-    {
         "duration": "22.0",
         "name": "rendering.mobile/main_0fps_impl_60fps"
     },
@@ -3088,42 +3072,6 @@
         "name": "rendering.mobile/overlay_background_color_css_transitions_page"
     },
     {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_button"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_calculator"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_calculator_hit_test"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_checkbox"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_fab"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_icon_button"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_shadow"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_tabs"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/paper_toggle_button"
-    },
-    {
         "duration": "16.0",
         "name": "rendering.mobile/parallax_effect"
     },
@@ -3146,10 +3094,6 @@
     {
         "duration": "11.0",
         "name": "rendering.mobile/pinterest_mobile_2018"
-    },
-    {
-        "duration": "3.0",
-        "name": "rendering.mobile/polymer_topeka"
     },
     {
         "duration": "22.0",
@@ -3200,24 +3144,12 @@
         "name": "rendering.mobile/sfgate_mobile_2018"
     },
     {
-        "duration": "16.0",
-        "name": "rendering.mobile/slide_drawer"
-    },
-    {
         "duration": "14.0",
         "name": "rendering.mobile/sticky_using_webkit"
     },
     {
-        "duration": "22.0",
-        "name": "rendering.mobile/stress_hidey_bars"
-    },
-    {
         "duration": "25.0",
         "name": "rendering.mobile/svg_icon_raster"
-    },
-    {
-        "duration": "13.0",
-        "name": "rendering.mobile/swipe_action"
     },
     {
         "duration": "15.0",
@@ -3242,10 +3174,6 @@
     {
         "duration": "3.0",
         "name": "rendering.mobile/text_scrollbar_700_pixels_per_second"
-    },
-    {
-        "duration": "21.0",
-        "name": "rendering.mobile/toggle_drawer"
     },
     {
         "duration": "16.0",

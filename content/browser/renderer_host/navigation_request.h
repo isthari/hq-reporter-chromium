@@ -11,7 +11,6 @@
 
 #include "base/callback.h"
 #include "base/callback_forward.h"
-#include "base/compiler_specific.h"
 #include "base/debug/crash_logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
@@ -60,7 +59,6 @@
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-shared.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/loader/previews_state.h"
 #include "third_party/blink/public/common/navigation/impression.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/loader/mixed_content.mojom-forward.h"
@@ -68,7 +66,7 @@
 #include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 #include "url/origin.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include "base/android/scoped_java_ref.h"
 #include "content/browser/android/navigation_handle_proxy.h"
 #endif
@@ -568,7 +566,7 @@ class CONTENT_EXPORT NavigationRequest
     return navigation_type_;
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Returns a reference to |navigation_handle_| Java counterpart. It is used
   // by Java WebContentsObservers.
   base::android::ScopedJavaGlobalRef<jobject> java_navigation_handle() {
@@ -737,8 +735,9 @@ class CONTENT_EXPORT NavigationRequest
   // Take all cookie observers associated with this navigation.
   // Typically this is called when navigation commits to move these observers to
   // the committed document.
-  std::vector<mojo::PendingReceiver<network::mojom::CookieAccessObserver>>
-  TakeCookieObservers() WARN_UNUSED_RESULT;
+  [[nodiscard]] std::vector<
+      mojo::PendingReceiver<network::mojom::CookieAccessObserver>>
+  TakeCookieObservers();
 
   // Returns the coop status information relevant to the current navigation.
   CrossOriginOpenerPolicyStatus& coop_status() { return coop_status_; }
@@ -812,10 +811,6 @@ class CONTENT_EXPORT NavigationRequest
   // Note #3: Navigations that do not use a URL loader also bypass
   //          NavigationThrottle.
   bool NeedsUrlLoader();
-
-  network::CrossOriginEmbedderPolicy cross_origin_embedder_policy() const {
-    return cross_origin_embedder_policy_;
-  }
 
   network::mojom::PrivateNetworkRequestPolicy private_network_request_policy()
       const {
@@ -1114,10 +1109,10 @@ class CONTENT_EXPORT NavigationRequest
       bool is_response_check,
       network::CSPContext::CheckCSPDisposition disposition);
 
-  // Checks if CSP allows the navigation. This will check the frame-src and
-  // navigate-to directives.
-  // Returns net::OK if the checks pass, and net::ERR_ABORTED or
-  // net::ERR_BLOCKED_BY_CSP depending on which checks fail.
+  // Checks if CSP allows the navigation. This will check the frame-src,
+  // fenced-frame-src and navigate-to directives. Returns net::OK if the checks
+  // pass, and net::ERR_ABORTED or net::ERR_BLOCKED_BY_CSP depending on which
+  // checks fail.
   net::Error CheckCSPDirectives(
       RenderFrameHostCSPContext parent_context,
       const PolicyContainerPolicies* parent_policies,
@@ -1360,8 +1355,18 @@ class CONTENT_EXPORT NavigationRequest
 
   void CreateCoepReporter(StoragePartition* storage_partition);
 
-  bool CheckResponseAdherenceToCoep(network::CrossOriginEmbedderPolicy* coep,
-                                    const GURL& url);
+  // [spec]: https://html.spec.whatwg.org/C/#obtain-an-embedder-policy
+  //
+  // Returns the CrossOriginEmbedderPolicy for the document, which is inherited
+  // or retrieved from response headers.
+  network::CrossOriginEmbedderPolicy ComputeCrossOriginEmbedderPolicy();
+
+  // [spec]:
+  // https://html.spec.whatwg.org/C/#check-a-navigation-response's-adherence-to-its-embedder-policy
+  //
+  // Return whether the response's COEP is compatible with its parent's COEP. It
+  // also sends COEP reports if needed.
+  bool CheckResponseAdherenceToCoep(const GURL& url);
 
   absl::optional<network::mojom::BlockedByResponseReason> EnforceCOEP();
 
@@ -1446,9 +1451,11 @@ class CONTENT_EXPORT NavigationRequest
   // or not. Called when the navigation just started.
   bool ShouldReplaceCurrentEntryForSameUrlNavigation() const;
 
-  // Whether this navigation happens on the initial empty document, and thus
-  // should replace the current entry.  Called when the navigation just started.
-  bool ShouldReplaceCurrentEntryForNavigationFromInitialEmptyDocument() const;
+  // Whether this navigation happens on the initial empty document or initial
+  // NavigationEntry, and thus should replace the current entry. Called when the
+  // navigation just started.
+  bool ShouldReplaceCurrentEntryForNavigationFromInitialEmptyDocumentOrEntry()
+      const;
 
   // Whether a failed navigation should replace the current entry or not. Called
   // when an error page is about to be committed.
@@ -1527,7 +1534,7 @@ class CONTENT_EXPORT NavigationRequest
 
   std::unique_ptr<NavigationURLLoader> loader_;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // For each C++ NavigationHandle, there is a Java counterpart. It is the JNI
   // bridge in between the two.
   std::unique_ptr<NavigationHandleProxy> navigation_handle_proxy_;
@@ -1949,7 +1956,6 @@ class CONTENT_EXPORT NavigationRequest
   // TODO(ahemery, titouan): Move some elements to the policy container or
   // rework inheritance.
   // https://crbug.com/1154729
-  network::CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
   network::mojom::PrivateNetworkRequestPolicy private_network_request_policy_ =
       network::mojom::PrivateNetworkRequestPolicy::kWarn;
 

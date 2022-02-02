@@ -236,7 +236,7 @@ ServiceWorkerGlobalScope::ServiceWorkerGlobalScope(
     mojo::PendingRemote<mojom::blink::CacheStorage> cache_storage_remote,
     base::TimeTicks time_origin,
     const ServiceWorkerToken& service_worker_token)
-    : WorkerGlobalScope(std::move(creation_params), thread, time_origin),
+    : WorkerGlobalScope(std::move(creation_params), thread, time_origin, true),
       installed_scripts_manager_(std::move(installed_scripts_manager)),
       cache_storage_remote_(std::move(cache_storage_remote)),
       token_(service_worker_token) {
@@ -774,9 +774,14 @@ int ServiceWorkerGlobalScope::GetOutstandingThrottledLimit() const {
   return features::kInstallingServiceWorkerOutstandingThrottledLimit.Get();
 }
 
+// Note that ServiceWorkers can be for cross-origin iframes, and that it might
+// look like an escape from the Permissions-Policy enforced on documents. It is
+// safe however, even on platforms without OOPIF  because a ServiceWorker
+// controlling a cross-origin iframe would be put in  a different process from
+// the page, due to an origin mismatch in their cross-origin isolation.
+// See https://crbug.com/1290224 for details.
 bool ServiceWorkerGlobalScope::CrossOriginIsolatedCapability() const {
-  // TODO(crbug.com/1131404): Return Agent::IsCrossOriginIsolated().
-  return false;
+  return Agent::IsCrossOriginIsolated();
 }
 
 bool ServiceWorkerGlobalScope::DirectSocketCapability() const {
@@ -1586,7 +1591,6 @@ void ServiceWorkerGlobalScope::InitializeGlobalScope(
     mojom::blink::ServiceWorkerRegistrationObjectInfoPtr registration_info,
     mojom::blink::ServiceWorkerObjectInfoPtr service_worker_info,
     mojom::blink::FetchHandlerExistence fetch_hander_existence,
-    std::unique_ptr<PendingURLLoaderFactoryBundle> subresource_loader_factories,
     mojo::PendingReceiver<mojom::blink::ReportingObserver>
         reporting_observer_receiver) {
   DCHECK(IsContextThread());
@@ -1596,13 +1600,6 @@ void ServiceWorkerGlobalScope::InitializeGlobalScope(
   DCHECK(!service_worker_host_.is_bound());
   service_worker_host_.Bind(std::move(service_worker_host),
                             GetTaskRunner(TaskType::kInternalDefault));
-
-  if (subresource_loader_factories) {
-    static_cast<WebServiceWorkerFetchContextImpl*>(web_worker_fetch_context())
-        ->GetSubresourceLoaderUpdater()
-        ->UpdateSubresourceLoaderFactories(
-            std::move(subresource_loader_factories));
-  }
 
   // Set ServiceWorkerGlobalScope#registration.
   DCHECK_NE(registration_info->registration_id,

@@ -136,6 +136,10 @@ class HIDDetectionScreenTester extends ScreenElementApi {
     return keyboardTickIcon.isVisible();
   }
 
+  getNextButtonName() {
+    return loadTimeData.getString('hidDetectionContinue');
+  }
+
   canClickNext() {
     return this.nextButton.isEnabled();
   }
@@ -190,6 +194,10 @@ class EulaScreenTester extends ScreenElementApi {
   isReadyForTesting() {
     return this.isVisible() && this.eulaStep.isVisible() &&
         this.nextButton.isVisible();
+  }
+
+  getNextButtonName() {
+    return loadTimeData.getString('oobeEulaAcceptAndContinueButtonText');
   }
 }
 

@@ -51,13 +51,16 @@ void LogLinkRequestedStatus(LinkGenerationStatus status) {
                             status == LinkGenerationStatus::kSuccess);
 }
 
-void LogRequestedSuccessMetrics() {
+void LogRequestedSuccessMetrics(ukm::SourceId source_id) {
   LogLinkRequestedStatus(LinkGenerationStatus::kSuccess);
+  LogLinkGeneratedRequestedSuccessUkmEvent(source_id);
 }
 
-void LogRequestedFailureMetrics(LinkGenerationError error) {
+void LogRequestedFailureMetrics(ukm::SourceId source_id,
+                                LinkGenerationError error) {
   LogLinkRequestedStatus(LinkGenerationStatus::kFailure);
   LogLinkRequestedErrorReason(error);
+  LogLinkGeneratedRequestedErrorUkmEvent(source_id, error);
 }
 
 void LogTextFragmentAmbiguousMatch(bool ambiguous_match) {
@@ -94,6 +97,11 @@ void LogGenerateSuccessLatency(base::TimeDelta latency) {
 void LogGenerateErrorLatency(base::TimeDelta latency) {
   base::UmaHistogramTimes("SharedHighlights.LinkGenerated.Error.TimeToGenerate",
                           latency);
+}
+
+void LogLinkToTextReshareStatus(LinkToTextReshareStatus status) {
+  base::UmaHistogramEnumeration("SharedHighlights.ObtainReshareLink.Status",
+                                status);
 }
 
 void LogLinkOpenedUkmEvent(ukm::SourceId source_id,
@@ -140,6 +148,30 @@ void LogLinkGeneratedErrorUkmEvent(ukm::UkmRecorder* recorder,
   DCHECK(recorder);
   if (source_id != ukm::kInvalidSourceId) {
     ukm::builders::SharedHighlights_LinkGenerated(source_id)
+        .SetSuccess(false)
+        .SetError(static_cast<int64_t>(reason))
+        .Record(recorder);
+  }
+}
+
+void LogLinkGeneratedRequestedSuccessUkmEvent(ukm::SourceId source_id) {
+  ukm::UkmRecorder* recorder = ukm::UkmRecorder::Get();
+
+  DCHECK(recorder);
+  if (source_id != ukm::kInvalidSourceId) {
+    ukm::builders::SharedHighlights_LinkGenerated_Requested(source_id)
+        .SetSuccess(true)
+        .Record(recorder);
+  }
+}
+
+void LogLinkGeneratedRequestedErrorUkmEvent(ukm::SourceId source_id,
+                                            LinkGenerationError reason) {
+  ukm::UkmRecorder* recorder = ukm::UkmRecorder::Get();
+
+  DCHECK(recorder);
+  if (source_id != ukm::kInvalidSourceId) {
+    ukm::builders::SharedHighlights_LinkGenerated_Requested(source_id)
         .SetSuccess(false)
         .SetError(static_cast<int64_t>(reason))
         .Record(recorder);

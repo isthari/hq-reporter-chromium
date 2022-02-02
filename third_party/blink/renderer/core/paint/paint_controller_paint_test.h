@@ -47,8 +47,7 @@ class PaintControllerPaintTestBase : public RenderingTest {
         DocumentUpdateReason::kTest);
     // Run CullRectUpdater to ease testing of cull rects and repaint flags of
     // PaintLayers on cull rect change.
-    if (RuntimeEnabledFeatures::CullRectUpdateEnabled())
-      CullRectUpdater(*GetLayoutView().Layer()).Update();
+    CullRectUpdater(*GetLayoutView().Layer()).Update();
   }
 
   void PaintContents(const gfx::Rect& interest_rect) {
@@ -124,7 +123,9 @@ class PaintControllerPaintTest : public PaintTestConfigurations,
 };
 
 // Shorter names for frequently used display item types in core/ tests.
-const DisplayItem::Type kNonScrollingBackgroundChunkType =
+const DisplayItem::Type kBackgroundChunkType =
+    DisplayItem::PaintPhaseToDrawingType(PaintPhase::kBlockBackground);
+const DisplayItem::Type kHitTestChunkType =
     DisplayItem::PaintPhaseToDrawingType(PaintPhase::kSelfBlockBackgroundOnly);
 const DisplayItem::Type kScrollingBackgroundChunkType =
     DisplayItem::PaintPhaseToClipType(PaintPhase::kSelfBlockBackgroundOnly);

@@ -10,6 +10,7 @@ import org.chromium.cc.base.CcSwitches;
 import org.chromium.components.autofill.AutofillFeatures;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.metrics.MetricsSwitches;
+import org.chromium.components.network_session_configurator.NetworkSessionSwitches;
 import org.chromium.components.power_scheduler.PowerSchedulerFeatures;
 import org.chromium.components.viz.common.VizFeatures;
 import org.chromium.content_public.common.ContentFeatures;
@@ -17,6 +18,7 @@ import org.chromium.content_public.common.ContentSwitches;
 import org.chromium.gpu.config.GpuFeatures;
 import org.chromium.gpu.config.GpuSwitches;
 import org.chromium.services.network.NetworkServiceFeatures;
+import org.chromium.webrtc_overrides.WebRtcOverridesFeatures;
 
 /**
  * List of experimental features/flags supported for user devices. Add features/flags to this list
@@ -89,6 +91,10 @@ public final class ProductionSupportedFlagList {
                             + "this mode, each renderer process will contain pages from at most "
                             + "one site, using out-of-process iframes when needed. Highly "
                             + "experimental."),
+            Flag.commandLine(NetworkSessionSwitches.ENABLE_HTTP2_GREASE_SETTINGS,
+                    "Enable sending HTTP/2 SETTINGS parameters with reserved identifiers."),
+            Flag.commandLine(NetworkSessionSwitches.DISABLE_HTTP2_GREASE_SETTINGS,
+                    "Disable sending HTTP/2 SETTINGS parameters with reserved identifiers."),
             Flag.baseFeature(GpuFeatures.WEBVIEW_VULKAN,
                     "Use Vulkan for composite. Requires Android device and OS support. May crash "
                             + "if enabled on unsupported device."),
@@ -165,6 +171,10 @@ public final class ProductionSupportedFlagList {
                     "Fixes memory leaks in the renderer- and browser-form caches."),
             Flag.baseFeature(AutofillFeatures.AUTOFILL_USE_UNASSOCIATED_LISTED_ELEMENTS,
                     "Caches unowned listed elements in the document."),
+            Flag.baseFeature(AutofillFeatures.AUTOFILL_PARSING_PATTERN_PROVIDER,
+                    "Enables Autofill to use its new method to retrieve parsing patterns."),
+            Flag.baseFeature(AutofillFeatures.AUTOFILL_PAGE_LANGUAGE_DETECTION,
+                    "Enables Autofill to retrieve the page language for form parsing."),
             Flag.baseFeature(FeatureConstants.KEYBOARD_ACCESSORY_PAYMENT_VIRTUAL_CARD_FEATURE,
                     "When enabled, merchant bound virtual cards will be offered in the keyboard "
                             + "accessory."),
@@ -177,6 +187,8 @@ public final class ProductionSupportedFlagList {
             Flag.commandLine(AwSwitches.WEBVIEW_DISABLE_APPS_PACKAGE_NAMES_ALLOWLIST_COMPONENT,
                     "Disable downloading the apps package names allowlist component by the "
                             + "component updater."),
+            Flag.baseFeature(AwFeatures.WEBVIEW_EMPTY_COMPONENT,
+                    "Enables loading a fake empty (no-op) component during WebView startup."),
             Flag.commandLine(AwSwitches.WEBVIEW_SELECTIVE_IMAGE_INVERSION_DARKENING,
                     "Enables use selective image inversion to automatically darken page, it will be"
                             + " used when WebView is in dark mode, but website doesn't provide dark"
@@ -210,6 +222,8 @@ public final class ProductionSupportedFlagList {
                             + " number in the minor version position in the User-Agent string."),
             Flag.baseFeature(NetworkServiceFeatures.URL_LOADER_SYNC_CLIENT,
                     "Optimizes communication between URLLoader and CorsURLLoader."),
+            Flag.baseFeature(NetworkServiceFeatures.COMBINE_RESPONSE_BODY,
+                    "Reduces URLLoaderClient mojo calls."),
             Flag.baseFeature(BlinkFeatures.SET_TIMEOUT_WITHOUT_CLAMP,
                     "Enables faster setTimeout(,0) by removing the 1 ms clamping."),
             Flag.baseFeature(BlinkFeatures.PAINT_HOLDING_CROSS_ORIGIN,
@@ -229,5 +243,21 @@ public final class ProductionSupportedFlagList {
                     "Enables prefetching Android fonts on renderer startup."),
             Flag.baseFeature(AwFeatures.WEBVIEW_LEGACY_TLS_SUPPORT,
                     "Whether legacy TLS versions (TLS 1.0/1.1) conections are allowed."),
+            Flag.baseFeature(WebRtcOverridesFeatures.WEB_RTC_METRONOME_TASK_QUEUE,
+                    "Enables more efficient scheduling of work in WebRTC."),
+            Flag.baseFeature(BlinkFeatures.INITIAL_NAVIGATION_ENTRY,
+                    "Enables creation of initial NavigationEntries on WebContents creation."),
+            Flag.baseFeature(BlinkFeatures.CANVAS2D_STAYS_GPU_ON_READBACK,
+                    "Accelerated canvases that a read back from remain accelerated."),
+            Flag.baseFeature(BlinkFeatures.EARLY_BODY_LOAD,
+                    "Enables loading the response body earlier in navigation."),
+            Flag.baseFeature(BlinkFeatures.DEFAULT_STYLE_SHEETS_EARLY_INIT,
+                    "Initialize CSSDefaultStyleSheets early in renderer startup."),
+            Flag.baseFeature(ContentFeatures.THREADING_OPTIMIZATIONS_ON_IO,
+                    "Moves navigation threading optimizations to the IO thread."),
+            Flag.baseFeature(ContentFeatures.EARLY_ESTABLISH_GPU_CHANNEL,
+                    "Enable establishing the GPU channel early in renderer startup."),
+            Flag.baseFeature(ContentFeatures.OPTIMIZE_EARLY_NAVIGATION,
+                    "Temporarily pauses the compositor early in navigation."),
     };
 }

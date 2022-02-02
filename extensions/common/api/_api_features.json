@@ -254,9 +254,6 @@
     "contexts": ["blessed_extension", "unblessed_extension", "content_script",
                  "lock_screen_extension"]
   },
-  "i18n.getMessage": {
-    "disallow_for_service_workers": true
-  },
   "idle": {
     "dependencies": ["permission:idle"],
     "contexts": ["blessed_extension"]
@@ -341,7 +338,8 @@
       "chrome://sync-confirmation/*",
       "chrome://tab-search.top-chrome/*",
       "chrome://tab-strip.top-chrome/*",
-      "chrome://welcome/*"
+      "chrome://welcome/*",
+      "chrome://app-settings/*"
     ]
   }, {
     "channel": "stable",
@@ -491,8 +489,6 @@
     "contexts": ["webui_untrusted"],
     "matches": [
       // Allow only terminal_ssh.html in Terminal System Web App.
-      // TODO(crbug.com/1283153): remove nassh.html when the migration is done.
-      "chrome-untrusted://terminal/html/nassh.html",
       "chrome-untrusted://terminal/html/terminal_ssh.html"
     ]
   }],
@@ -563,8 +559,6 @@
     "contexts": ["webui_untrusted"],
     "matches": [
       // Allow only terminal_ssh.html in Terminal System Web App.
-      // TODO(1283153): remove nassh.html when the migration is done.
-      "chrome-untrusted://terminal/html/nassh.html",
       "chrome-untrusted://terminal/html/terminal_ssh.html"
     ]
   }],

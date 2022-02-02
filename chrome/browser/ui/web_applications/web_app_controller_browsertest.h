@@ -8,7 +8,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_id.h"
-#include "chrome/browser/web_applications/web_application_info.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/content_mock_cert_verifier.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -43,7 +43,7 @@ class WebAppControllerBrowserTest : public InProcessBrowserTest {
 
   AppId InstallPWA(const GURL& app_url);
 
-  AppId InstallWebApp(std::unique_ptr<WebApplicationInfo> web_app_info);
+  AppId InstallWebApp(std::unique_ptr<WebAppInstallInfo> web_app_info);
 
   // Launches the app as a window and returns the browser.
   Browser* LaunchWebAppBrowser(const AppId&);
@@ -64,7 +64,8 @@ class WebAppControllerBrowserTest : public InProcessBrowserTest {
 
   // Simulates a page navigating itself to an URL and waits for the
   // navigation.
-  void NavigateInRenderer(content::WebContents* contents, const GURL& url);
+  [[nodiscard]] bool NavigateInRenderer(content::WebContents* contents,
+                                        const GURL& url);
 
   // Returns whether the installable check passed.
   static bool NavigateAndAwaitInstallabilityCheck(Browser* browser,

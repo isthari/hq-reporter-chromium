@@ -286,6 +286,15 @@ Polymer({
       }
     },
 
+    /** @private {boolean} */
+    isExtendedOpenVpnSettingsEnabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.valueExists('extendedOpenVpnSettingsEnabled') &&
+            loadTimeData.getBoolean('extendedOpenVpnSettingsEnabled');
+      }
+    },
+
     /**
      * When true, all inputs that allow state to be changed (e.g., toggles,
      * inputs) are disabled.
@@ -673,7 +682,9 @@ Polymer({
     }
 
     // Set the IPAddress property to the IPv4 Address.
-    const ipv4 = OncMojo.getIPConfigForType(this.managedProperties_, 'IPv4');
+    const ipv4 = OncMojo.getIPConfigForType(
+        this.managedProperties_,
+        chromeos.networkConfig.mojom.IPConfigType.kIPv4);
     this.ipAddress_ = (ipv4 && ipv4.ipAddress) || '';
 
     // Update the detail page title.

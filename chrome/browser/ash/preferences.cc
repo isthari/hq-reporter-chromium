@@ -359,10 +359,6 @@ void Preferences::RegisterProfilePrefs(
   registry->RegisterStringPref(::prefs::kUserTimezone, current_timezone_id);
 
   registry->RegisterBooleanPref(
-      ::prefs::kResolveTimezoneByGeolocation, true,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
-
-  registry->RegisterBooleanPref(
       ::prefs::kResolveTimezoneByGeolocationMigratedToMethod, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
 
@@ -467,9 +463,9 @@ void Preferences::RegisterProfilePrefs(
   registry->RegisterBooleanPref(::prefs::kSettingsShowOSBanner, true);
 
   // This pref is a per-session pref and must not be synced.
-  registry->RegisterStringPref(::prefs::kLoginExtensionApiLaunchExtensionId,
-                               std::string(),
-                               PrefRegistry::NO_REGISTRATION_FLAGS);
+  registry->RegisterBooleanPref(
+      ::prefs::kLoginExtensionApiCanLockManagedGuestSession, false,
+      PrefRegistry::NO_REGISTRATION_FLAGS);
 
   registry->RegisterBooleanPref(prefs::kLoginDisplayPasswordButtonEnabled,
                                 true);
@@ -571,9 +567,6 @@ void Preferences::InitUserPrefs(sync_preferences::PrefServiceSyncable* prefs) {
   for (auto* remap_pref : kLanguageRemapPrefs)
     pref_change_registrar_.Add(remap_pref, callback);
 
-  // Deprecated 7/2021
-  // TODO(https://crbug.com/783367) Remove outdated prefs.
-  prefs->ClearPref(::prefs::kResolveTimezoneByGeolocation);
 }
 
 void Preferences::Init(Profile* profile, const user_manager::User* user) {
@@ -1048,9 +1041,10 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     if (value &&
         prefs_->IsManagedPreference(::prefs::kParentAccessCodeConfig) &&
         user_->IsChild()) {
-      user_manager::known_user::SetPref(
-          user_->GetAccountId(), ::prefs::kKnownUserParentAccessCodeConfig,
-          value->Clone());
+      user_manager::KnownUser known_user(g_browser_process->local_state());
+      known_user.SetPath(user_->GetAccountId(),
+                         ::prefs::kKnownUserParentAccessCodeConfig,
+                         value->Clone());
       parent_access::ParentAccessService::Get().LoadConfigForUser(user_);
     } else {
       user_manager::known_user::RemovePref(

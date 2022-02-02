@@ -384,7 +384,8 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::OnReceiveEarlyHints(
 }
 
 void WebRequestProxyingURLLoaderFactory::InProgressRequest::OnReceiveResponse(
-    network::mojom::URLResponseHeadPtr head) {
+    network::mojom::URLResponseHeadPtr head,
+    mojo::ScopedDataPipeConsumerHandle body) {
   TRACE_EVENT_WITH_FLOW0(
       "extensions",
       "WebRequestProxyingURLLoaderFactory::InProgressRequest::"
@@ -393,6 +394,7 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::OnReceiveResponse(
                           TRACE_ID_LOCAL(request_id_)),
       TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
 
+  current_body_ = std::move(body);
   if (current_request_uses_header_client_) {
     // Use the headers we got from OnHeadersReceived as that'll contain
     // Set-Cookie if it existed.
@@ -671,10 +673,8 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::
   // Following checks implement the step 10 of "4.4. HTTP-redirect fetch",
   // https://fetch.spec.whatwg.org/#http-redirect-fetch
   if (request_.request_initiator &&
-      (!url::Origin::Create(redirect_url_)
-            .IsSameOriginWith(url::Origin::Create(request_.url)) &&
-       !request_.request_initiator->IsSameOriginWith(
-           url::Origin::Create(request_.url)))) {
+      (!url::IsSameOriginWith(redirect_url_, request_.url) &&
+       !request_.request_initiator->IsSameOriginWith(request_.url))) {
     // Reset the initiator to pretend tainted origin flag of the spec is set.
     request_.request_initiator = url::Origin();
   }
@@ -1189,7 +1189,8 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::
 
   ExtensionWebRequestEventRouter::GetInstance()->OnResponseStarted(
       factory_->browser_context_, &info_.value(), net::OK);
-  target_client_->OnReceiveResponse(current_response_.Clone());
+  target_client_->OnReceiveResponse(current_response_.Clone(),
+                                    std::move(current_body_));
 }
 
 void WebRequestProxyingURLLoaderFactory::InProgressRequest::

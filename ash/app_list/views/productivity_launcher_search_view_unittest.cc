@@ -4,6 +4,7 @@
 
 #include "ash/app_list/views/productivity_launcher_search_view.h"
 
+#include <tuple>
 #include <utility>
 
 #include "ash/app_list/app_list_controller_impl.h"
@@ -45,8 +46,8 @@ void WaitForLayerAnimation(ui::Layer* layer) {
 
   // Ensure there is one more frame presented after animation finishes
   // to allow animation throughput data is passed from cc to ui.
-  ignore_result(
-      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(200)));
+  std::ignore =
+      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(200));
 }
 }  // namespace
 
@@ -83,10 +84,10 @@ class ProductivityLauncherSearchViewTest
           std::make_unique<TestSearchResult>();
       result->set_result_id(base::NumberToString(init_id + i));
       result->set_display_type(ash::SearchResultDisplayType::kList);
-      result->set_title(
+      result->SetTitle(
           base::UTF8ToUTF16(base::StringPrintf("Result %d", init_id + i)));
       result->set_display_score(display_score);
-      result->set_details(u"Detail");
+      result->SetDetails(u"Detail");
       result->set_best_match(best_match);
       result->set_category(category);
       results->Add(std::move(result));
@@ -102,9 +103,9 @@ class ProductivityLauncherSearchViewTest
         std::make_unique<TestSearchResult>();
     result->set_result_id(base::NumberToString(init_id));
     result->set_display_type(ash::SearchResultDisplayType::kAnswerCard);
-    result->set_title(base::UTF8ToUTF16(base::StringPrintf("Answer Card")));
+    result->SetTitle(base::UTF8ToUTF16(base::StringPrintf("Answer Card")));
     result->set_display_score(1000);
-    result->set_details(u"Answer Card Details");
+    result->SetDetails(u"Answer Card Details");
     result->set_best_match(false);
     results->Add(std::move(result));
 
@@ -171,8 +172,6 @@ INSTANTIATE_TEST_SUITE_P(Tablet,
 
 TEST_P(ProductivityLauncherSearchViewTest, AnimateSearchResultView) {
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 

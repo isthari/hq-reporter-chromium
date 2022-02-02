@@ -65,6 +65,9 @@ const char kErrorNotReady[] = "Error.NotReady";
 // WireGuard string from Shill SupportedVPNType property.
 const char kWireGuardVPNType[] = "wireguard";
 
+// Default traffic counter reset day.
+const int kDefaultResetDay = 1;
+
 std::string ShillToOnc(const std::string& shill_string,
                        const onc::StringTranslationEntry table[]) {
   std::string onc_string;
@@ -118,6 +121,26 @@ NetworkTypePattern MojoTypeToPattern(mojom::NetworkType type) {
   }
   NOTREACHED();
   return NetworkTypePattern::Default();
+}
+
+mojom::IPConfigType OncIPConfigTypeToMojo(const std::string& ip_config_type) {
+  if (ip_config_type == ::onc::ipconfig::kIPv4)
+    return mojom::IPConfigType::kIPv4;
+  if (ip_config_type == ::onc::ipconfig::kIPv6)
+    return mojom::IPConfigType::kIPv6;
+  NOTREACHED() << "Unsupported ONC IPConfig type: " << ip_config_type;
+  return mojom::IPConfigType::kIPv4;
+}
+
+std::string MojoIPConfigTypeToOnc(mojom::IPConfigType type) {
+  switch (type) {
+    case mojom::IPConfigType::kIPv4:
+      return ::onc::ipconfig::kIPv4;
+    case mojom::IPConfigType::kIPv6:
+      return ::onc::ipconfig::kIPv6;
+  }
+  NOTREACHED() << "Unexpeted mojo IPConfig type: " << type;
+  return ::onc::ipconfig::kIPv4;
 }
 
 std::string MojoNetworkTypeToOnc(mojom::NetworkType type) {
@@ -586,15 +609,6 @@ int32_t GetInt32(const base::Value* dict, const char* key) {
   return v ? v->GetInt() : false;
 }
 
-double GetDouble(const base::Value* dict, const char* key) {
-  const base::Value* v = dict->FindKey(key);
-  if (v && !v->is_double()) {
-    NET_LOG(ERROR) << "Expected double, found: " << *v;
-    return false;
-  }
-  return v ? v->GetDouble() : false;
-}
-
 std::vector<int32_t> GetInt32List(const base::Value* dict, const char* key) {
   std::vector<int32_t> result;
   const base::Value* v = dict->FindKey(key);
@@ -958,10 +972,13 @@ mojom::IPConfigPropertiesPtr GetIPConfig(const base::Value* dict) {
   ip_config->search_domains =
       GetStringList(dict, ::onc::ipconfig::kSearchDomains);
   ip_config->routing_prefix = GetInt32(dict, ::onc::ipconfig::kRoutingPrefix);
-  ip_config->type = GetString(dict, ::onc::ipconfig::kType);
-  // Shill may omit the IP Config type for VPNs. The type should be IPv4.
-  if (!ip_config->type || ip_config->type->empty())
-    ip_config->type = ::onc::ipconfig::kIPv4;
+  auto type = GetString(dict, ::onc::ipconfig::kType);
+  if (!type || type->empty()) {
+    // Shill may omit the IP Config type for VPNs. The type should be IPv4.
+    ip_config->type = mojom::IPConfigType::kIPv4;
+  } else {
+    ip_config->type = OncIPConfigTypeToMojo(*type);
+  }
   ip_config->web_proxy_auto_discovery_url =
       GetString(dict, ::onc::ipconfig::kWebProxyAutoDiscoveryUrl);
   return ip_config;
@@ -976,7 +993,14 @@ mojom::ManagedIPConfigPropertiesPtr GetManagedIPConfig(
       GetManagedStringList(dict, ::onc::ipconfig::kNameServers);
   ip_config->routing_prefix =
       GetManagedInt32(dict, ::onc::ipconfig::kRoutingPrefix);
-  ip_config->type = GetManagedString(dict, ::onc::ipconfig::kType);
+  // The IPConfig type is not actually mutable, so we convert from an optional
+  // managed string to a required unmanaged type enum.
+  mojom::ManagedStringPtr managed_type =
+      GetManagedString(dict, ::onc::ipconfig::kType);
+  mojom::IPConfigType type =
+      managed_type ? OncIPConfigTypeToMojo(managed_type->active_value)
+                   : mojom::IPConfigType::kIPv4;
+  ip_config->type = type;
   ip_config->web_proxy_auto_discovery_url =
       GetManagedString(dict, ::onc::ipconfig::kWebProxyAutoDiscoveryUrl);
   return ip_config;
@@ -1498,11 +1522,6 @@ mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
   if (saved_ip_config)
     result->saved_ip_config = GetIPConfig(saved_ip_config);
 
-  double traffic_counter_reset_time =
-      GetDouble(properties, ::onc::network_config::kTrafficCounterResetTime);
-  result->traffic_counter_reset_time = base::Time::FromDeltaSinceWindowsEpoch(
-      base::Milliseconds(traffic_counter_reset_time));
-
   // Managed properties
   result->ip_address_config_type = GetRequiredManagedString(
       properties, ::onc::network_config::kIPAddressConfigType);
@@ -1747,6 +1766,38 @@ mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
       NOTREACHED() << "NetworkStateProperties can not be of type: " << type;
       break;
   }
+
+  // Traffic Counter Properties
+  auto traffic_counter_properties = mojom::TrafficCounterProperties::New();
+  const base::Value* last_reset_time =
+      properties->FindKey(::onc::network_config::kTrafficCounterResetTime);
+  if (last_reset_time && last_reset_time->is_double()) {
+    traffic_counter_properties->last_reset_time =
+        base::Time::FromDeltaSinceWindowsEpoch(
+            base::Milliseconds(last_reset_time->GetDouble()));
+  } else {
+    traffic_counter_properties->last_reset_time = absl::nullopt;
+  }
+
+  const base::Value* auto_reset =
+      NetworkHandler::IsInitialized()
+          ? NetworkHandler::Get()
+                ->network_metadata_store()
+                ->GetEnableTrafficCountersAutoReset(result->guid)
+          : nullptr;
+  traffic_counter_properties->auto_reset =
+      auto_reset && auto_reset->is_bool() ? auto_reset->GetBool() : false;
+  const base::Value* user_specified_reset_day =
+      NetworkHandler::IsInitialized()
+          ? NetworkHandler::Get()
+                ->network_metadata_store()
+                ->GetDayOfTrafficCountersAutoReset(result->guid)
+          : nullptr;
+  traffic_counter_properties->user_specified_reset_day =
+      user_specified_reset_day && user_specified_reset_day->is_int()
+          ? user_specified_reset_day->GetInt()
+          : kDefaultResetDay;
+  result->traffic_counter_properties = std::move(traffic_counter_properties);
 
   return result;
 }
@@ -2020,7 +2071,8 @@ std::unique_ptr<base::DictionaryValue> GetOncFromConfigProperties(
                   &ip_config_dict);
     ip_config_dict.SetIntKey(::onc::ipconfig::kRoutingPrefix,
                              ip_config.routing_prefix);
-    SetString(::onc::ipconfig::kType, ip_config.type, &ip_config_dict);
+    ip_config_dict.SetStringKey(::onc::ipconfig::kType,
+                                MojoIPConfigTypeToOnc(ip_config.type));
     SetString(::onc::ipconfig::kWebProxyAutoDiscoveryUrl,
               ip_config.web_proxy_auto_discovery_url, &ip_config_dict);
     onc->SetKey(::onc::network_config::kStaticIPConfig,
@@ -2837,7 +2889,7 @@ void CrosNetworkConfig::RequestNetworkScan(mojom::NetworkType type) {
 void CrosNetworkConfig::GetGlobalPolicy(GetGlobalPolicyCallback callback) {
   auto result = mojom::GlobalPolicy::New();
   // Global network configuration policy values come from the device policy.
-  const base::DictionaryValue* global_policy_dict =
+  const base::Value* global_policy_dict =
       network_configuration_handler_->GetGlobalConfigFromPolicy(
           /*userhash=*/std::string());
   if (global_policy_dict) {
@@ -3180,6 +3232,39 @@ void CrosNetworkConfig::ResetTrafficCounters(const std::string& guid) {
     return;
   }
   network_state_handler_->ResetTrafficCounters(service_path);
+}
+
+void CrosNetworkConfig::SetTrafficCountersAutoReset(
+    const std::string& guid,
+    bool auto_reset,
+    mojom::UInt32ValuePtr day,
+    SetTrafficCountersAutoResetCallback callback) {
+  if (day && !auto_reset) {
+    NET_LOG(ERROR) << "Failed to set auto reset day for " << guid
+                   << ": auto reset must be enabled.";
+    std::move(callback).Run(false);
+    return;
+  }
+  if (!day && auto_reset) {
+    NET_LOG(ERROR) << "Failed to enable auto reset for " << guid << ": a valid "
+                   << "day between 1 and 31 (inclusive) must be provided.";
+    std::move(callback).Run(false);
+    return;
+  }
+  if (day && (day->value < 1 || day->value > 31)) {
+    NET_LOG(ERROR) << "Failed to set auto reset day " << day->value << " for "
+                   << guid << ": day must be between 1 and 31 (inclusive)";
+    std::move(callback).Run(false);
+    return;
+  }
+  NetworkHandler::Get()
+      ->network_metadata_store()
+      ->SetEnableTrafficCountersAutoReset(guid, auto_reset);
+  NetworkHandler::Get()
+      ->network_metadata_store()
+      ->SetDayOfTrafficCountersAutoReset(
+          guid, day ? absl::optional<int>(day->value) : absl::nullopt);
+  std::move(callback).Run(true);
 }
 
 // static

@@ -7,16 +7,22 @@
 #include "base/callback.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_piece.h"
+#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "content/browser/bad_message.h"
-#include "content/browser/renderer_host/render_frame_host_impl.h"
+#include "content/browser/webid/fedcm_metrics.h"
+#include "content/browser/webid/flags.h"
 #include "content/browser/webid/id_token_request_callback_data.h"
 #include "content/browser/webid/webid_utils.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/federated_identity_active_session_permission_context_delegate.h"
 #include "content/public/browser/federated_identity_request_permission_context_delegate.h"
 #include "content/public/browser/federated_identity_sharing_permission_context_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
+#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom.h"
 #include "ui/accessibility/ax_mode.h"
 #include "url/url_constants.h"
 
@@ -27,10 +33,14 @@ using blink::mojom::RevokeStatus;
 using UserApproval = content::IdentityRequestDialogController::UserApproval;
 using LoginState = content::IdentityRequestAccount::LoginState;
 using SignInMode = content::IdentityRequestAccount::SignInMode;
+using IdTokenStatus = content::FedCmRequestIdTokenStatus;
+using RevokeStatusForMetrics = content::FedCmRevokeStatus;
 
 namespace content {
 
 namespace {
+static constexpr base::TimeDelta kIdTokenRequestDelay = base::Seconds(3);
+
 std::string FormatRequestParams(const std::string& client_id,
                                 const std::string& nonce) {
   std::string query;
@@ -45,6 +55,36 @@ std::string FormatRequestParams(const std::string& client_id,
   }
   return query;
 }
+
+std::string FormatRequestParamsWithoutScope(const std::string& client_id,
+                                            const std::string& nonce,
+                                            const std::string& account_id,
+                                            bool is_sign_in) {
+  std::string query;
+  if (!client_id.empty())
+    query += "client_id=" + client_id;
+
+  if (!nonce.empty()) {
+    if (!query.empty())
+      query += "&";
+    query += "nonce=" + nonce;
+  }
+
+  if (!account_id.empty()) {
+    if (!query.empty())
+      query += "&";
+    query += "account_id=" + account_id;
+  }
+  // For returning users who are signing in instead of signing up, we do not
+  // show the privacy policy and terms of service on the consent sheet. This
+  // field indicates in the request that whether the user has granted consent
+  // after seeing the sheet with privacy policy and terms of service.
+  std::string consent_acquired = is_sign_in ? "false" : "true";
+  if (!query.empty())
+    query += "&consent_acquired=" + consent_acquired;
+  return query;
+}
+
 }  // namespace
 
 FederatedAuthRequestImpl::FederatedAuthRequestImpl(RenderFrameHost* host,
@@ -54,6 +94,18 @@ FederatedAuthRequestImpl::FederatedAuthRequestImpl(RenderFrameHost* host,
 FederatedAuthRequestImpl::~FederatedAuthRequestImpl() {
   // Ensures key data members are destructed in proper order and resolves any
   // pending promise.
+  if (auth_request_callback_) {
+    DCHECK(!revoke_callback_);
+    DCHECK(!logout_callback_);
+    RecordRequestIdTokenStatus(IdTokenStatus::kUnhandledRequest,
+                               render_frame_host_->GetPageUkmSourceId());
+  }
+  if (revoke_callback_) {
+    DCHECK(!auth_request_callback_);
+    DCHECK(!logout_callback_);
+    RecordRevokeStatus(RevokeStatusForMetrics::kUnhandledRequest,
+                       render_frame_host_->GetPageUkmSourceId());
+  }
   CompleteRequest(RequestIdTokenStatus::kError, "");
 }
 
@@ -65,6 +117,8 @@ void FederatedAuthRequestImpl::RequestIdToken(
     bool prefer_auto_sign_in,
     blink::mojom::FederatedAuthRequest::RequestIdTokenCallback callback) {
   if (HasPendingRequest()) {
+    RecordRequestIdTokenStatus(IdTokenStatus::kTooManyRequests,
+                               render_frame_host_->GetPageUkmSourceId());
     std::move(callback).Run(RequestIdTokenStatus::kErrorTooManyRequests, "");
     return;
   }
@@ -74,10 +128,13 @@ void FederatedAuthRequestImpl::RequestIdToken(
   client_id_ = client_id;
   nonce_ = nonce;
   mode_ = mode;
-  prefer_auto_sign_in_ = prefer_auto_sign_in;
+  prefer_auto_sign_in_ = prefer_auto_sign_in && IsFedCmAutoSigninEnabled();
+  start_time_ = base::TimeTicks::Now();
 
   network_manager_ = CreateNetworkManager(provider);
   if (!network_manager_) {
+    RecordRequestIdTokenStatus(IdTokenStatus::kNoNetworkManager,
+                               render_frame_host_->GetPageUkmSourceId());
     CompleteRequest(RequestIdTokenStatus::kError, "");
     return;
   }
@@ -116,6 +173,8 @@ void FederatedAuthRequestImpl::CancelTokenRequest() {
 
   // Dialog will be hidden by the destructor for request_dialog_controller_,
   // triggered by CompleteRequest.
+  RecordRequestIdTokenStatus(IdTokenStatus::kAborted,
+                             render_frame_host_->GetPageUkmSourceId());
   CompleteRequest(RequestIdTokenStatus::kErrorCanceled, "");
 }
 
@@ -125,6 +184,8 @@ void FederatedAuthRequestImpl::Revoke(
     const std::string& account_id,
     blink::mojom::FederatedAuthRequest::RevokeCallback callback) {
   if (HasPendingRequest()) {
+    RecordRevokeStatus(RevokeStatusForMetrics::kTooManyRequests,
+                       render_frame_host_->GetPageUkmSourceId());
     std::move(callback).Run(RevokeStatus::kError);
     return;
   }
@@ -136,6 +197,8 @@ void FederatedAuthRequestImpl::Revoke(
 
   network_manager_ = CreateNetworkManager(provider);
   if (!network_manager_) {
+    RecordRevokeStatus(RevokeStatusForMetrics::kNoNetworkManager,
+                       render_frame_host_->GetPageUkmSourceId());
     CompleteRevokeRequest(RevokeStatus::kError);
     return;
   }
@@ -143,6 +206,8 @@ void FederatedAuthRequestImpl::Revoke(
   if (!GetRequestPermissionContext() ||
       !GetRequestPermissionContext()->HasRequestPermission(
           origin_, url::Origin::Create(provider_))) {
+    RecordRevokeStatus(RevokeStatusForMetrics::kNoAccountToRevoke,
+                       render_frame_host_->GetPageUkmSourceId());
     CompleteRevokeRequest(RevokeStatus::kError);
     return;
   }
@@ -218,16 +283,22 @@ void FederatedAuthRequestImpl::OnWellKnownFetched(
     IdpNetworkRequestManager::Endpoints endpoints) {
   switch (status) {
     case IdpNetworkRequestManager::FetchStatus::kHttpNotFoundError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kWellKnownHttpNotFound,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingWellKnownHttpNotFound,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kNoResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kWellKnownNoResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingWellKnownNoResponse,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kInvalidResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kWellKnownInvalidResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(
           RequestIdTokenStatus::kErrorFetchingWellKnownInvalidResponse, "");
       return;
@@ -252,6 +323,8 @@ void FederatedAuthRequestImpl::OnWellKnownFetched(
       // For Mediated mode we require accounts, token and client ID endpoints.
       if (endpoints_.token.is_empty() || endpoints_.accounts.is_empty() ||
           endpoints_.client_id_metadata.is_empty()) {
+        RecordRequestIdTokenStatus(IdTokenStatus::kWellKnownInvalidResponse,
+                                   render_frame_host_->GetPageUkmSourceId());
         CompleteRequest(
             RequestIdTokenStatus::kErrorFetchingWellKnownInvalidResponse, "");
         return;
@@ -261,6 +334,8 @@ void FederatedAuthRequestImpl::OnWellKnownFetched(
       if (!IdpUrlIsValid(endpoints_.token) ||
           !IdpUrlIsValid(endpoints_.accounts) ||
           !IdpUrlIsValid(endpoints_.client_id_metadata)) {
+        RecordRequestIdTokenStatus(IdTokenStatus::kWellKnownInvalidResponse,
+                                   render_frame_host_->GetPageUkmSourceId());
         CompleteRequest(
             RequestIdTokenStatus::kErrorFetchingWellKnownInvalidResponse, "");
         return;
@@ -299,15 +374,40 @@ void FederatedAuthRequestImpl::OnWellKnownFetched(
 void FederatedAuthRequestImpl::OnWellKnownFetchedForRevoke(
     IdpNetworkRequestManager::FetchStatus status,
     IdpNetworkRequestManager::Endpoints endpoints) {
-  if (status != IdpNetworkRequestManager::FetchStatus::kSuccess) {
-    CompleteRevokeRequest(RevokeStatus::kError);
-    return;
+  switch (status) {
+    case IdpNetworkRequestManager::FetchStatus::kHttpNotFoundError: {
+      RecordRevokeStatus(RevokeStatusForMetrics::kWellKnownHttpNotFound,
+                         render_frame_host_->GetPageUkmSourceId());
+      CompleteRevokeRequest(RevokeStatus::kError);
+      return;
+    }
+    case IdpNetworkRequestManager::FetchStatus::kNoResponseError: {
+      RecordRevokeStatus(RevokeStatusForMetrics::kWellKnownNoResponse,
+                         render_frame_host_->GetPageUkmSourceId());
+      CompleteRevokeRequest(RevokeStatus::kError);
+      return;
+    }
+    case IdpNetworkRequestManager::FetchStatus::kInvalidResponseError: {
+      RecordRevokeStatus(RevokeStatusForMetrics::kWellKnownInvalidResponse,
+                         render_frame_host_->GetPageUkmSourceId());
+      CompleteRevokeRequest(RevokeStatus::kError);
+      return;
+    }
+    case IdpNetworkRequestManager::FetchStatus::kInvalidRequestError: {
+      NOTREACHED();
+      return;
+    }
+    case IdpNetworkRequestManager::FetchStatus::kSuccess: {
+      // Intentional fall-through.
+    }
   }
 
   GURL revoke_url = ResolveWellKnownUrl(endpoints.revoke);
   // TODO(kenrb): This has to be same-origin with the provider.
   // https://crbug.com/1141125
   if (!IdpUrlIsValid(revoke_url)) {
+    RecordRevokeStatus(RevokeStatusForMetrics::kRevokeUrlIsCrossOrigin,
+                       render_frame_host_->GetPageUkmSourceId());
     CompleteRevokeRequest(RevokeStatus::kError);
     return;
   }
@@ -338,6 +438,11 @@ void FederatedAuthRequestImpl::OnRevokeResponse(
       GetActiveSessionPermissionContext()->RevokeActiveSession(
           origin_, idp_origin, account_id_);
     }
+    RecordRevokeStatus(RevokeStatusForMetrics::kSuccess,
+                       render_frame_host_->GetPageUkmSourceId());
+  } else {
+    RecordRevokeStatus(RevokeStatusForMetrics::kRevocationFailedOnServer,
+                       render_frame_host_->GetPageUkmSourceId());
   }
   CompleteRevokeRequest(status);
 }
@@ -520,16 +625,22 @@ void FederatedAuthRequestImpl::OnAccountsResponseReceived(
     IdentityProviderMetadata idp_metadata) {
   switch (status) {
     case IdpNetworkRequestManager::FetchStatus::kHttpNotFoundError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kAccountsHttpNotFound,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingAccountsHttpNotFound,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kNoResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kAccountsNoResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingAccountsNoResponse,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kInvalidResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kAccountsInvalidResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(
           RequestIdTokenStatus::kErrorFetchingAccountsInvalidResponse, "");
       return;
@@ -563,10 +674,13 @@ void FederatedAuthRequestImpl::OnAccountsResponseReceived(
       bool is_auto_sign_in = prefer_auto_sign_in_ && accounts.size() == 1 &&
                              accounts[0].login_state == LoginState::kSignIn &&
                              !screen_reader_is_on;
-      ClientIdData data{endpoints_.client_id_metadata.Resolve(
-                            client_id_metadata_.terms_of_service_url),
-                        endpoints_.client_id_metadata.Resolve(
-                            client_id_metadata_.privacy_policy_url)};
+      // TODO(cbiesinger): Check that the URLs are valid.
+      ClientIdData data{GURL(client_id_metadata_.terms_of_service_url),
+                        GURL(client_id_metadata_.privacy_policy_url)};
+      show_accounts_dialog_time_ = base::TimeTicks::Now();
+      RecordShowAccountsDialogTime(show_accounts_dialog_time_ - start_time_,
+                                   render_frame_host_->GetPageUkmSourceId());
+
       request_dialog_controller_->ShowAccountsDialog(
           rp_web_contents, idp_web_contents_.get(), provider_, accounts,
           idp_metadata, data,
@@ -581,10 +695,15 @@ void FederatedAuthRequestImpl::OnAccountsResponseReceived(
   }
 }
 
-void FederatedAuthRequestImpl::OnAccountSelected(
-    const std::string& account_id) {
+void FederatedAuthRequestImpl::OnAccountSelected(const std::string& account_id,
+                                                 bool is_sign_in) {
   // This could happen if user didn't select any accounts.
   if (account_id.empty()) {
+    base::TimeTicks dismiss_dialog_time = base::TimeTicks::Now();
+    RecordCancelOnDialogTime(dismiss_dialog_time - show_accounts_dialog_time_,
+                             render_frame_host_->GetPageUkmSourceId());
+    RecordRequestIdTokenStatus(IdTokenStatus::kNotSelectAccount,
+                               render_frame_host_->GetPageUkmSourceId());
     CompleteRequest(RequestIdTokenStatus::kError, "");
     return;
   }
@@ -597,8 +716,14 @@ void FederatedAuthRequestImpl::OnAccountSelected(
   }
 
   account_id_ = account_id;
+  select_account_time_ = base::TimeTicks::Now();
+  RecordContinueOnDialogTime(select_account_time_ - show_accounts_dialog_time_,
+                             render_frame_host_->GetPageUkmSourceId());
+
   network_manager_->SendTokenRequest(
-      endpoints_.token, account_id_, FormatRequestParams(client_id_, nonce_),
+      endpoints_.token, account_id_,
+      FormatRequestParamsWithoutScope(client_id_, nonce_, account_id,
+                                      is_sign_in),
       base::BindOnce(&FederatedAuthRequestImpl::OnTokenResponseReceived,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -606,23 +731,53 @@ void FederatedAuthRequestImpl::OnAccountSelected(
 void FederatedAuthRequestImpl::OnTokenResponseReceived(
     IdpNetworkRequestManager::FetchStatus status,
     const std::string& id_token) {
+  // When fetching id tokens we show a "Verify" sheet to users in case fetching
+  // takes a long time due to latency etc.. In case that the fetching process is
+  // fast, we still want to show the "Verify" sheet for at least
+  // |kIdTokenRequestDelay| seconds for better UX.
+  id_token_response_time_ = base::TimeTicks::Now();
+  base::TimeDelta fetch_time = id_token_response_time_ - select_account_time_;
+  if (fetch_time >= kIdTokenRequestDelay) {
+    CompleteIdTokenRequest(status, id_token);
+    return;
+  }
+
+  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&FederatedAuthRequestImpl::CompleteIdTokenRequest,
+                     weak_ptr_factory_.GetWeakPtr(), status, id_token),
+      kIdTokenRequestDelay - fetch_time);
+}
+
+void FederatedAuthRequestImpl::CompleteIdTokenRequest(
+    IdpNetworkRequestManager::FetchStatus status,
+    const std::string& id_token) {
+  DCHECK(!start_time_.is_null());
   switch (status) {
     case IdpNetworkRequestManager::FetchStatus::kHttpNotFoundError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kIdTokenHttpNotFound,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingIdTokenHttpNotFound,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kNoResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kIdTokenNoResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingIdTokenNoResponse,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kInvalidRequestError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kIdTokenInvalidRequest,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kErrorFetchingIdTokenInvalidRequest,
                       "");
       return;
     }
     case IdpNetworkRequestManager::FetchStatus::kInvalidResponseError: {
+      RecordRequestIdTokenStatus(IdTokenStatus::kIdTokenInvalidResponse,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(
           RequestIdTokenStatus::kErrorFetchingIdTokenInvalidResponse, "");
       return;
@@ -652,7 +807,13 @@ void FederatedAuthRequestImpl::OnTokenResponseReceived(
             origin_, url::Origin::Create(provider_), account_id_);
       }
 
+      RecordIdTokenResponseAndTurnaroundTime(
+          id_token_response_time_ - select_account_time_,
+          id_token_response_time_ - start_time_,
+          render_frame_host_->GetPageUkmSourceId());
       id_token_ = id_token;
+      RecordRequestIdTokenStatus(IdTokenStatus::kSuccess,
+                                 render_frame_host_->GetPageUkmSourceId());
       CompleteRequest(RequestIdTokenStatus::kSuccess, id_token_);
       return;
     }
@@ -715,14 +876,49 @@ void FederatedAuthRequestImpl::CompleteRequest(
     blink::mojom::RequestIdTokenStatus status,
     const std::string& id_token) {
   DCHECK(status == RequestIdTokenStatus::kSuccess || id_token.empty());
+
+  if (status != RequestIdTokenStatus::kSuccess) {
+    // It would be possible to add this inspector issue on the renderer, which
+    // will receive the callback. However, it is preferable to do so on the
+    // browser because this is closer to the source, which means adding
+    // additional metadata is easier. In addition, in the future we may only
+    // need to pass a small amount of information to the renderer in the case of
+    // an error, so it would be cleaner to do this by reporting the inspector
+    // issue from the browser.
+    AddInspectorIssue(status);
+  }
+
+  CleanUp();
+
+  if (auth_request_callback_)
+    std::move(auth_request_callback_).Run(status, id_token);
+}
+
+void FederatedAuthRequestImpl::CleanUp() {
   request_dialog_controller_.reset();
   network_manager_.reset();
   // Given that |request_dialog_controller_| has reference to this web content
   // instance we destroy that first.
   idp_web_contents_.reset();
   account_id_ = std::string();
-  if (auth_request_callback_)
-    std::move(auth_request_callback_).Run(status, id_token);
+  start_time_ = base::TimeTicks();
+  show_accounts_dialog_time_ = base::TimeTicks();
+  select_account_time_ = base::TimeTicks();
+  id_token_response_time_ = base::TimeTicks();
+}
+
+void FederatedAuthRequestImpl::AddInspectorIssue(
+    blink::mojom::RequestIdTokenStatus status) {
+  DCHECK_NE(status, blink::mojom::RequestIdTokenStatus::kSuccess);
+  auto details = blink::mojom::InspectorIssueDetails::New();
+  auto federated_auth_request_details =
+      blink::mojom::FederatedAuthRequestIssueDetails::New(status);
+  details->federated_auth_request_details =
+      std::move(federated_auth_request_details);
+  render_frame_host_->ReportInspectorIssue(
+      blink::mojom::InspectorIssueInfo::New(
+          blink::mojom::InspectorIssueCode::kFederatedAuthRequestIssue,
+          std::move(details)));
 }
 
 void FederatedAuthRequestImpl::CompleteLogoutRequest(

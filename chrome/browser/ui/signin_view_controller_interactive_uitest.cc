@@ -12,7 +12,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/reauth_result.h"
-#include "chrome/browser/signin/reauth_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/signin_view_controller.h"
@@ -72,34 +71,6 @@ class SyncConfirmationClosedObserver : public LoginUIService::Observer {
   absl::optional<LoginUIService::SyncConfirmationUIClosedResult> result_;
 };
 
-class SigninDialogClosedObserver
-    : public SigninViewControllerDelegate::Observer {
- public:
-  explicit SigninDialogClosedObserver(SigninViewControllerDelegate* delegate)
-      : delegate_(delegate) {
-    delegate_->AddObserver(this);
-  }
-
-  ~SigninDialogClosedObserver() override {
-    if (delegate_) {
-      delegate_->RemoveObserver(this);
-    }
-  }
-
-  void WaitForDialogClosed() { dialog_closed_run_loop_.Run(); }
-
- private:
-  // SigninViewControllerDelegate::Observer:
-  void OnModalSigninClosed() override {
-    delegate_->RemoveObserver(this);
-    delegate_ = nullptr;
-    dialog_closed_run_loop_.Quit();
-  }
-
-  base::RunLoop dialog_closed_run_loop_;
-  raw_ptr<SigninViewControllerDelegate> delegate_;
-};
-
 }  // namespace
 
 class SignInViewControllerBrowserTest : public InProcessBrowserTest {
@@ -126,7 +97,7 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest, Accelerators) {
 
   ui_test_utils::TabAddedWaiter wait_for_new_tab(browser());
 // Press Ctrl/Cmd+T, which will open a new tab.
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
       browser(), ui::VKEY_T, /*control=*/false, /*shift=*/false, /*alt=*/false,
       /*command=*/true));
@@ -168,8 +139,15 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
 
 // Tests that the confirm button is focused by default in the signin email
 // confirmation dialog.
+// TODO(http://crbug.com/1286855): Flaky on MacOS.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_EmailConfirmationDefaultFocus \
+  DISABLED_EmailConfirmationDefaultFocus
+#else
+#define MAYBE_EmailConfirmationDefaultFocus EmailConfirmationDefaultFocus
+#endif
 IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
-                       EmailConfirmationDefaultFocus) {
+                       MAYBE_EmailConfirmationDefaultFocus) {
   content::TestNavigationObserver content_observer(
       GURL("chrome://signin-email-confirmation/"));
   content_observer.StartWatchingNewWebContents();
@@ -205,14 +183,16 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
   EXPECT_TRUE(browser()->signin_view_controller()->ShowsModalDialog());
   content_observer.Wait();
 
-  SigninDialogClosedObserver dialog_observer(
-      browser()->signin_view_controller()->GetModalDialogDelegateForTesting());
+  content::WebContentsDestroyedWatcher dialog_destroyed_watcher(
+      browser()
+          ->signin_view_controller()
+          ->GetModalDialogWebContentsForTesting());
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_RETURN,
                                               /*control=*/false,
                                               /*shift=*/false, /*alt=*/false,
                                               /*command=*/false));
   // Default action simply closes the dialog.
-  dialog_observer.WaitForDialogClosed();
+  dialog_destroyed_watcher.Wait();
   EXPECT_FALSE(browser()->signin_view_controller()->ShowsModalDialog());
 }
 
@@ -237,14 +217,16 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
   EXPECT_TRUE(browser()->signin_view_controller()->ShowsModalDialog());
   content_observer.Wait();
 
-  SigninDialogClosedObserver dialog_observer(
-      browser()->signin_view_controller()->GetModalDialogDelegateForTesting());
+  content::WebContentsDestroyedWatcher dialog_destroyed_watcher(
+      browser()
+          ->signin_view_controller()
+          ->GetModalDialogWebContentsForTesting());
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_RETURN,
                                               /*control=*/false,
                                               /*shift=*/false, /*alt=*/false,
                                               /*command=*/false));
 
-  dialog_observer.WaitForDialogClosed();
+  dialog_destroyed_watcher.Wait();
   EXPECT_TRUE(result);
   EXPECT_FALSE(browser()->signin_view_controller()->ShowsModalDialog());
 }

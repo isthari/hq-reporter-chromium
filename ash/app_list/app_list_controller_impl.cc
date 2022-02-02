@@ -483,6 +483,9 @@ void AppListControllerImpl::Show(int64_t display_id,
     LogAppListShowSource(show_source.value(), show_app_list_bubble);
 
   if (show_app_list_bubble) {
+    // Clamshell ProductivityLauncher does not support app list drags.
+    if (show_source.has_value())
+      DCHECK_NE(show_source.value(), AppListShowSource::kSwipeFromShelf);
     bubble_presenter_->Show(display_id);
     return;
   }
@@ -518,16 +521,29 @@ void AppListControllerImpl::ProcessScrollEvent(const ui::ScrollEvent& event) {
   fullscreen_presenter_->ProcessScrollOffset(event.location(), offset);
 }
 
-void AppListControllerImpl::OnTemporarySortOrderChanged(
-    const absl::optional<AppListSortOrder>& new_order) {
+void AppListControllerImpl::UpdateAppListWithNewSortingOrder(
+    const absl::optional<AppListSortOrder>& new_order,
+    bool animate,
+    base::OnceClosure update_position_closure) {
   DCHECK(features::IsProductivityLauncherEnabled());
   DCHECK(features::IsLauncherAppSortEnabled());
 
-  // Adapt to the new sorting order in clamshell mode.
-  if (!IsTabletMode()) {
-    DCHECK(bubble_presenter_);
-    bubble_presenter_->OnTemporarySortOrderChanged(new_order);
-  }
+  // Adapt the bubble app list to the new sorting order. NOTE: the bubble app
+  // list is visible only in clamshell mode. Therefore do not animate in tablet
+  // mode.
+  const bool is_tablet_mode = IsTabletMode();
+  bubble_presenter_->UpdateForNewSortingOrder(
+      new_order, !is_tablet_mode && animate,
+      is_tablet_mode ? base::NullCallback()
+                     : std::move(update_position_closure));
+
+  // Adapt the fullscreen app list to the new sorting order. NOTE: the full
+  // screen app list is visible only in tablet mode. Therefore do not animate in
+  // clamshell mode.
+  fullscreen_presenter_->UpdateForNewSortingOrder(
+      new_order, is_tablet_mode && animate,
+      is_tablet_mode ? std::move(update_position_closure)
+                     : base::NullCallback());
 }
 
 ShelfAction AppListControllerImpl::ToggleAppList(
@@ -1640,6 +1656,8 @@ void AppListControllerImpl::RemoveObserver(
 
 void AppListControllerImpl::OnVisibilityChanged(bool visible,
                                                 int64_t display_id) {
+  DVLOG(1) << __PRETTY_FUNCTION__ << " visible " << visible << " display_id "
+           << display_id;
   // Focus and app visibility changes while finishing home launcher state
   // animation may cause OnVisibilityChanged() to be called before the home
   // launcher state transition finished - delay the visibility change until

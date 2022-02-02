@@ -13,10 +13,11 @@
 #include "base/notreached.h"
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_manager_impl.h"
+#include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
-#include "content/browser/attribution_reporting/event_attribution_report.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/send_result.h"
-#include "content/browser/attribution_reporting/storable_source.h"
+#include "content/browser/attribution_reporting/stored_source.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/content_browser_client.h"
@@ -25,6 +26,7 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 
 namespace content {
 
@@ -38,10 +40,11 @@ using Attributability =
     ::content::mojom::WebUIAttributionSource::Attributability;
 
 mojom::WebUIAttributionSourcePtr WebUIAttributionSource(
-    const StorableSource& source,
+    const StoredSource& source,
     absl::optional<DeactivatedSource::Reason> deactivation_reason) {
   auto attributability = Attributability::kAttributable;
-  if (source.attribution_logic() == StorableSource::AttributionLogic::kNever) {
+  if (source.common_info().attribution_logic() ==
+      CommonSourceInfo::AttributionLogic::kNever) {
     attributability = Attributability::kNoised;
   } else if (deactivation_reason.has_value()) {
     switch (*deactivation_reason) {
@@ -55,21 +58,24 @@ mojom::WebUIAttributionSourcePtr WebUIAttributionSource(
   }
 
   return mojom::WebUIAttributionSource::New(
-      source.source_event_id(), source.impression_origin(),
-      source.ConversionDestination().Serialize(), source.reporting_origin(),
-      source.impression_time().ToJsTime(), source.expiry_time().ToJsTime(),
-      source.source_type(), source.priority(), source.dedup_keys(),
-      attributability);
+      source.common_info().source_event_id(),
+      source.common_info().impression_origin(),
+      source.common_info().ConversionDestination().Serialize(),
+      source.common_info().reporting_origin(),
+      source.common_info().impression_time().ToJsTime(),
+      source.common_info().expiry_time().ToJsTime(),
+      source.common_info().source_type(), source.common_info().priority(),
+      source.dedup_keys(), attributability);
 }
 
 void ForwardSourcesToWebUI(
     mojom::AttributionInternalsHandler::GetActiveSourcesCallback
         web_ui_callback,
-    std::vector<StorableSource> active_sources) {
+    std::vector<StoredSource> active_sources) {
   std::vector<mojom::WebUIAttributionSourcePtr> web_ui_sources;
   web_ui_sources.reserve(active_sources.size());
 
-  for (const StorableSource& source : active_sources) {
+  for (const StoredSource& source : active_sources) {
     web_ui_sources.push_back(
         WebUIAttributionSource(source, /*deactivation_reason=*/absl::nullopt));
   }
@@ -78,26 +84,31 @@ void ForwardSourcesToWebUI(
 }
 
 mojom::WebUIAttributionReportPtr WebUIAttributionReport(
-    const EventAttributionReport& report,
+    const AttributionReport& report,
     int http_response_code,
     mojom::WebUIAttributionReport::Status status) {
+  const auto* data =
+      absl::get_if<AttributionReport::EventLevelData>(&report.data());
+  DCHECK(data);
   return mojom::WebUIAttributionReport::New(
-      report.report_id(), report.source().ConversionDestination().Serialize(),
+      data->id,
+      report.source().common_info().ConversionDestination().Serialize(),
       report.ReportURL(),
-      /*trigger_time=*/report.conversion_time().ToJsTime(),
-      /*report_time=*/report.report_time().ToJsTime(), report.priority(),
+      /*trigger_time=*/report.trigger_time().ToJsTime(),
+      /*report_time=*/report.report_time().ToJsTime(), data->priority,
       report.ReportBody(/*pretty_print=*/true),
-      /*attributed_truthfully=*/report.source().attribution_logic() ==
-          StorableSource::AttributionLogic::kTruthfully,
+      /*attributed_truthfully=*/
+      report.source().common_info().attribution_logic() ==
+          CommonSourceInfo::AttributionLogic::kTruthfully,
       status, http_response_code);
 }
 
 void ForwardReportsToWebUI(
     mojom::AttributionInternalsHandler::GetReportsCallback web_ui_callback,
-    std::vector<EventAttributionReport> pending_reports) {
+    std::vector<AttributionReport> pending_reports) {
   std::vector<mojom::WebUIAttributionReportPtr> web_ui_reports;
   web_ui_reports.reserve(pending_reports.size());
-  for (const EventAttributionReport& report : pending_reports) {
+  for (const AttributionReport& report : pending_reports) {
     web_ui_reports.push_back(WebUIAttributionReport(
         report, /*http_response_code=*/0,
         mojom::WebUIAttributionReport::Status::kPending));
@@ -156,7 +167,7 @@ void AttributionInternalsHandlerImpl::GetReports(
 }
 
 void AttributionInternalsHandlerImpl::SendReports(
-    const std::vector<EventAttributionReport::Id>& ids,
+    const std::vector<AttributionReport::EventLevelData::Id>& ids,
     mojom::AttributionInternalsHandler::SendReportsCallback callback) {
   if (AttributionManager* manager =
           manager_provider_->GetManager(web_ui_->GetWebContents())) {
@@ -214,7 +225,7 @@ void AttributionInternalsHandlerImpl::OnSourceDeactivated(
 }
 
 void AttributionInternalsHandlerImpl::OnReportSent(
-    const EventAttributionReport& report,
+    const AttributionReport& report,
     const SendResult& info) {
   mojom::WebUIAttributionReport::Status status;
   switch (info.status) {

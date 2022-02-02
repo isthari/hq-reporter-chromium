@@ -796,6 +796,7 @@ void RemoveFormsToBeDeleted(
   passwordProblemsItem.text = l10n_util::GetNSString(IDS_IOS_CHECK_PASSWORDS);
   passwordProblemsItem.detailText =
       l10n_util::GetNSString(IDS_IOS_CHECK_PASSWORDS_DESCRIPTION);
+  passwordProblemsItem.accessibilityTraits = UIAccessibilityTraitHeader;
   return passwordProblemsItem;
 }
 
@@ -1703,11 +1704,6 @@ void RemoveFormsToBeDeleted(
   ItemType itemType =
       static_cast<ItemType>([model itemTypeForIndexPath:indexPath]);
   switch (itemType) {
-    case ItemTypeLinkHeader:
-    case ItemTypeHeader:
-    case ItemTypeSavePasswordsSwitch:
-    case ItemTypeManagedSavePasswords:
-      break;
     case ItemTypePasswordsInOtherApps:
       [self.handler showPasswordsInOtherAppsPromo];
       break;
@@ -1754,15 +1750,16 @@ void RemoveFormsToBeDeleted(
       break;
     }
     case ItemTypeOnDeviceEncryptionOptedInDescription: {
-      GURL url = google_util::AppendGoogleLocaleParam(
-          GURL(kOnDeviceEncryptionLearnMoreURL),
-          GetApplicationContext()->GetApplicationLocale());
-      // TODO(crbug.com/1202088): Check whether local is necessary.
+      GURL url = GURL(kOnDeviceEncryptionLearnMoreURL);
       BlockToOpenURL(self, self.dispatcher)(url);
       break;
     }
-    case ItemTypeOnDeviceEncryptionOptInDescription:
     case ItemTypeLastCheckTimestampFooter:
+    case ItemTypeOnDeviceEncryptionOptInDescription:
+    case ItemTypeLinkHeader:
+    case ItemTypeHeader:
+    case ItemTypeSavePasswordsSwitch:
+    case ItemTypeManagedSavePasswords:
       NOTREACHED();
   }
   [tableView deselectRowAtIndexPath:indexPath animated:YES];

@@ -29,7 +29,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="WebApk.Install.AvailableSpace.Fail" units="MB"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -44,7 +44,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Install.AvailableSpaceAfterFreeUpCache.Fail" units="MB"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -71,7 +71,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Install.GooglePlayInstallResult"
-    enum="WebApkGooglePlayInstallResult" expires_after="2022-05-22">
+    enum="WebApkGooglePlayInstallResult" expires_after="2022-07-24">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -123,25 +123,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="WebApk.Install.RequestTokenDuration" units="ms"
-    expires_after="2021-07-18">
-  <obsolete>
-    Removed 03/2021
-  </obsolete>
-  <owner>hartmanng@chromium.org</owner>
-  <owner>rayankans@chromium.org</owner>
-  <owner>
-    src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
-  </owner>
-  <summary>
-    Records the amount of time which has elapsed from the &quot;install infobar
-    showing&quot; to the &quot;install request being sent to Google Play&quot;.
-    This time includes the time that it takes to request the WebAPK token and
-    the time that it takes to compute the hashes for the launcher icon and the
-    badge icon.
-  </summary>
-</histogram>
-
 <histogram name="WebApk.Install.RequestTokenDurationV2" units="ms"
     expires_after="2022-05-29">
   <owner>hartmanng@chromium.org</owner>
@@ -159,7 +140,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Launch.NetworkError" enum="NetErrorCodes"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -218,13 +199,7 @@ chromium-metrics-reviews@google.com.
     The &quot;Shell APK version&quot; is documented in shell_apk_version.gni
     {WebApkDistributorType}
   </summary>
-  <token key="WebApkDistributorType" variants="WebApkDistributorType">
-    <variant name="">
-      <obsolete>
-        Base histogram. Use suffixes of this histogram instead.
-      </obsolete>
-    </variant>
-  </token>
+  <token key="WebApkDistributorType" variants="WebApkDistributorType"/>
 </histogram>
 
 <histogram name="WebApk.Startup.Cold.NewStyle.ShellLaunchToSplashscreenVisible"
@@ -286,13 +261,7 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records that a WebAPK was uninstalled. {WebApkDistributorType}
   </summary>
-  <token key="WebApkDistributorType" variants="WebApkDistributorType">
-    <variant name="">
-      <obsolete>
-        Base histogram. Use suffixes of this histogram instead.
-      </obsolete>
-    </variant>
-  </token>
+  <token key="WebApkDistributorType" variants="WebApkDistributorType"/>
 </histogram>
 
 <histogram name="WebApk.Update.GooglePlayUpdateResult"
@@ -308,7 +277,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Update.NumStaleUpdateRequestFiles" units="files"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -321,7 +290,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Update.RequestQueued" enum="WebApkUpdateRequestQueued"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS
@@ -333,7 +302,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="WebApk.Update.RequestSent" enum="WebApkUpdateRequestSent"
-    expires_after="2022-02-01">
+    expires_after="2022-06-01">
   <owner>hartmanng@chromium.org</owner>
   <owner>
     src/chrome/android/java/src/org/chromium/chrome/browser/webapps/OWNERS

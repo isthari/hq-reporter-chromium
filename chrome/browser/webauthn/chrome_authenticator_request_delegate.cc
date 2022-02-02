@@ -23,6 +23,8 @@
 #include "chrome/browser/sync/device_info_sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
 #include "chrome/browser/ui/webauthn/authenticator_request_dialog.h"
@@ -35,6 +37,7 @@
 #include "components/device_event_log/device_event_log.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/device_service.h"
@@ -47,13 +50,14 @@
 #include "device/fido/fido_discovery_factory.h"
 #include "third_party/icu/source/common/unicode/locid.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/window_open_disposition.h"
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
 #include "device/fido/mac/authenticator.h"
 #include "device/fido/mac/credential_metadata.h"
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include "device/fido/win/authenticator.h"
 #endif
 
@@ -82,7 +86,15 @@ bool IsWebauthnRPIDListedInEnterprisePolicy(
                      });
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_WIN)
+// kWebAuthnLastOperationWasNativeAPI is a boolean preference that records
+// whether the last successful operation used the Windows native API. If so
+// then we'll try and jump directly to it next time.
+const char kWebAuthnLastOperationWasNativeAPI[] =
+    "webauthn.last_op_used_native_api";
+#endif
+
+#if BUILDFLAG(IS_MAC)
 const char kWebAuthnTouchIdMetadataSecretPrefName[] =
     "webauthn.touchid.metadata_secret";
 #endif
@@ -145,7 +157,24 @@ bool ChromeWebAuthenticationDelegate::IsFocused(
   return web_contents->GetVisibility() == content::Visibility::VISIBLE;
 }
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_WIN)
+void ChromeWebAuthenticationDelegate::OperationSucceeded(
+    content::BrowserContext* browser_context,
+    bool used_win_api) {
+  // If a registration or assertion operation was successful, record whether the
+  // Windows native API was used for it. If so we'll jump directly to the native
+  // UI for the next operation.
+  Profile* const profile = Profile::FromBrowserContext(browser_context);
+  if (profile->IsOffTheRecord()) {
+    return;
+  }
+
+  profile->GetPrefs()->SetBoolean(kWebAuthnLastOperationWasNativeAPI,
+                                  used_win_api);
+}
+#endif
+
+#if BUILDFLAG(IS_MAC)
 // static
 ChromeWebAuthenticationDelegate::TouchIdAuthenticatorConfig
 ChromeWebAuthenticationDelegate::TouchIdAuthenticatorConfigForProfile(
@@ -174,7 +203,7 @@ ChromeWebAuthenticationDelegate::GetTouchIdAuthenticatorConfig(
   return TouchIdAuthenticatorConfigForProfile(
       Profile::FromBrowserContext(browser_context));
 }
-#endif  // defined(OS_MAC)
+#endif  // BUILDFLAG(IS_MAC)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 content::WebAuthenticationDelegate::ChromeOSGenerateRequestIdCallback
@@ -199,7 +228,7 @@ absl::optional<bool> ChromeWebAuthenticationDelegate::
     return *testing_api_override;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // TODO(crbug.com/908622): Enable platform authenticators in Incognito on
   // Windows once the API allows triggering an adequate warning dialog.
   if (render_frame_host->GetBrowserContext()->IsOffTheRecord()) {
@@ -232,7 +261,10 @@ ChromeWebAuthenticationDelegate::MaybeGetRequestProxy(
 // static
 void ChromeAuthenticatorRequestDelegate::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_WIN)
+  registry->RegisterBooleanPref(kWebAuthnLastOperationWasNativeAPI, false);
+#endif
+#if BUILDFLAG(IS_MAC)
   registry->RegisterStringPref(kWebAuthnTouchIdMetadataSecretPrefName,
                                std::string());
 #endif
@@ -367,7 +399,7 @@ void ChromeAuthenticatorRequestDelegate::ShouldReturnAttestation(
     return;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (authenticator->IsWinNativeApiAuthenticator() &&
       static_cast<const device::WinWebAuthnApiAuthenticator*>(authenticator)
           ->ShowsPrivacyNotice()) {
@@ -375,7 +407,7 @@ void ChromeAuthenticatorRequestDelegate::ShouldReturnAttestation(
     std::move(callback).Run(true);
     return;
   }
-#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
   weak_dialog_model_->RequestAttestationPermission(is_enterprise_attestation,
                                                    std::move(callback));
@@ -544,13 +576,21 @@ void ChromeAuthenticatorRequestDelegate::OnTransportAvailabilityEnumerated(
     return;
   }
 
-  weak_dialog_model_->AddObserver(this);
-
-  weak_dialog_model_->StartFlow(std::move(data), is_conditional_);
-
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(GetRenderFrameHost());
-  Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
+
+  bool last_used_native_api = false;
+#if BUILDFLAG(IS_WIN)
+  PrefService* const prefs =
+      user_prefs::UserPrefs::Get(web_contents->GetBrowserContext());
+  last_used_native_api = prefs->GetBoolean(kWebAuthnLastOperationWasNativeAPI);
+#endif
+
+  weak_dialog_model_->AddObserver(this);
+  weak_dialog_model_->StartFlow(std::move(data), is_conditional_,
+                                last_used_native_api);
+
+  Browser* const browser = chrome::FindBrowserWithWebContents(web_contents);
   if (browser) {
     browser->window()->UpdatePageActionIcon(PageActionIconType::kWebAuthn);
   }
@@ -668,6 +708,19 @@ void ChromeAuthenticatorRequestDelegate::OnCancelRequest() {
   std::move(cancel_callback_).Run();
 }
 
+void ChromeAuthenticatorRequestDelegate::OnManageDevicesClicked() {
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderFrameHost(GetRenderFrameHost());
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
+  if (browser) {
+    NavigateParams params(browser,
+                          GURL("chrome://settings/securityKeys/phones"),
+                          ui::PageTransition::PAGE_TRANSITION_AUTO_TOPLEVEL);
+    params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+    Navigate(&params);
+  }
+}
+
 content::RenderFrameHost*
 ChromeAuthenticatorRequestDelegate::GetRenderFrameHost() const {
   content::RenderFrameHost* ret =
@@ -687,6 +740,19 @@ bool ChromeAuthenticatorRequestDelegate::ShouldPermitCableExtension(
     return true;
   }
 
+  // TODO(crbug.com/1052397): Revisit the macro expression once build flag
+  // switch of lacros-chrome is complete. If updating this, also update
+  // kWebAuthCableServerLink.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
+
+  // caBLEv1 is disabled on these platforms. It never launched on them because
+  // it causes problems in bluez. Rather than disabling caBLE completely, which
+  // is what was done prior to Jan 2022, this `return` just disables caBLEv1
+  // on these platforms.
+  return false;
+
+#else
+
   // Because the future of the caBLE extension might be that we transition
   // everything to QR-code or sync-based pairing, we don't want use of the
   // extension to spread without consideration. Therefore it's limited to
@@ -697,7 +763,9 @@ bool ChromeAuthenticatorRequestDelegate::ShouldPermitCableExtension(
 
   const GURL test_site("https://webauthndemo.appspot.com");
   DCHECK(test_site.is_valid());
-  return origin.IsSameOriginWith(url::Origin::Create(test_site));
+  return origin.IsSameOriginWith(test_site);
+
+#endif
 }
 
 void ChromeAuthenticatorRequestDelegate::HandleCablePairingEvent(

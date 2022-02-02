@@ -8,7 +8,7 @@ import android.content.Context;
 import android.view.View;
 
 import org.chromium.base.annotations.UsedByReflection;
-import org.chromium.chrome.browser.ActivityTabProvider;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.autofill_assistant.onboarding.OnboardingCoordinatorFactory;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -21,11 +21,6 @@ import org.chromium.content_public.browser.WebContents;
 @UsedByReflection("AutofillAssistantModuleEntryProvider.java")
 public class AutofillAssistantModuleEntryImpl implements AutofillAssistantModuleEntry {
     @Override
-    public AssistantDependenciesFactory createDependenciesFactory() {
-        return new AssistantDependenciesFactoryChrome();
-    }
-
-    @Override
     public AssistantOnboardingHelper createOnboardingHelper(
             WebContents webContents, AssistantDependencies dependencies) {
         return new AssistantOnboardingHelperImpl(webContents, dependencies);
@@ -35,14 +30,14 @@ public class AutofillAssistantModuleEntryImpl implements AutofillAssistantModule
     public AutofillAssistantActionHandler createActionHandler(Context context,
             BottomSheetController bottomSheetController,
             BrowserControlsStateProvider browserControls, View rootView,
-            ActivityTabProvider activityTabProvider,
-            AssistantDependenciesFactory dependenciesFactory) {
-        AssistantStaticDependencies staticDependencies =
-                dependenciesFactory.createStaticDependencies();
+            Supplier<WebContents> webContentsSupplier,
+            AssistantStaticDependencies staticDependencies) {
         return new AutofillAssistantActionHandlerImpl(
-                new OnboardingCoordinatorFactory(context, bottomSheetController, browserControls,
+                new OnboardingCoordinatorFactory(context, bottomSheetController,
+                        ()
+                                -> new AssistantBrowserControlsChrome(browserControls),
                         rootView, staticDependencies.getAccessibilityUtil(),
-                        staticDependencies.getInfoPageUtil()),
-                activityTabProvider, dependenciesFactory);
+                        staticDependencies.createInfoPageUtil()),
+                webContentsSupplier, staticDependencies);
     }
 }

@@ -100,8 +100,11 @@ source_set("web_applications") {
     "web_app_id_constants.h",
     "web_app_install_finalizer.cc",
     "web_app_install_finalizer.h",
+    "web_app_install_info.cc",
+    "web_app_install_info.h",
     "web_app_install_manager.cc",
     "web_app_install_manager.h",
+    "web_app_install_manager_observer.h",
     "web_app_install_params.cc",
     "web_app_install_params.h",
     "web_app_install_task.cc",
@@ -160,8 +163,6 @@ source_set("web_applications") {
     "web_app_url_loader.h",
     "web_app_utils.cc",
     "web_app_utils.h",
-    "web_application_info.cc",
-    "web_application_info.h",
     "web_launch_params_helper.cc",
     "web_launch_params_helper.h",
   ]
@@ -624,7 +625,10 @@ source_set("web_applications_browser_tests") {
   }
 
   if (is_chromeos_ash || is_chromeos_lacros) {
-    sources += [ "system_web_apps/test/system_web_app_manager_browsertest.cc" ]
+    sources += [
+      "policy/web_app_policy_manager_browsertest.cc",
+      "system_web_apps/test/system_web_app_manager_browsertest.cc",
+    ]
   }
 
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]

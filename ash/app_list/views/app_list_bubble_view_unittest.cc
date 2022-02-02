@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -36,7 +37,6 @@
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/test/ash_test_base.h"
-#include "base/ignore_result.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -70,7 +70,7 @@ void AddSearchResult(const std::string& id, const std::u16string& title) {
   auto search_result = std::make_unique<TestSearchResult>();
   search_result->set_result_id(id);
   search_result->set_display_type(SearchResultDisplayType::kList);
-  search_result->set_title(title);
+  search_result->SetTitle(title);
   search_result->set_best_match(true);
   GetSearchModel()->results()->Add(std::move(search_result));
 }
@@ -85,19 +85,6 @@ views::View* GetSearchBoxSeparator() {
 
 AssistantVisibility GetAssistantVisibility() {
   return AssistantUiController::Get()->GetModel()->visibility();
-}
-
-// Waits for a layer animation to complete.
-void WaitForLayerAnimation(ui::Layer* layer) {
-  auto* compositor = layer->GetCompositor();
-  while (layer->GetAnimator()->is_animating()) {
-    EXPECT_TRUE(ui::WaitForNextFrameToBePresented(compositor));
-  }
-
-  // Ensure there is one more frame presented after animation finishes
-  // to allow animation throughput data is passed from cc to ui.
-  ignore_result(
-      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(200)));
 }
 
 class AppListBubbleViewTest : public AshTestBase {
@@ -183,6 +170,10 @@ class AppListBubbleViewTest : public AshTestBase {
     return view ? view->GetClassName() : "none";
   }
 
+  void WaitForLayerAnimation(ui::Layer* layer) {
+    GetAppListTestHelper()->WaitForLayerAnimation(layer);
+  }
+
   base::test::ScopedFeatureList scoped_features_;
   std::unique_ptr<test::AppListTestModel> app_list_test_model_;
   std::unique_ptr<SearchModel> search_model_;
@@ -226,10 +217,30 @@ TEST_F(AppListBubbleViewTest, Layout) {
   EXPECT_EQ(kBorderSize + search_box_view->height(), separator_origin.y());
 }
 
+TEST_F(AppListBubbleViewTest,
+       ShowingBubbleUpdatesContinueSectionAndRecentApps) {
+  // Show the app list with 3 tasks and 4 recent apps.
+  AddContinueSuggestionResult(3);
+  AddRecentApps(4);
+  AddAppItems(5);
+  ShowAppList();
+
+  // Hide the app list. The widget and views are cached.
+  DismissAppList();
+
+  // While the app list is hidden, update to have 4 tasks and 5 recent apps.
+  GetAppListTestHelper()->GetSearchResults()->DeleteAll();
+  AddContinueSuggestionResult(4);
+  AddRecentApps(5);
+  ShowAppList();
+
+  // Continue section and recent apps have the updated item counts.
+  EXPECT_EQ(GetContinueSectionView()->GetTasksSuggestionsCount(), 4u);
+  EXPECT_EQ(GetRecentAppsView()->GetItemViewCount(), 5);
+}
+
 TEST_F(AppListBubbleViewTest, OpeningBubbleTriggersAnimations) {
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -267,8 +278,6 @@ TEST_F(AppListBubbleViewTest, OpeningBubbleTriggersAnimations) {
 
 TEST_F(AppListBubbleViewTest, ShowAnimationCreatesAndDestroysLayers) {
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -303,8 +312,6 @@ TEST_F(AppListBubbleViewTest, ShowAnimationCreatesAndDestroysLayers) {
 
 TEST_F(AppListBubbleViewTest, ShowAnimationDestroysAndRestoresGradientMask) {
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -327,8 +334,6 @@ TEST_F(AppListBubbleViewTest, ShowAnimationDestroysAndRestoresGradientMask) {
 
 TEST_F(AppListBubbleViewTest, ShowAnimationDestroysAndRestoresShadow) {
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -351,8 +356,6 @@ TEST_F(AppListBubbleViewTest, ShowAnimationRecordsSmoothnessHistogram) {
   base::HistogramTester histograms;
 
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -376,8 +379,6 @@ TEST_F(AppListBubbleViewTest, HideAnimationsRecordsSmoothnessHistogram) {
   ShowAppList();
 
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
@@ -393,8 +394,8 @@ TEST_F(AppListBubbleViewTest, HideAnimationsRecordsSmoothnessHistogram) {
 
   // Ensure there is one more frame presented after animation finishes to allow
   // animation throughput data to be passed from cc to ui.
-  ignore_result(
-      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(200)));
+  std::ignore =
+      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(200));
 
   // Smoothness was recorded.
   histograms.ExpectTotalCount(
@@ -405,8 +406,6 @@ TEST_F(AppListBubbleViewTest, ShutdownDuringHideAnimationDoesNotCrash) {
   base::HistogramTester histograms;
 
   // Enable animations.
-  base::test::ScopedFeatureList feature(
-      features::kProductivityLauncherAnimation);
   ui::ScopedAnimationDurationScaleMode duration(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 

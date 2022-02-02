@@ -202,7 +202,7 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
 
 // ImageTransportFactory doesn't exist on Android. This is needed to create
 // a RenderWidgetHostViewChildFrame in the test.
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
     ImageTransportFactory::SetFactory(
         std::make_unique<TestImageTransportFactory>());
 #endif
@@ -296,7 +296,7 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
     process_host_root_.reset();
     base::RunLoop().RunUntilIdle();
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
     ImageTransportFactory::Terminate();
 #endif
   }
@@ -1497,7 +1497,12 @@ TEST_P(DelegatedInkPointTest, IgnoreEnterAndExitEvents) {
 
 // This test confirms that points can be forwarded when using delegated ink in
 // a child frame, such as an OOPIF.
-TEST_P(DelegatedInkPointTest, ForwardPointsToChildFrame) {
+#if defined(OS_LINUX)
+#define MAYBE_ForwardPointsToChildFrame DISABLED_ForwardPointsToChildFrame
+#else
+#define MAYBE_ForwardPointsToChildFrame ForwardPointsToChildFrame
+#endif
+TEST_P(DelegatedInkPointTest, MAYBE_ForwardPointsToChildFrame) {
   // Make the child frame, set the delegated ink flag on it, give it a
   // compositor, and set it as the hit test result so that the input router
   // sends points to it.

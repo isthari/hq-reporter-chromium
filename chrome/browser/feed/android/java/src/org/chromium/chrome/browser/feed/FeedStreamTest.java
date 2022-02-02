@@ -10,9 +10,11 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -76,6 +78,7 @@ import org.chromium.chrome.browser.xsurface.SurfaceScope;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.feed.proto.FeedUiProto;
+import org.chromium.components.feed.proto.wire.ReliabilityLoggingEnums.DiscoverLaunchResult;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.JUnitTestGURLs;
 import org.chromium.url.ShadowGURL;
@@ -469,6 +472,46 @@ public class FeedStreamTest {
 
     @Test
     @SmallTest
+    public void testLogLaunchFinishedOnOpenSuggestionUrl() {
+        when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
+        bindToView();
+        FeedStream.FeedSurfaceActionsHandler handler =
+                (FeedStream.FeedSurfaceActionsHandler) mContentManager.getContextValues(0).get(
+                        SurfaceActionsHandler.KEY);
+        handler.navigateTab(TEST_URL, null);
+        verify(mLaunchReliabilityLogger)
+                .logLaunchFinished(anyLong(), eq(DiscoverLaunchResult.CARD_TAPPED.getNumber()));
+    }
+
+    @Test
+    @SmallTest
+    public void testLogLaunchFinishedOnOpenSuggestionUrlNewTab() {
+        when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
+        bindToView();
+        FeedStream.FeedSurfaceActionsHandler handler =
+                (FeedStream.FeedSurfaceActionsHandler) mContentManager.getContextValues(0).get(
+                        SurfaceActionsHandler.KEY);
+        handler.navigateNewTab(TEST_URL, null);
+        // Don't log "launch finished" if the card was opened in a new tab in the background.
+        verify(mLaunchReliabilityLogger, never())
+                .logLaunchFinished(anyLong(), eq(DiscoverLaunchResult.CARD_TAPPED.getNumber()));
+    }
+
+    @Test
+    @SmallTest
+    public void testLogLaunchFinishedOnOpenSuggestionUrlIncognito() {
+        when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
+        bindToView();
+        FeedStream.FeedSurfaceActionsHandler handler =
+                (FeedStream.FeedSurfaceActionsHandler) mContentManager.getContextValues(0).get(
+                        SurfaceActionsHandler.KEY);
+        handler.navigateIncognitoTab(TEST_URL);
+        verify(mLaunchReliabilityLogger)
+                .logLaunchFinished(anyLong(), eq(DiscoverLaunchResult.CARD_TAPPED.getNumber()));
+    }
+
+    @Test
+    @SmallTest
     public void testNavigateNewTab() {
         bindToView();
         FeedStream.FeedSurfaceActionsHandler handler =
@@ -726,6 +769,62 @@ public class FeedStreamTest {
                 /*helpAndFeedbackLauncher=*/null);
         assertNotNull(stream.getUnreadContentObserverForTest());
         FeatureList.setTestFeatures(null);
+    }
+
+    @Test
+    @SmallTest
+    public void testSupportsOptions_InterestFeed_sortOff() {
+        Map<String, Boolean> features = new HashMap<>();
+        features.put(ChromeFeatureList.WEB_FEED_SORT, false);
+        FeatureList.setTestFeatures(features);
+        FeedStream stream = new FeedStream(mActivity, mSnackbarManager, mBottomSheetController,
+                /* isPlaceholderShown= */ false, mWindowAndroid, mShareDelegateSupplier,
+                /* isInterestFeed= */ true,
+                /* FeedAutoplaySettingsDelegate= */ null, mActionDelegate,
+                /*helpAndFeedbackLauncher=*/null);
+        assertFalse(stream.supportsOptions());
+    }
+
+    @Test
+    @SmallTest
+    public void testSupportsOptions_InterestFeed_sortOn() {
+        Map<String, Boolean> features = new HashMap<>();
+        features.put(ChromeFeatureList.WEB_FEED_SORT, true);
+        FeatureList.setTestFeatures(features);
+        FeedStream stream = new FeedStream(mActivity, mSnackbarManager, mBottomSheetController,
+                /* isPlaceholderShown= */ false, mWindowAndroid, mShareDelegateSupplier,
+                /* isInterestFeed= */ true,
+                /* FeedAutoplaySettingsDelegate= */ null, mActionDelegate,
+                /*helpAndFeedbackLauncher=*/null);
+        assertFalse(stream.supportsOptions());
+    }
+
+    @Test
+    @SmallTest
+    public void testSupportsOptions_WebFeed_sortOff() {
+        Map<String, Boolean> features = new HashMap<>();
+        features.put(ChromeFeatureList.WEB_FEED_SORT, false);
+        FeatureList.setTestFeatures(features);
+        FeedStream stream = new FeedStream(mActivity, mSnackbarManager, mBottomSheetController,
+                /* isPlaceholderShown= */ false, mWindowAndroid, mShareDelegateSupplier,
+                /* isInterestFeed= */ false,
+                /* FeedAutoplaySettingsDelegate= */ null, mActionDelegate,
+                /*helpAndFeedbackLauncher=*/null);
+        assertFalse(stream.supportsOptions());
+    }
+
+    @Test
+    @SmallTest
+    public void testSupportsOptions_WebFeed_sortOn() {
+        Map<String, Boolean> features = new HashMap<>();
+        features.put(ChromeFeatureList.WEB_FEED_SORT, true);
+        FeatureList.setTestFeatures(features);
+        FeedStream stream = new FeedStream(mActivity, mSnackbarManager, mBottomSheetController,
+                /* isPlaceholderShown= */ false, mWindowAndroid, mShareDelegateSupplier,
+                /* isInterestFeed= */ false,
+                /* FeedAutoplaySettingsDelegate= */ null, mActionDelegate,
+                /*helpAndFeedbackLauncher=*/null);
+        assertTrue(stream.supportsOptions());
     }
 
     private int getLoadMoreTriggerScrollDistance() {

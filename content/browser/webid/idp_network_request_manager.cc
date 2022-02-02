@@ -56,13 +56,13 @@ constexpr char kSigninUrlKey[] = "signin_url";
 constexpr char kIdTokenKey[] = "id_token";
 
 // Token request body keys
-constexpr char kAccountKey[] = "sub";
+constexpr char kAccountKey[] = "account_id";
 constexpr char kRequestKey[] = "request";
 
 // Revoke request body keys.
 constexpr char kClientIdKey[] = "client_id";
 
-constexpr char kJSONMimeType[] = "application/json";
+constexpr char kRequestBodyContentType[] = "application/x-www-form-urlencoded";
 
 // 1 MiB is an arbitrary upper bound that should account for any reasonable
 // response size that is a part of this protocol.
@@ -103,24 +103,34 @@ net::NetworkTrafficAnnotationTag CreateTrafficAnnotation() {
         })");
 }
 
-std::unique_ptr<network::ResourceRequest> CreateCredentialedResourceRequest(
-    GURL target_url,
-    url::Origin initiator) {
-  auto resource_request = std::make_unique<network::ResourceRequest>();
-  auto target_origin = url::Origin::Create(target_url);
-  auto site_for_cookies = net::SiteForCookies::FromOrigin(target_origin);
-  resource_request->request_initiator = initiator;
-  resource_request->url = target_url;
-  resource_request->site_for_cookies = site_for_cookies;
-  resource_request->headers.SetHeader(net::HttpRequestHeaders::kAccept,
-                                      kJSONMimeType);
-
+void AddCsrfHeader(network::ResourceRequest* request) {
   // Using a random 64-bit header value. This is just to keep service
   // implementations from assuming any particular static value.
   const int kBytes = 64 / 8;
   std::string webid_header_value;
   base::Base64Encode(base::RandBytesAsString(kBytes), &webid_header_value);
-  resource_request->headers.SetHeader(kSecFedCmCsrfHeader, webid_header_value);
+  request->headers.SetHeader(kSecFedCmCsrfHeader, webid_header_value);
+}
+
+std::unique_ptr<network::ResourceRequest> CreateCredentialedResourceRequest(
+    GURL target_url,
+    bool send_referrer,
+    url::Origin initiator) {
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  auto target_origin = url::Origin::Create(target_url);
+  auto site_for_cookies = net::SiteForCookies::FromOrigin(target_origin);
+  AddCsrfHeader(resource_request.get());
+  resource_request->request_initiator = initiator;
+  resource_request->url = target_url;
+  resource_request->site_for_cookies = site_for_cookies;
+  if (send_referrer) {
+    resource_request->referrer = initiator.GetURL();
+    resource_request->referrer_policy =
+        net::ReferrerPolicy::ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
+  }
+  resource_request->headers.SetHeader(net::HttpRequestHeaders::kAccept,
+                                      kRequestBodyContentType);
+
   resource_request->credentials_mode =
       network::mojom::CredentialsMode::kInclude;
   resource_request->trusted_params = network::ResourceRequest::TrustedParams();
@@ -325,7 +335,8 @@ void IdpNetworkRequestManager::FetchIdpWellKnown(
   GURL target_url =
       provider_.Resolve(IdpNetworkRequestManager::kWellKnownFilePath);
 
-  url_loader_ = CreateUncredentialedUrlLoader(target_url);
+  url_loader_ =
+      CreateUncredentialedUrlLoader(target_url, /* send_referrer= */ false);
 
   url_loader_->DownloadToString(
       loader_factory_.get(),
@@ -346,7 +357,8 @@ void IdpNetworkRequestManager::SendSigninRequest(
   std::string escaped_request = net::EscapeUrlEncodedData(request, true);
 
   GURL target_url = GURL(signin_url.spec() + "?" + escaped_request);
-  url_loader_ = CreateCredentialedUrlLoader(target_url);
+  url_loader_ =
+      CreateCredentialedUrlLoader(target_url, /* send_referrer= */ true);
   url_loader_->DownloadToString(
       loader_factory_.get(),
       base::BindOnce(&IdpNetworkRequestManager::OnSigninRequestResponse,
@@ -362,13 +374,8 @@ void IdpNetworkRequestManager::SendAccountsRequest(
     AccountsRequestCallback callback) {
   DCHECK(!url_loader_);
 
-  // Use ReferrerPolicy::NO_REFERRER for this request so that relying party
-  // identity is not exposed to the Identity provider via referrer.
-  // TODO(cbiesinger): I don't think this does the right thing; per comments
-  // in referrer_policy.h this only applies to redirects.
-  net::ReferrerPolicy policy = net::ReferrerPolicy::NO_REFERRER;
   url_loader_ =
-      CreateCredentialedUrlLoader(accounts_url, absl::nullopt, policy);
+      CreateCredentialedUrlLoader(accounts_url, /* send_referrer= */ false);
 
   url_loader_->DownloadToString(
       loader_factory_.get(),
@@ -412,15 +419,14 @@ void IdpNetworkRequestManager::SendTokenRequest(const GURL& token_url,
   DCHECK(!token_request_callback_);
 
   token_request_callback_ = std::move(callback);
-
-  std::string token_request_body = CreateTokenRequestBody(account, request);
-  if (token_request_body.empty()) {
+  if (request.empty()) {
     std::move(token_request_callback_)
         .Run(FetchStatus::kInvalidRequestError, std::string());
     return;
   }
 
-  url_loader_ = CreateCredentialedUrlLoader(token_url, token_request_body);
+  url_loader_ = CreateCredentialedUrlLoader(token_url,
+                                            /* send_referrer= */ true, request);
 
   url_loader_->DownloadToString(
       loader_factory_.get(),
@@ -463,14 +469,23 @@ void IdpNetworkRequestManager::SendRevokeRequest(const GURL& revoke_url,
 
   revoke_callback_ = std::move(callback);
 
-  std::string revoke_request_body =
-      CreateRevokeRequestBody(client_id, account_id);
+  std::string revoke_request_body;
+  if (!client_id.empty())
+    revoke_request_body += "client_id=" + client_id;
+
+  if (!account_id.empty()) {
+    if (!revoke_request_body.empty())
+      revoke_request_body += "&";
+    revoke_request_body += "account_id=" + account_id;
+  }
+
   if (revoke_request_body.empty()) {
     std::move(revoke_callback_).Run(RevokeResponse::kError);
     return;
   }
 
-  url_loader_ = CreateCredentialedUrlLoader(revoke_url, revoke_request_body);
+  url_loader_ = CreateCredentialedUrlLoader(
+      revoke_url, /* send_referrer= */ true, revoke_request_body);
 
   url_loader_->DownloadToString(
       loader_factory_.get(),
@@ -488,8 +503,8 @@ void IdpNetworkRequestManager::SendLogout(const GURL& logout_url,
 
   logout_callback_ = std::move(callback);
 
-  auto resource_request =
-      CreateCredentialedResourceRequest(logout_url, relying_party_origin_);
+  auto resource_request = CreateCredentialedResourceRequest(
+      logout_url, /* send_referrer= */ false, relying_party_origin_);
   resource_request->headers.SetHeader(net::HttpRequestHeaders::kAccept, "*/*");
 
   auto traffic_annotation = CreateTrafficAnnotation();
@@ -759,7 +774,8 @@ void IdpNetworkRequestManager::FetchClientIdMetadata(
   GURL target_url = endpoint.Resolve(
       "?client_id=" + net::EscapeQueryParamValue(client_id, true));
 
-  url_loader_ = CreateUncredentialedUrlLoader(target_url);
+  url_loader_ =
+      CreateUncredentialedUrlLoader(target_url, /* send_referrer= */ true);
 
   url_loader_->DownloadToString(
       loader_factory_.get(),
@@ -812,7 +828,8 @@ void IdpNetworkRequestManager::OnClientIdMetadataParsed(
 
 std::unique_ptr<network::SimpleURLLoader>
 IdpNetworkRequestManager::CreateUncredentialedUrlLoader(
-    const GURL& target_url) const {
+    const GURL& target_url,
+    bool send_referrer) const {
   net::NetworkTrafficAnnotationTag traffic_annotation =
       CreateTrafficAnnotation();
 
@@ -820,15 +837,15 @@ IdpNetworkRequestManager::CreateUncredentialedUrlLoader(
   const url::Origin& idp_origin = url::Origin::Create(provider_);
 
   resource_request->url = target_url;
-  // TODO(kenrb): credentials_mode should be kOmit, but for prototyping
-  // purposes it is useful to be able to run test IdPs on services that always
-  // require cookies. This needs to be changed back when a better solution is
-  // found or those test IdPs are no longer required.
-  // See https://crbug.com/1159177.
-  resource_request->credentials_mode =
-      network::mojom::CredentialsMode::kInclude;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   resource_request->headers.SetHeader(net::HttpRequestHeaders::kAccept,
-                                      kJSONMimeType);
+                                      kRequestBodyContentType);
+  AddCsrfHeader(resource_request.get());
+  if (send_referrer) {
+    resource_request->referrer = relying_party_origin_.GetURL();
+    // Since referrer_policy only affects redirects and we disable redirects
+    // below, we don't need to set referrer_policy here.
+  }
   // TODO(kenrb): Not following redirects is important for security because
   // this bypasses CORB. Ensure there is a test added.
   // https://crbug.com/1155312.
@@ -846,16 +863,14 @@ IdpNetworkRequestManager::CreateUncredentialedUrlLoader(
 std::unique_ptr<network::SimpleURLLoader>
 IdpNetworkRequestManager::CreateCredentialedUrlLoader(
     const GURL& target_url,
-    absl::optional<std::string> request_body,
-    absl::optional<net::ReferrerPolicy> policy) const {
-  auto resource_request =
-      CreateCredentialedResourceRequest(target_url, relying_party_origin_);
-  if (policy)
-    resource_request->referrer_policy = *policy;
+    bool send_referrer,
+    absl::optional<std::string> request_body) const {
+  auto resource_request = CreateCredentialedResourceRequest(
+      target_url, send_referrer, relying_party_origin_);
   if (request_body) {
     resource_request->method = net::HttpRequestHeaders::kPostMethod;
     resource_request->headers.SetHeader(net::HttpRequestHeaders::kContentType,
-                                        kJSONMimeType);
+                                        kRequestBodyContentType);
   }
 
   auto traffic_annotation = CreateTrafficAnnotation();
@@ -863,7 +878,7 @@ IdpNetworkRequestManager::CreateCredentialedUrlLoader(
       network::SimpleURLLoader::Create(std::move(resource_request),
                                        traffic_annotation);
   if (request_body)
-    loader->AttachStringForUpload(*request_body, kJSONMimeType);
+    loader->AttachStringForUpload(*request_body, kRequestBodyContentType);
   return loader;
 }
 

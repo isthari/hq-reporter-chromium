@@ -1,9 +1,6 @@
 <style>
   :host {
     --emoji-group-clear-recents-icon-size: 16px;
-    --emoji-group-heading-size: 32px;
-    --emoji-group-heading-padding-bottom: 10px;
-    --emoji-group-heading-padding-top: 16px;
     margin-top: 10px;
     position: relative;
   }
@@ -86,6 +83,11 @@
   #clear-recents-hover:hover {
     background-color: var(--cros-button-background-color-secondary-hover);
     border: 2px solid var(--cros-button-background-color-secondary-hover);
+  }
+
+  :host([v2-enabled]) {
+    --emoji-size: var(--v2-emoji-size);
+    --emoji-spacing: var(--v2-emoji-spacing);
   }
 </style>
 

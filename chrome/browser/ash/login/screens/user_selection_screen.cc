@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "ash/components/arc/arc_util.h"
+#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/components/proximity_auth/screenlock_bridge.h"
 #include "ash/components/proximity_auth/smart_lock_metrics_recorder.h"
 #include "ash/components/settings/cros_settings_names.h"
@@ -48,7 +49,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
@@ -641,13 +641,14 @@ void UserSelectionScreen::HandleFocusPod(const AccountId& account_id) {
           DisplayedScreen::SIGN_IN_SCREEN /* honor_device_policy */);
   lock_screen_utils::SetKeyboardSettings(account_id);
 
-  bool use_24hour_clock = false;
-  if (!user_manager::known_user::GetBooleanPref(
-          account_id, ::prefs::kUse24HourClock, &use_24hour_clock)) {
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  absl::optional<bool> use_24hour_clock =
+      known_user.FindBoolPath(account_id, ::prefs::kUse24HourClock);
+  if (!use_24hour_clock.has_value()) {
     focused_user_clock_type_.reset();
   } else {
     base::HourClockType clock_type =
-        use_24hour_clock ? base::k24HourClock : base::k12HourClock;
+        use_24hour_clock.value() ? base::k24HourClock : base::k12HourClock;
     if (focused_user_clock_type_.has_value()) {
       focused_user_clock_type_->UpdateClockType(clock_type);
     } else {
@@ -868,13 +869,11 @@ UserSelectionScreen::UpdateAndReturnUserListForAsh() {
     user_info.basic_user_info.type = user->GetType();
     user_info.basic_user_info.account_id = user->GetAccountId();
 
-    if (!user_manager::known_user::GetBooleanPref(
-            account_id, ::prefs::kUse24HourClock,
-            &user_info.use_24hour_clock)) {
-      // Fallback to system default in case pref was not found.
-      user_info.use_24hour_clock =
-          base::GetHourClockType() == base::k24HourClock;
-    }
+    user_manager::KnownUser known_user(g_browser_process->local_state());
+
+    user_info.use_24hour_clock =
+        known_user.FindBoolPath(account_id, ::prefs::kUse24HourClock)
+            .value_or(base::GetHourClockType() == base::k24HourClock);
 
     user_info.basic_user_info.display_name =
         base::UTF16ToUTF8(user->GetDisplayName());
@@ -887,13 +886,11 @@ UserSelectionScreen::UpdateAndReturnUserListForAsh() {
     user_info.fingerprint_state =
         quick_unlock::GetFingerprintStateForUser(user);
     user_info.show_pin_pad_for_password = false;
-    if (user_manager::known_user::GetIsEnterpriseManaged(
-            user->GetAccountId()) &&
+    if (known_user.GetIsEnterpriseManaged(user->GetAccountId()) &&
         user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
-      std::string account_manager;
-      if (user_manager::known_user::GetAccountManager(user->GetAccountId(),
-                                                      &account_manager)) {
-        user_info.user_account_manager = account_manager;
+      if (const std::string* account_manager =
+              known_user.GetAccountManager(user->GetAccountId())) {
+        user_info.user_account_manager = *account_manager;
       } else {
         user_info.user_account_manager =
             gaia::ExtractDomainName(user->display_email());
@@ -901,9 +898,13 @@ UserSelectionScreen::UpdateAndReturnUserListForAsh() {
     }
     CrosSettings::Get()->GetBoolean(kDeviceShowNumericKeyboardForPassword,
                                     &user_info.show_pin_pad_for_password);
-    user_manager::known_user::GetBooleanPref(
-        user->GetAccountId(), prefs::kLoginDisplayPasswordButtonEnabled,
-        &user_info.show_display_password_button);
+    if (absl::optional<bool> show_display_password_button =
+            known_user.FindBoolPath(
+                user->GetAccountId(),
+                prefs::kLoginDisplayPasswordButtonEnabled)) {
+      user_info.show_display_password_button =
+          show_display_password_button.value();
+    }
 
     // Fill multi-profile data.
     if (!is_signin_to_add) {

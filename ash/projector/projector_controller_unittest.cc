@@ -12,21 +12,27 @@
 #include "ash/components/audio/cras_audio_handler.h"
 #include "ash/constants/ash_features.h"
 #include "ash/projector/model/projector_session_impl.h"
+#include "ash/projector/projector_metadata_controller.h"
+#include "ash/projector/projector_metrics.h"
 #include "ash/projector/test/mock_projector_client.h"
 #include "ash/projector/test/mock_projector_metadata_controller.h"
 #include "ash/projector/test/mock_projector_ui_controller.h"
 #include "ash/public/cpp/projector/projector_new_screencast_precondition.h"
 #include "ash/public/cpp/projector/projector_session.h"
 #include "ash/test/ash_test_base.h"
+#include "base/bind.h"
+#include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chromeos/dbus/audio/audio_node.h"
 #include "chromeos/dbus/audio/fake_cras_audio_client.h"
+#include "media/mojo/mojom/speech_recognition_result.h"
 #include "media/mojo/mojom/speech_recognition_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -43,6 +49,14 @@ struct AudioNodeInfo {
   const char* const type;
   const char* const name;
 };
+
+constexpr char kProjectorCreationFlowHistogramName[] =
+    "Ash.Projector.CreationFlow.ClamshellMode";
+
+constexpr char kProjectorTranscriptsCountHistogramName[] =
+    "Ash.Projector.TranscriptsCount.ClamshellMode";
+
+constexpr char kFilePath[] = "random/file/path";
 
 void NotifyControllerForFinalSpeechResult(ProjectorControllerImpl* controller) {
   media::SpeechRecognitionResult result;
@@ -71,12 +85,40 @@ void NotifyControllerForPartialSpeechResult(
       media::SpeechRecognitionResult("transcript partial text 1", false));
 }
 
+class ProjectorMetadataControllerForTest : public ProjectorMetadataController {
+ public:
+  ProjectorMetadataControllerForTest() = default;
+  ProjectorMetadataControllerForTest(
+      const ProjectorMetadataControllerForTest&) = delete;
+  ProjectorMetadataControllerForTest& operator=(
+      const ProjectorMetadataControllerForTest&) = delete;
+  ~ProjectorMetadataControllerForTest() override = default;
+
+  void SetRunLoopQuitClosure(base::RepeatingClosure closure) {
+    quit_closure_ = base::BindOnce(closure);
+  }
+
+ protected:
+  // ProjectorMetadataController:
+  void OnSaveFileResult(const base::FilePath& path,
+                        size_t transcripts_count,
+                        bool success) override {
+    ProjectorMetadataController::OnSaveFileResult(path, transcripts_count,
+                                                  success);
+    std::move(quit_closure_).Run();
+  }
+
+ private:
+  base::OnceClosure quit_closure_;
+};
+
 }  // namespace
 
 class ProjectorControllerTest : public AshTestBase {
  public:
   ProjectorControllerTest()
-      : AshTestBase(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
+      : AshTestBase(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
+        file_path_(kFilePath) {
     scoped_feature_list_.InitWithFeatures(
         {features::kProjector, features::kProjectorAnnotator}, {});
   }
@@ -107,11 +149,23 @@ class ProjectorControllerTest : public AshTestBase {
         SpeechRecognitionAvailability::kAvailable);
   }
 
+  void InitializeRealMetadataController() {
+    std::unique_ptr<ProjectorMetadataController> metadata_controller =
+        std::make_unique<ProjectorMetadataControllerForTest>();
+    metadata_controller_ = static_cast<ProjectorMetadataControllerForTest*>(
+        metadata_controller.get());
+    controller_->SetProjectorMetadataControllerForTest(
+        std::move(metadata_controller));
+  }
+
  protected:
   MockProjectorUiController* mock_ui_controller_ = nullptr;
   MockProjectorMetadataController* mock_metadata_controller_ = nullptr;
+  ProjectorMetadataControllerForTest* metadata_controller_;
   ProjectorControllerImpl* controller_;
   MockProjectorClient mock_client_;
+  base::HistogramTester histogram_tester_;
+  base::FilePath file_path_;
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -190,6 +244,9 @@ TEST_F(ProjectorControllerTest, RecordingStarted) {
   EXPECT_CALL(*mock_ui_controller_, ShowToolbar()).Times(1);
 
   controller_->OnRecordingStarted(/*is_in_projector_mode=*/true);
+  histogram_tester_.ExpectUniqueSample(
+      kProjectorCreationFlowHistogramName,
+      /*sample=*/ProjectorCreationFlow::kRecordingStarted, /*count=*/1);
 }
 
 TEST_F(ProjectorControllerTest, RecordingEnded) {
@@ -214,8 +271,16 @@ TEST_F(ProjectorControllerTest, RecordingEnded) {
   EXPECT_TRUE(base::Time::FromString("2 Jan 2021 20:02:10", &start_time));
   base::TimeDelta forward_by = start_time - base::Time::Now();
   task_environment()->AdvanceClock(forward_by);
+
   controller_->projector_session()->Start("projector_data");
+  histogram_tester_.ExpectUniqueSample(
+      kProjectorCreationFlowHistogramName,
+      /*sample=*/ProjectorCreationFlow::kSessionStarted, /*count=*/1);
+
   controller_->OnRecordingStarted(/*is_in_projector_mode=*/true);
+  histogram_tester_.ExpectBucketCount(
+      kProjectorCreationFlowHistogramName,
+      /*sample=*/ProjectorCreationFlow::kRecordingStarted, /*count=*/1);
 
   base::RunLoop runLoop;
   controller_->CreateScreencastContainerFolder(base::BindLambdaForTesting(
@@ -224,25 +289,72 @@ TEST_F(ProjectorControllerTest, RecordingEnded) {
             mock_client_,
             OnNewScreencastPreconditionChanged(NewScreencastPrecondition(
                 NewScreencastPreconditionState::kEnabled, {})));
-
-        EXPECT_CALL(mock_client_, StopSpeechRecognition());
+        EXPECT_CALL(mock_client_, StopSpeechRecognition())
+            .WillOnce(testing::Invoke(
+                [&]() { controller_->OnSpeechRecognitionStopped(); }));
 
         // Verify that |SaveMetadata| in |ProjectorMetadataController| is called
         // with the expected path.
         const std::string expected_screencast_name =
-            "Screencast 2021-01-02 20.02.10";
-        EXPECT_CALL(*mock_metadata_controller_,
-                    SaveMetadata(screencast_container_path.Append("root")
-                                     .Append("projector_data")
-                                     // Screencast container folder.
-                                     .Append(expected_screencast_name)
-                                     // Screencast file name without extension.
-                                     .Append(expected_screencast_name)));
+            "Recording 2021-01-02 20.02.10";
+        const base::FilePath expected_path =
+            screencast_container_path.Append("root")
+                .Append("projector_data")
+                // Screencast container folder.
+                .Append(expected_screencast_name)
+                // Screencast file name without extension.
+                .Append(expected_screencast_name);
+        EXPECT_EQ(screencast_file_path_no_extension, expected_path);
+        EXPECT_CALL(*mock_metadata_controller_, SaveMetadata(expected_path));
 
         controller_->OnRecordingEnded(/*is_in_projector_mode=*/true);
         runLoop.Quit();
       }));
 
   runLoop.Run();
+
+  histogram_tester_.ExpectBucketCount(
+      kProjectorCreationFlowHistogramName,
+      /*sample=*/ProjectorCreationFlow::kRecordingEnded, /*count=*/1);
+  histogram_tester_.ExpectBucketCount(
+      kProjectorCreationFlowHistogramName,
+      /*sample=*/ProjectorCreationFlow::kSessionStopped, /*count=*/1);
+  histogram_tester_.ExpectTotalCount(kProjectorCreationFlowHistogramName,
+                                     /*count=*/4);
 }
+
+TEST_F(ProjectorControllerTest, NoTranscriptsTest) {
+  InitializeRealMetadataController();
+  metadata_controller_->OnRecordingStarted();
+
+  base::RunLoop run_loop;
+  metadata_controller_->SetRunLoopQuitClosure(run_loop.QuitClosure());
+
+  // Simulate ending the recording and saving the metadata file.
+  metadata_controller_->SaveMetadata(file_path_);
+  run_loop.Run();
+
+  histogram_tester_.ExpectUniqueSample(kProjectorTranscriptsCountHistogramName,
+                                       /*sample=*/0, /*count=*/1);
+}
+
+TEST_F(ProjectorControllerTest, TranscriptsTest) {
+  InitializeRealMetadataController();
+  metadata_controller_->OnRecordingStarted();
+
+  base::RunLoop run_loop;
+  metadata_controller_->SetRunLoopQuitClosure(run_loop.QuitClosure());
+
+  // Simulate adding some transcripts.
+  NotifyControllerForFinalSpeechResult(controller_);
+  NotifyControllerForFinalSpeechResult(controller_);
+
+  // Simulate ending the recording and saving the metadata file.
+  metadata_controller_->SaveMetadata(file_path_);
+  run_loop.Run();
+
+  histogram_tester_.ExpectUniqueSample(kProjectorTranscriptsCountHistogramName,
+                                       /*sample=*/2, /*count=*/1);
+}
+
 }  // namespace ash

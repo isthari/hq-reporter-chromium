@@ -273,7 +273,7 @@ void ExecuteTaskAfterMimeTypesCollected(
 
   DCHECK_EQ(task.task_type, TASK_TYPE_ARC_APP);
   apps::RecordAppLaunchMetrics(
-      profile, apps::mojom::AppType::kArc, task.app_id,
+      profile, apps::AppType::kArc, task.app_id,
       apps::mojom::LaunchSource::kFromFileManager,
       apps::mojom::LaunchContainer::kLaunchContainerWindow);
   ExecuteArcTask(profile, task, file_urls, *mime_types, std::move(done));
@@ -449,7 +449,7 @@ void UpdateDefaultTask(PrefService* pref_service,
     DictionaryPrefUpdate mime_type_pref(pref_service,
                                         prefs::kDefaultTasksByMimeType);
     for (const std::string& mime_type : mime_types) {
-      mime_type_pref->SetKey(mime_type, base::Value(task_id));
+      mime_type_pref->SetStringKey(mime_type, task_id);
     }
   }
 
@@ -459,7 +459,7 @@ void UpdateDefaultTask(PrefService* pref_service,
     for (const std::string& suffix : suffixes) {
       // Suffixes are case insensitive.
       std::string lower_suffix = base::ToLowerASCII(suffix);
-      mime_type_pref->SetKey(lower_suffix, base::Value(task_id));
+      mime_type_pref->SetStringKey(lower_suffix, task_id);
     }
   }
 }

@@ -74,12 +74,12 @@ namespace web_app {
 
 namespace {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 // The sub-directory of the extensions directory in which to scan for external
 // web apps (as opposed to external extensions or external ARC apps).
 const base::FilePath::CharType kWebAppsSubDirectory[] =
     FILE_PATH_LITERAL("web_apps");
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 bool g_skip_startup_for_testing_ = false;
 bool g_bypass_offline_manifest_requirement_for_testing_ = false;
@@ -195,7 +195,7 @@ absl::optional<std::string> GetDisableReason(
 
   // Remove if device is tablet and app should be disabled.
   if (options.disable_if_tablet_form_factor &&
-      chromeos::switches::IsTabletFormFactor()) {
+      ash::switches::IsTabletFormFactor()) {
     return options.install_url.spec() + " disabled because device is tablet.";
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -256,7 +256,7 @@ absl::optional<std::string> GetDisableReason(
     }
   }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // Remove if it's a default app and the apps to replace are not installed and
   // default extension apps are not performing new installation.
   if (options.gate_on_feature && !options.uninstall_and_replace.empty() &&
@@ -284,7 +284,7 @@ absl::optional<std::string> GetDisableReason(
       }
     }
   }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
   // Remove if any apps to replace were previously uninstalled.
   for (const AppId& app_id : options.uninstall_and_replace) {
@@ -324,7 +324,7 @@ std::string GetConfigDirectoryFromCommandLine() {
 std::string GetExtraConfigSubdirectory() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-      chromeos::switches::kExtraWebAppsDir);
+      ash::switches::kExtraWebAppsDir);
 #else
   return std::string();
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -525,12 +525,12 @@ void PreinstalledWebAppManager::PostProcessConfigs(
 
     options.require_manifest = true;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     // On Chrome OS the "quick launch bar" is the shelf pinned apps.
     // This is configured in `GetDefaultPinnedAppsForFormFactor()` instead of
     // here to ensure a specific order is deployed.
     options.add_to_quick_launch_bar = false;
-#else   // defined(OS_CHROMEOS)
+#else   // BUILDFLAG(IS_CHROMEOS)
     if (!g_bypass_offline_manifest_requirement_for_testing_) {
       // Non-Chrome OS platforms are not permitted to fetch the web app install
       // URLs during start up.
@@ -545,7 +545,7 @@ void PreinstalledWebAppManager::PostProcessConfigs(
     options.add_to_management = false;
     options.add_to_desktop = false;
     options.add_to_quick_launch_bar = false;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
   }
 
   // TODO(crbug.com/1175196): Move this constant into some shared constants.h
@@ -675,7 +675,7 @@ void PreinstalledWebAppManager::OnExternalWebAppsSynchronized(
 
         ++app_to_replace_still_installed_count;
 
-        if (!extensions::IsExtensionDefaultInstalled(profile_, replace_id))
+        if (extensions::IsExtensionDefaultInstalled(profile_, replace_id))
           ++app_to_replace_still_default_installed_count;
 
         if (ui_manager_->CanAddAppToQuickLaunchBar()) {
@@ -730,14 +730,14 @@ base::FilePath PreinstalledWebAppManager::GetConfigDir() {
   if (!command_line_directory.empty())
     return base::FilePath::FromUTF8Unsafe(command_line_directory);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
     // As of mid 2018, only Chrome OS has default/external web apps, and
     // chrome::DIR_STANDALONE_EXTERNAL_EXTENSIONS is only defined for OS_LINUX,
     // which includes OS_CHROMEOS.
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Exclude sign-in and lock screen profiles.
-  if (!chromeos::ProfileHelper::IsRegularProfile(profile_)) {
+  if (!ash::ProfileHelper::IsRegularProfile(profile_)) {
     return {};
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -757,7 +757,7 @@ base::FilePath PreinstalledWebAppManager::GetConfigDir() {
   }
 
   LOG(ERROR) << "base::PathService::Get failed";
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   return {};
 }

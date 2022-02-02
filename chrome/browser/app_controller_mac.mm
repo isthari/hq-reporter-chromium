@@ -1296,7 +1296,7 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
         chrome::ExecuteCommand(browser, IDC_NEW_TAB);
         break;
       }
-      FALLTHROUGH;  // To create new window.
+      [[fallthrough]];  // To create new window.
     case IDC_NEW_WINDOW:
       CreateBrowser(profile);
       break;
@@ -1599,11 +1599,7 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   if (IsProfileSignedOut(profile))
     return nullptr;  // Profile is locked.
 
-  // When opening a Guest session or if incognito is forced.
-  if (ProfileManager::IsOffTheRecordModeForced(profile))
-    return profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
-
-  return profile;
+  return ProfileManager::MaybeForceOffTheRecordMode(profile);
 }
 
 - (void)getUrl:(NSAppleEventDescriptor*)event
@@ -2041,7 +2037,7 @@ Profile* RunInSafeProfileHelper::GetSafeProfile(Profile* loaded_profile,
       break;
     case Profile::CREATE_STATUS_CREATED:
       NOTREACHED() << "Should only be called when profile loading is complete";
-      FALLTHROUGH;
+      [[fallthrough]];
     case Profile::CREATE_STATUS_LOCAL_FAIL:
       return nullptr;
   }

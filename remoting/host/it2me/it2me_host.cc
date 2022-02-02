@@ -27,6 +27,7 @@
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/ftl_signaling_connector.h"
 #include "remoting/host/host_event_logger.h"
+#include "remoting/host/host_event_reporter.h"
 #include "remoting/host/host_secret.h"
 #include "remoting/host/host_status_logger.h"
 #include "remoting/host/it2me/it2me_confirmation_dialog.h"
@@ -274,6 +275,9 @@ void It2MeHost::ConnectOnNetworkThread(
   // Create event logger.
   host_event_logger_ =
       HostEventLogger::Create(host_->status_monitor(), kApplicationName);
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  host_event_reporter_ = HostEventReporter::Create(host_->status_monitor());
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Connect signaling and start the host.
   signal_strategy_->Connect();
@@ -388,17 +392,17 @@ void It2MeHost::OnPolicyUpdate(
     UpdateClientDomainListPolicy(std::move(client_domain_list_vector));
   }
 
-  std::string port_range_string;
-  if (policies->GetString(policy::key::kRemoteAccessHostUdpPortRange,
-                          &port_range_string)) {
-    UpdateHostUdpPortRangePolicy(port_range_string);
+  const std::string* port_range_string =
+      policies->FindStringKey(policy::key::kRemoteAccessHostUdpPortRange);
+  if (port_range_string) {
+    UpdateHostUdpPortRangePolicy(*port_range_string);
   }
 
-  int max_clipboard_size;
-  if (policies->GetInteger(policy::key::kRemoteAccessHostClipboardSizeBytes,
-                           &max_clipboard_size)) {
-    if (max_clipboard_size >= 0) {
-      max_clipboard_size_ = max_clipboard_size;
+  absl::optional<int> max_clipboard_size =
+      policies->FindIntKey(policy::key::kRemoteAccessHostClipboardSizeBytes);
+  if (max_clipboard_size.has_value()) {
+    if (max_clipboard_size.value() >= 0) {
+      max_clipboard_size_ = max_clipboard_size.value();
     }
   }
 }
@@ -611,6 +615,9 @@ void It2MeHost::DisconnectOnNetworkThread(protocol::ErrorCode error_code) {
         kDestroySignalingDelay);
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  host_event_reporter_.reset();
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   host_event_logger_ = nullptr;
 
   // Post tasks to delete UI objects on the UI thread.

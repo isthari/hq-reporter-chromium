@@ -15,8 +15,8 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/web_applications/test/web_app_test_observers.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
-#include "chrome/browser/web_applications/web_application_info.h"
 #include "components/services/app_service/public/cpp/url_handler_info.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -430,6 +430,8 @@ std::unique_ptr<WebApp> CreateRandomWebApp(const GURL& base_url,
   if (random.next_bool())
     app->SetParentAppId(base::NumberToString(random.next_uint()));
 
+  app->SetHandleLinks(random.next_enum<blink::mojom::HandleLinks>());
+
   // `random` should not be used after the chromeos block if the result
   // is expected to be deterministic across cros and non-cros builds.
   if (IsChromeOsDataMandatory()) {
@@ -447,7 +449,7 @@ std::unique_ptr<WebApp> CreateRandomWebApp(const GURL& base_url,
 
 void TestAcceptDialogCallback(
     content::WebContents* initiator_web_contents,
-    std::unique_ptr<WebApplicationInfo> web_app_info,
+    std::unique_ptr<WebAppInstallInfo> web_app_info,
     ForInstallableSite for_installable_site,
     WebAppInstallationAcceptanceCallback acceptance_callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -457,7 +459,7 @@ void TestAcceptDialogCallback(
 
 void TestDeclineDialogCallback(
     content::WebContents* initiator_web_contents,
-    std::unique_ptr<WebApplicationInfo> web_app_info,
+    std::unique_ptr<WebAppInstallInfo> web_app_info,
     ForInstallableSite for_installable_site,
     WebAppInstallationAcceptanceCallback acceptance_callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(

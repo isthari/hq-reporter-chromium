@@ -152,6 +152,56 @@ void HandleCpuResult(MetricCallback callback,
   }
 }
 
+void HandleBootPerformanceResult(
+    MetricCallback callback,
+    CrosHealthdMetricSampler::MetricType metric_type,
+    chromeos::cros_healthd::mojom::TelemetryInfoPtr result) {
+  const std::string kShutdownReasonNotApplicable = "N/A";
+  MetricData metric_data;
+  auto* const boot_info_out = metric_data.mutable_telemetry_data()
+                                  ->mutable_boot_performance_telemetry();
+
+  const auto& boot_performance_result = result->boot_performance_result;
+  if (!boot_performance_result.is_null()) {
+    switch (boot_performance_result->which()) {
+      case chromeos::cros_healthd::mojom::BootPerformanceResult::Tag::ERROR: {
+        DVLOG(1) << "cros_healthd: Error getting Boot Performance info: "
+                 << boot_performance_result->get_error()->msg;
+        break;
+      }
+
+      case chromeos::cros_healthd::mojom::BootPerformanceResult::Tag::
+          BOOT_PERFORMANCE_INFO: {
+        const auto& boot_performance_info =
+            boot_performance_result->get_boot_performance_info();
+        if (boot_performance_info.is_null()) {
+          DVLOG(1) << "Null BootPerformanceInfo from cros_healthd";
+          break;
+        }
+
+        // Gather boot performance info.
+        boot_info_out->set_boot_up_seconds(
+            (int64_t)boot_performance_info->boot_up_seconds);
+        boot_info_out->set_boot_up_timestamp_seconds(
+            (int64_t)boot_performance_info->boot_up_timestamp);
+        if (boot_performance_info->shutdown_reason !=
+            kShutdownReasonNotApplicable) {
+          boot_info_out->set_shutdown_seconds(
+              (int64_t)boot_performance_info->shutdown_seconds);
+          boot_info_out->set_shutdown_timestamp_seconds(
+              (int64_t)boot_performance_info->shutdown_timestamp);
+        }
+        boot_info_out->set_shutdown_reason(
+            boot_performance_info->shutdown_reason);
+
+        std::move(callback).Run(metric_data);
+
+        break;
+      }
+    }
+  }
+}
+
 void HandleAudioResult(MetricCallback callback,
                        CrosHealthdMetricSampler::MetricType metric_type,
                        MetricData metric_data,
@@ -281,6 +331,11 @@ void OnHealthdInfoReceived(MetricCallback callback,
     case cros_healthd::ProbeCategoryEnum::kMemory: {
       HandleMemoryResult(std::move(callback), metric_type,
                          std::move(metric_data), std::move(result));
+      break;
+    }
+    case cros_healthd::ProbeCategoryEnum::kBootPerformance: {
+      HandleBootPerformanceResult(std::move(callback), metric_type,
+                                  std::move(result));
       break;
     }
     default: {

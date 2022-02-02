@@ -85,7 +85,7 @@ void RecentTabsPagePrefs::SetForeignSessionCollapsed(
   PrefService* prefs = profile_->GetPrefs();
   DictionaryPrefUpdate update(prefs, prefs::kNtpCollapsedForeignSessions);
   if (is_collapsed)
-    update.Get()->SetBoolean(ConvertJavaStringToUTF8(env, session_tag), true);
+    update.Get()->SetBoolKey(ConvertJavaStringToUTF8(env, session_tag), true);
   else
     update.Get()->RemoveKey(ConvertJavaStringToUTF8(env, session_tag));
 }

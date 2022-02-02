@@ -16,8 +16,8 @@
 #include "media/base/channel_layout.h"
 #include "media/base/container_names.h"
 #include "media/base/content_decryption_module.h"
-#include "media/base/decode_status.h"
 #include "media/base/decoder.h"
+#include "media/base/decoder_status.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/decryptor.h"
 #include "media/base/demuxer_stream.h"
@@ -112,8 +112,8 @@ IPC_ENUM_TRAITS_MAX_VALUE(media::MediaStatus::State,
 IPC_ENUM_TRAITS_MAX_VALUE(media::OutputDeviceStatus,
                           media::OUTPUT_DEVICE_STATUS_MAX)
 
-IPC_ENUM_TRAITS_MAX_VALUE(media::PipelineStatus,
-                          media::PipelineStatus::PIPELINE_STATUS_MAX)
+IPC_ENUM_TRAITS_MAX_VALUE(media::PipelineStatusCodes,
+                          media::PipelineStatusCodes::PIPELINE_STATUS_MAX)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::SampleFormat, media::kSampleFormatMax)
 

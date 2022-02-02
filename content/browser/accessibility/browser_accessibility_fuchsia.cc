@@ -13,9 +13,6 @@
 
 namespace content {
 
-// Error allowed for each edge when converting from gfx::RectF to gfx::Rect.
-constexpr float kRectConversionError = 0.5;
-
 using AXRole = ax::mojom::Role;
 using FuchsiaRole = fuchsia::accessibility::semantics::Role;
 
@@ -29,12 +26,11 @@ BrowserAccessibilityFuchsia::BrowserAccessibilityFuchsia(
 
 ui::AccessibilityBridgeFuchsia*
 BrowserAccessibilityFuchsia::GetAccessibilityBridge() const {
-  ui::AccessibilityBridgeFuchsiaRegistry* accessibility_bridge_registry =
-      ui::AccessibilityBridgeFuchsiaRegistry::GetInstance();
-  DCHECK(accessibility_bridge_registry);
+  BrowserAccessibilityManagerFuchsia* manager_fuchsia =
+      static_cast<BrowserAccessibilityManagerFuchsia*>(manager());
+  DCHECK(manager_fuchsia);
 
-  return accessibility_bridge_registry->GetAccessibilityBridge(
-      manager()->ax_tree_id());
+  return manager_fuchsia->GetAccessibilityBridge();
 }
 
 // static
@@ -240,6 +236,8 @@ BrowserAccessibilityFuchsia::GetFuchsiaStates() const {
   if (HasState(ax::mojom::State::kFocusable))
     states.set_focusable(true);
 
+  states.set_has_input_focus(IsFocused());
+
   return states;
 }
 
@@ -400,30 +398,11 @@ bool BrowserAccessibilityFuchsia::AccessibilityPerformAction(
     if (!accessibility_bridge)
       return false;
 
-    root_manager->HitTest(action_data.target_point);
+    root_manager->HitTest(action_data.target_point, action_data.request_id);
     return true;
   }
 
-  ui::AXActionData full_action_data = action_data;
-
-  if (action_data.action == ax::mojom::Action::kScrollToMakeVisible) {
-    // The scroll-to-make-visible action expects coordinates in the local
-    // coordinate space of |node|. So, we need to translate node's bounds to the
-    // origin.
-    gfx::Rect local_bounds = gfx::ToEnclosedRectIgnoringError(
-        GetData().relative_bounds.bounds, kRectConversionError);
-    local_bounds = gfx::Rect(local_bounds.size());
-
-    full_action_data.target_rect = local_bounds;
-    full_action_data.horizontal_scroll_alignment =
-        ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
-    full_action_data.vertical_scroll_alignment =
-        ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
-    full_action_data.scroll_behavior =
-        ax::mojom::ScrollBehavior::kScrollIfVisible;
-  }
-
-  return BrowserAccessibility::AccessibilityPerformAction(full_action_data);
+  return BrowserAccessibility::AccessibilityPerformAction(action_data);
 }
 
 }  // namespace content

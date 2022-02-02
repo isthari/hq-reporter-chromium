@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/android/config.gni")
 import("//components/feed/features.gni")
 
 # Java test file for clank components. all test sources that are not
@@ -51,7 +52,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/WarmupManagerTest.java",
   "javatests/src/org/chromium/chrome/browser/accessibility/FontSizePrefsTest.java",
   "javatests/src/org/chromium/chrome/browser/accessibility/settings/AccessibilitySettingsTest.java",
-  "javatests/src/org/chromium/chrome/browser/app/appmenu/DataSaverAppMenuTest.java",
   "javatests/src/org/chromium/chrome/browser/app/appmenu/OverviewAppMenuTest.java",
   "javatests/src/org/chromium/chrome/browser/app/appmenu/TabbedAppMenuTest.java",
   "javatests/src/org/chromium/chrome/browser/app/metrics/LaunchCauseMetricsTest.java",
@@ -138,7 +138,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/continuous_search/ContinuousSearchFullUiTest.java",
   "javatests/src/org/chromium/chrome/browser/crash/LogcatExtractionRunnableTest.java",
   "javatests/src/org/chromium/chrome/browser/crash/MinidumpUploadServiceTest.java",
-  "javatests/src/org/chromium/chrome/browser/crash/PureJavaExceptionReporterTest.java",
   "javatests/src/org/chromium/chrome/browser/crypto/CipherFactoryTest.java",
   "javatests/src/org/chromium/chrome/browser/customtabs/CustomTabActivityAppMenuTest.java",
   "javatests/src/org/chromium/chrome/browser/customtabs/CustomTabActivityIncognitoMetricTest.java",
@@ -165,9 +164,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/customtabs/TrustedCdnPublisherUrlTest.java",
   "javatests/src/org/chromium/chrome/browser/customtabs/content/CustomTabActivityTabControllerTest.java",
   "javatests/src/org/chromium/chrome/browser/customtabs/content/TabObserverRegistrarTest.java",
-  "javatests/src/org/chromium/chrome/browser/datareduction/DataReductionPromoUtilsTest.java",
-  "javatests/src/org/chromium/chrome/browser/datareduction/DataReductionSavingsMilestonePromoTest.java",
-  "javatests/src/org/chromium/chrome/browser/datareduction/settings/DataReductionStatsPreferenceTest.java",
   "javatests/src/org/chromium/chrome/browser/dependency_injection/ModuleOverridesRule.java",
   "javatests/src/org/chromium/chrome/browser/device_dialog/BluetoothChooserDialogTest.java",
   "javatests/src/org/chromium/chrome/browser/device_dialog/BluetoothScanningPermissionDialogTest.java",
@@ -304,7 +300,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/notifications/channels/SiteChannelsManagerTest.java",
   "javatests/src/org/chromium/chrome/browser/ntp/IncognitoDescriptionViewRenderTest.java",
   "javatests/src/org/chromium/chrome/browser/ntp/IncognitoNewTabPageTest.java",
-  "javatests/src/org/chromium/chrome/browser/ntp/LogoViewTest.java",
   "javatests/src/org/chromium/chrome/browser/ntp/NewTabPageLoadTest.java",
   "javatests/src/org/chromium/chrome/browser/ntp/NewTabPageNavigationTest.java",
   "javatests/src/org/chromium/chrome/browser/ntp/NewTabPageTest.java",
@@ -320,7 +315,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/offlinepages/RecentTabsTest.java",
   "javatests/src/org/chromium/chrome/browser/offlinepages/RequestCoordinatorBridgeTest.java",
   "javatests/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineIndicatorControllerTest.java",
-  "javatests/src/org/chromium/chrome/browser/offlinepages/measurements/OfflineMeasurementsBackgroundTaskTest.java",
   "javatests/src/org/chromium/chrome/browser/offlinepages/prefetch/PrefetchBackgroundTaskTest.java",
   "javatests/src/org/chromium/chrome/browser/offlinepages/prefetch/PrefetchConfigurationTest.java",
   "javatests/src/org/chromium/chrome/browser/offlinepages/prefetch/TestOfflinePageService.java",
@@ -335,7 +329,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/omnibox/LocationBarTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/OmniboxTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/OmniboxUrlEmphasizerTest.java",
-  "javatests/src/org/chromium/chrome/browser/omnibox/UrlBarIntegrationTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/UrlBarTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/geo/GeolocationHeaderTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/status/StatusMediatorUnitTest.java",
@@ -355,8 +348,10 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/omnibox/suggestions/entity/EntitySuggestionProcessorUnitTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/suggestions/mostvisited/MostVisitedTilesProcessorUnitTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/suggestions/mostvisited/MostVisitedTilesTest.java",
+  "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchConsentBottomSheetTest.java",
+  "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchConsentControllerTest.java",
+  "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchConsentModalTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchConsentUiRenderTest.java",
-  "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchConsentUiTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchServiceRenderTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/voice/AssistantVoiceSearchServiceTest.java",
   "javatests/src/org/chromium/chrome/browser/omnibox/voice/VoiceRecognitionHandlerTest.java",
@@ -391,7 +386,6 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/payments/MockPackageManagerDelegate.java",
   "javatests/src/org/chromium/chrome/browser/payments/MockPaymentApp.java",
   "javatests/src/org/chromium/chrome/browser/payments/PaymentDetailsUpdateServiceHelperTest.java",
-  "javatests/src/org/chromium/chrome/browser/payments/PaymentErrorStringsTest.java",
   "javatests/src/org/chromium/chrome/browser/payments/PaymentHandlerChangePaymentMethodTest.java",
   "javatests/src/org/chromium/chrome/browser/payments/PaymentHandlerEnableDelegationsTest.java",
   "javatests/src/org/chromium/chrome/browser/payments/PaymentManifestDownloaderTest.java",
@@ -575,12 +569,9 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/tab/state/PriceDropMetricsLoggerTest.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataDeferredStartupTest.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataLegacyTest.java",
-  "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataLegacyWithPASTest.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataNativeTest.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataTest.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataTestUtils.java",
-  "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataWithPASTest.java",
-  "javatests/src/org/chromium/chrome/browser/tab/state/ShoppingPersistedTabDataWithPASTestUtils.java",
   "javatests/src/org/chromium/chrome/browser/tab/state/StorePersistedTabDataTest.java",
   "javatests/src/org/chromium/chrome/browser/tabbed_mode/TabbedNavigationBarColorControllerTest.java",
   "javatests/src/org/chromium/chrome/browser/tabmodel/AsyncTabCreationParamsManagerTest.java",
@@ -647,10 +638,12 @@ chrome_test_java_sources = [
   "javatests/src/org/chromium/chrome/browser/webapps/WebappSplashScreenIconTest.java",
   "javatests/src/org/chromium/chrome/browser/webapps/WebappSplashScreenTest.java",
   "javatests/src/org/chromium/chrome/browser/webapps/WebappSplashScreenThemeColorTest.java",
+  "javatests/src/org/chromium/chrome/browser/webapps/launchpad/LaunchpadActivityTest.java",
+  "javatests/src/org/chromium/chrome/browser/webapps/launchpad/LaunchpadPageTest.java",
+  "javatests/src/org/chromium/chrome/browser/webapps/launchpad/LaunchpadTestUtils.java",
   "javatests/src/org/chromium/chrome/browser/webauth/AuthenticatorTest.java",
   "javatests/src/org/chromium/chrome/browser/webauth/Fido2ApiTestHelper.java",
   "javatests/src/org/chromium/chrome/browser/webauth/Fido2CredentialRequestTest.java",
-  "javatests/src/org/chromium/chrome/browser/webauth/Fido2HelperTest.java",
   "javatests/src/org/chromium/chrome/browser/webshare/WebShareTest.java",
   "javatests/src/org/chromium/chrome/browser/widget/bottomsheet/BottomSheetControllerTest.java",
   "javatests/src/org/chromium/chrome/browser/widget/bottomsheet/BottomSheetTest.java",
@@ -659,4 +652,9 @@ chrome_test_java_sources = [
 
 if (enable_feed_v2) {
   chrome_test_java_sources += [ "javatests/src/org/chromium/chrome/browser/ntp/NewTabPageColorWithFeedV2Test.java" ]
+}
+
+# Test can be broken by R8 and isn't testing functionality.
+if (is_java_debug) {
+  chrome_test_java_sources += [ "javatests/src/org/chromium/chrome/browser/payments/PaymentErrorStringsTest.java" ]
 }

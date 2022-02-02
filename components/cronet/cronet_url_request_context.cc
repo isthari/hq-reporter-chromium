@@ -146,7 +146,10 @@ CronetURLRequestContext::CronetURLRequestContext(
     std::unique_ptr<URLRequestContextConfig> context_config,
     std::unique_ptr<Callback> callback,
     scoped_refptr<base::SingleThreadTaskRunner> network_task_runner)
-    : default_load_flags_(
+    : bidi_stream_detect_broken_connection_(
+          context_config->bidi_stream_detect_broken_connection),
+      heartbeat_interval_(context_config->heartbeat_interval),
+      default_load_flags_(
           net::LOAD_NORMAL |
           (context_config->load_disable_cache ? net::LOAD_DISABLE_CACHE : 0)),
       network_tasks_(
@@ -326,7 +329,7 @@ void CronetURLRequestContext::NetworkTasks::Initialize(
 
   // Set up pref file if storage path is specified.
   if (!config->storage_path.empty()) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     base::FilePath storage_path(
         base::FilePath::FromUTF8Unsafe(config->storage_path));
 #else
@@ -533,7 +536,7 @@ CronetURLRequestContext::GetNetworkTaskRunner() const {
 
 bool CronetURLRequestContext::StartNetLogToFile(const std::string& file_name,
                                                 bool log_all) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::FilePath file_path(base::FilePath::FromUTF8Unsafe(file_name));
 #else
   base::FilePath file_path(file_name);
@@ -658,7 +661,7 @@ void CronetURLRequestContext::NetworkTasks::StartNetLogToBoundedFile(
 
   // TODO(eroman): The cronet API passes a directory here. But it should now
   // just pass a file path.
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   base::FilePath file_path(base::FilePath::FromUTF8Unsafe(dir_path));
 #else
   base::FilePath file_path(dir_path);

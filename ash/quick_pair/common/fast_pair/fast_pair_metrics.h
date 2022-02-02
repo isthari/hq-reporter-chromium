@@ -6,10 +6,12 @@
 #define ASH_QUICK_PAIR_COMMON_FAST_PAIR_FAST_PAIR_METRICS_H_
 
 #include "ash/quick_pair/common/account_key_failure.h"
+#include "ash/quick_pair/common/fast_pair/fast_pair_http_result.h"
 #include "ash/quick_pair/common/pair_failure.h"
 #include "base/component_export.h"
 #include "base/time/time.h"
 #include "device/bluetooth/bluetooth_device.h"
+#include "device/bluetooth/bluetooth_low_energy_scan_session.h"
 #include "device/bluetooth/bluetooth_socket.h"
 
 namespace ash {
@@ -26,8 +28,12 @@ enum COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairEngagementFlowEvent {
   kDiscoveryUiDismissed = 11,
   kDiscoveryUiConnectPressed = 12,
   kDiscoveryUiDismissedByUser = 13,
+  kDiscoveryUiLearnMorePressed = 14,
   kPairingFailed = 121,
   kPairingSucceeded = 122,
+  kDiscoveryUiConnectPressedAfterLearnMorePressed = 141,
+  kDiscoveryUiDismissedByUserAfterLearnMorePressed = 142,
+  kDiscoveryUiDismissedAfterLearnMorePressed = 143,
   kErrorUiDismissed = 1211,
   kErrorUiSettingsPressed = 1212,
   kErrorUiDismissedByUser = 1213,
@@ -71,6 +77,15 @@ enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON) HandshakeFailureReason {
   kFailedDecryptResponse = 3,
   kFailedIncorrectResponseType = 4,
   kMaxValue = kFailedIncorrectResponseType,
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. This enum should be kept in sync
+// with the FastPairVersion enum in src/tools/metrics/histograms/enums.xml.
+enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairVersion {
+  kVersion1 = 0,
+  kVersion2 = 1,
+  kMaxValue = kVersion2,
 };
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
@@ -190,16 +205,16 @@ void RecordMessageStreamConnectToServiceTime(
     base::TimeDelta total_connect_time);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
-void RecordDeviceMetadataFetchResult(bool success);
+void RecordDeviceMetadataFetchResult(const FastPairHttpResult& result);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
-void RecordFootprintsFetcherDeleteResult(bool success);
+void RecordFootprintsFetcherDeleteResult(const FastPairHttpResult& result);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
-void RecordFootprintsFetcherPostResult(bool success);
+void RecordFootprintsFetcherPostResult(const FastPairHttpResult& result);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
-void RecordFootprintsFetcherGetResult(bool success);
+void RecordFootprintsFetcherGetResult(const FastPairHttpResult& result);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordFastPairRepositoryCacheResult(bool success);
@@ -209,6 +224,41 @@ void RecordHandshakeResult(bool success);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordHandshakeFailureReason(HandshakeFailureReason failure_reason);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordBluetoothLowEnergyScannerStartSessionResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordBluetoothLowEnergyScannerStartSessionErrorReason(
+    device::BluetoothLowEnergyScanSession::ErrorCode error_code);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordBluetoothLowEnergyScanFilterResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordFastPairDiscoveredVersion(FastPairVersion version);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordNavigateToSettingsResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordConnectDeviceResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordPairDeviceResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordPairDeviceErrorReason(
+    device::BluetoothDevice::ConnectErrorCode error_code);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordConfirmPasskeyConfirmTime(base::TimeDelta total_confirm_time);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordConfirmPasskeyAskTime(base::TimeDelta total_ask_time);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordPairFailureRetry(int num_retries);
 
 }  // namespace quick_pair
 }  // namespace ash

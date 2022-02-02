@@ -565,15 +565,13 @@ NGBreakStatus FinishFragmentationForFragmentainer(
     builder->SetConsumedBlockSizeLegacyAdjustment(
         consumed_block_size_legacy_adjustment);
   } else {
-    // When we are in the initial column balancing pass, use the block-size
-    // calculated by the algorithm. Since any previously consumed block-size
-    // is already baked in (in order to correctly honor specified block-size
-    // (which makes sense to everyone but fragmentainers)), we need to extract
-    // it again now.
     LayoutUnit fragments_total_block_size = builder->FragmentsTotalBlockSize();
-    builder->SetFragmentBlockSize(fragments_total_block_size -
+    // Just pass the value through. This is a fragmentainer, and fragmentainers
+    // don't have previously consumed block-size baked in, unlike any other
+    // fragments.
+    builder->SetFragmentBlockSize(fragments_total_block_size);
+    builder->SetConsumedBlockSize(fragments_total_block_size +
                                   consumed_block_size);
-    builder->SetConsumedBlockSize(fragments_total_block_size);
   }
   if (builder->IsEmptySpannerParent() &&
       builder->HasOutOfFlowFragmentainerDescendants())
@@ -792,24 +790,35 @@ bool MovePastBreakpoint(const NGConstraintSpace& space,
         (!builder || !builder->HasEarlyBreak() ||
          appeal_inside >= builder->EarlyBreak().BreakAppeal()))
       return true;
-  } else if (refuse_break_before ||
-             (appeal_before == kBreakAppealLastResort && builder &&
-              builder->RequiresContentBeforeBreaking()) ||
-             BlockSizeForFragmentation(
-                 layout_result, space.GetWritingDirection()) <= space_left) {
-    // The child either fits, or we are not allowed to break. So we can move
-    // past this breakpoint.
-    if (child.IsBlock() && builder) {
-      // We're tentatively not going to break before or inside this child, but
-      // we'll check the appeal of breaking there anyway. It may be the best
-      // breakpoint we'll ever find. (Note that we only do this for block
-      // children, since, when it comes to inline layout, we first need to lay
-      // out all the line boxes, so that we know what do to in order to honor
-      // orphans and widows, if at all possible.)
-      UpdateEarlyBreakAtBlockChild(space, To<NGBlockNode>(child), layout_result,
-                                   appeal_before, builder);
+  } else {
+    bool move_past = refuse_break_before;
+    if (!move_past) {
+      if (BlockSizeForFragmentation(
+              layout_result, space.GetWritingDirection()) <= space_left) {
+        // The fragment fits! We can move past.
+        move_past = true;
+      } else if (appeal_before == kBreakAppealLastResort && builder &&
+                 builder->RequiresContentBeforeBreaking()) {
+        // The fragment doesn't fit, but we need to force to stay here anyway.
+        builder->SetIsBlockSizeForFragmentationClamped();
+        move_past = true;
+      }
     }
-    return true;
+    if (move_past) {
+      // The child either fits, or we are not allowed to break. So we can move
+      // past this breakpoint.
+      if (child.IsBlock() && builder) {
+        // We're tentatively not going to break before or inside this child, but
+        // we'll check the appeal of breaking there anyway. It may be the best
+        // breakpoint we'll ever find. (Note that we only do this for block
+        // children, since, when it comes to inline layout, we first need to lay
+        // out all the line boxes, so that we know what do to in order to honor
+        // orphans and widows, if at all possible.)
+        UpdateEarlyBreakAtBlockChild(space, To<NGBlockNode>(child),
+                                     layout_result, appeal_before, builder);
+      }
+      return true;
+    }
   }
 
   // We don't want to break inside, so we should attempt to break before.
@@ -893,8 +902,10 @@ const NGEarlyBreak* EnterEarlyBreakInChild(const NGBlockNode& child,
 bool IsEarlyBreakTarget(const NGEarlyBreak& early_break,
                         const NGBoxFragmentBuilder& builder,
                         const NGLayoutInputNode& child) {
-  if (early_break.Type() == NGEarlyBreak::kLine)
-    return child.IsInline() && early_break.LineNumber() == builder.LineCount();
+  if (early_break.Type() == NGEarlyBreak::kLine) {
+    DCHECK(child.IsInline() || child.IsFlexItem());
+    return early_break.LineNumber() == builder.LineCount();
+  }
   return early_break.IsBreakBefore() && early_break.BlockNode() == child;
 }
 

@@ -699,6 +699,24 @@ public class WebContentsAccessibilityEventsTest {
 
     @Test
     @SmallTest
+    public void test_inputCombobox() {
+        performTest("input-combobox.html", "input-combobox-expected-android.txt");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputComboboxAria1() {
+        performTest("input-combobox-aria1.html", "input-combobox-aria1-expected-android.txt");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputComboboxDialog() {
+        performTest("input-combobox-dialog.html", "input-combobox-dialog-expected-android.txt");
+    }
+
+    @Test
+    @SmallTest
     public void test_inputTypeTextValueChanged() {
         performTest("input-type-text-value-changed.html", EMPTY_EXPECTATIONS_FILE);
     }
@@ -906,6 +924,12 @@ public class WebContentsAccessibilityEventsTest {
     @SmallTest
     public void test_removeSubtree() {
         performTest("remove-subtree.html", EMPTY_EXPECTATIONS_FILE);
+    }
+
+    @Test
+    @SmallTest
+    public void test_reparentElementWithActiveDescendant() {
+        performTest("reparent-element-with-active-descendant.html", EMPTY_EXPECTATIONS_FILE);
     }
 
     @Test

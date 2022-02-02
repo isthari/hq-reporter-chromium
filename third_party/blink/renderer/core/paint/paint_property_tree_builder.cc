@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/check_op.h"
 #include "cc/input/main_thread_scrolling_reason.h"
 #include "cc/input/overscroll_behavior.h"
 #include "third_party/blink/renderer/core/animation/element_animations.h"
@@ -22,6 +23,7 @@
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
+#include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_table_row.h"
 #include "third_party/blink/renderer/core/layout/layout_table_section.h"
 #include "third_party/blink/renderer/core/layout/layout_video.h"
@@ -51,8 +53,10 @@
 #include "third_party/blink/renderer/core/paint/paint_property_tree_printer.h"
 #include "third_party/blink/renderer/core/paint/rounded_border_geometry.h"
 #include "third_party/blink/renderer/core/paint/svg_root_painter.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/graphics/compositing/paint_artifact_compositor.h"
 #include "third_party/blink/renderer/platform/graphics/document_transition_shared_element_id.h"
+#include "third_party/blink/renderer/platform/graphics/paint/effect_paint_property_node.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
@@ -73,23 +77,15 @@ bool AreSubtreeUpdateReasonsIsolationPiercing(unsigned reasons) {
              SubtreePaintPropertyUpdateReason::kContainerChainMayChange));
 }
 
-void PopulateSharedElementAndResourceId(
+void PopulateSharedElementAndResourceIds(
     const LayoutObject& object,
     DocumentTransitionSharedElementId* shared_element_id,
     viz::SharedElementResourceId* resource_id) {
-  Element* element = DynamicTo<Element>(object.GetNode());
-  // If we're not compositing this element for document transition, then it has
-  // no shared element id.
-  if (!element || !element->ShouldCompositeForDocumentTransition())
-    return;
-
-  auto* document_transition_supplement =
-      DocumentTransitionSupplement::FromIfExists(element->GetDocument());
-  if (!document_transition_supplement)
-    return;
-  document_transition_supplement->GetTransition()
-      ->PopulateSharedElementAndResourceId(element, shared_element_id,
-                                           resource_id);
+  if (auto* supplement =
+          DocumentTransitionSupplement::FromIfExists(object.GetDocument())) {
+    supplement->GetTransition()->PopulateSharedElementAndResourceIds(
+        object, shared_element_id, resource_id);
+  }
 }
 
 }  // namespace
@@ -107,7 +103,6 @@ PaintPropertyTreeBuilderFragmentContext::
 
 PaintPropertyTreeBuilderContext::PaintPropertyTreeBuilderContext()
     : force_subtree_update_reasons(0u),
-      clip_changed(false),
       is_repeating_fixed_position(false),
       has_svg_hidden_container_ancestor(false),
       supports_composited_raster_invalidation(true),
@@ -313,12 +308,6 @@ class FragmentPaintPropertyTreeBuilder {
   void OnUpdate(PaintPropertyChangeType change) {
     property_changed_ = std::max(property_changed_, change);
   }
-  // Like |OnUpdate| but sets |clip_changed| if the clip values change.
-  void OnUpdateClip(PaintPropertyChangeType change) {
-    OnUpdate(change);
-    full_context_.clip_changed |=
-        change >= PaintPropertyChangeType::kChangedOnlySimpleValues;
-  }
   // Like |OnUpdate| but forces a piercing subtree update if the scroll tree
   // hierarchy changes because the scroll tree does not have isolation nodes
   // and non-piercing updates can fail to update scroll descendants.
@@ -341,10 +330,6 @@ class FragmentPaintPropertyTreeBuilder {
       full_context_.force_subtree_update_reasons |=
           PaintPropertyTreeBuilderContext::kSubtreeUpdateIsolationPiercing;
     }
-  }
-  void OnClearClip(bool cleared) {
-    OnClear(cleared);
-    full_context_.clip_changed |= cleared;
   }
 
   CompositorElementId GetCompositorElementId(
@@ -1231,14 +1216,14 @@ void FragmentPaintPropertyTreeBuilder::UpdateEffect() {
         // TODO(crbug.com/1248598): We use pixel-snapped mask clip and clip path
         // clip as the layout clip rect, which may cause wrong result when
         // mapping in layout coordinates.
-        OnUpdateClip(properties_->UpdateMaskClip(
+        OnUpdate(properties_->UpdateMaskClip(
             *context_.current.clip,
             ClipPaintPropertyNode::State(context_.current.transform,
                                          gfx::RectF(combined_clip),
                                          FloatRoundedRect(combined_clip))));
         output_clip = properties_->MaskClip();
       } else {
-        OnClearClip(properties_->ClearMaskClip());
+        OnClear(properties_->ClearMaskClip());
       }
 
       CompositorElementId mask_compositor_element_id;
@@ -1310,7 +1295,7 @@ void FragmentPaintPropertyTreeBuilder::UpdateEffect() {
       state.has_active_backdrop_filter_animation =
           style.HasCurrentBackdropFilterAnimation();
 
-      PopulateSharedElementAndResourceId(
+      PopulateSharedElementAndResourceIds(
           object_, &state.document_transition_shared_element_id,
           &state.shared_element_resource_id);
 
@@ -1319,8 +1304,24 @@ void FragmentPaintPropertyTreeBuilder::UpdateEffect() {
           style.IsRunningOpacityAnimationOnCompositor();
       animation_state.is_running_backdrop_filter_animation_on_compositor =
           style.IsRunningBackdropFilterAnimationOnCompositor();
+
+      auto* parent_effect = context_.current_effect;
+      // The transition pseudo element doesn't draw into the LayoutView's
+      // effect, but rather as its sibling. So this re-parents the effect to
+      // whatever the grand-parent effect was. Note that it doesn't matter
+      // whether the grand-parent is the root stacking context or something
+      // intermediate, as long as it is a sibling of the LayoutView context.
+      // This makes it possible to capture the output of the LayoutView context
+      // into one of the transition contexts. We also want that capture to be
+      // without any additional effects, such as overscroll elasticity effects.
+      if (object_.GetNode() &&
+          object_.GetNode()->GetPseudoId() == kPseudoIdTransition) {
+        parent_effect = context_.current_effect->Parent();
+      }
+      DCHECK(parent_effect);
+
       auto effective_change_type = properties_->UpdateEffect(
-          *context_.current_effect, std::move(state), animation_state);
+          *parent_effect, std::move(state), animation_state);
       // If we have simple value change, which means opacity, we should try to
       // directly update it on the PaintArtifactCompositor in order to avoid
       // doing a full rebuild.
@@ -1385,7 +1386,7 @@ void FragmentPaintPropertyTreeBuilder::UpdateEffect() {
       OnClear(properties_->ClearEffect());
       OnClear(properties_->ClearMask());
       OnClear(properties_->ClearClipPathMask());
-      OnClearClip(properties_->ClearMaskClip());
+      OnClear(properties_->ClearMaskClip());
     }
   }
 
@@ -1586,13 +1587,13 @@ void FragmentPaintPropertyTreeBuilder::UpdateFragmentClip() {
   if (NeedsPaintPropertyUpdate()) {
     if (context_.fragment_clip) {
       const auto& clip_rect = *context_.fragment_clip;
-      OnUpdateClip(properties_->UpdateFragmentClip(
+      OnUpdate(properties_->UpdateFragmentClip(
           *context_.current.clip,
           ClipPaintPropertyNode::State(context_.current.transform,
                                        gfx::RectF(clip_rect),
                                        ToSnappedClipRect(clip_rect))));
     } else {
-      OnClearClip(properties_->ClearFragmentClip());
+      OnClear(properties_->ClearFragmentClip());
     }
   }
 
@@ -1620,13 +1621,13 @@ void FragmentPaintPropertyTreeBuilder::UpdateCssClip() {
       DCHECK(object_.CanContainAbsolutePositionObjects());
       const auto& clip_rect =
           To<LayoutBox>(object_).ClipRect(context_.current.paint_offset);
-      OnUpdateClip(properties_->UpdateCssClip(
+      OnUpdate(properties_->UpdateCssClip(
           *context_.current.clip,
           ClipPaintPropertyNode::State(context_.current.transform,
                                        gfx::RectF(clip_rect),
                                        ToSnappedClipRect(clip_rect))));
     } else {
-      OnClearClip(properties_->ClearCssClip());
+      OnClear(properties_->ClearCssClip());
     }
   }
 
@@ -1637,7 +1638,7 @@ void FragmentPaintPropertyTreeBuilder::UpdateCssClip() {
 void FragmentPaintPropertyTreeBuilder::UpdateClipPathClip() {
   if (NeedsPaintPropertyUpdate()) {
     if (!NeedsClipPathClip(object_, fragment_data_)) {
-      OnClearClip(properties_->ClearClipPathClip());
+      OnClear(properties_->ClearClipPathClip());
     } else {
       // TODO(crbug.com/1248598): We use pixel-snapped clip path clip as the
       // layout clip rect, which may cause wrong result when mapping in layout
@@ -1647,8 +1648,8 @@ void FragmentPaintPropertyTreeBuilder::UpdateClipPathClip() {
           gfx::RectF(*fragment_data_.ClipPathBoundingBox()),
           FloatRoundedRect(*fragment_data_.ClipPathBoundingBox()));
       state.clip_path = fragment_data_.ClipPathPath();
-      OnUpdateClip(properties_->UpdateClipPathClip(*context_.current.clip,
-                                                   std::move(state)));
+      OnUpdate(properties_->UpdateClipPathClip(*context_.current.clip,
+                                               std::move(state)));
     }
   }
 
@@ -1786,10 +1787,10 @@ void FragmentPaintPropertyTreeBuilder::UpdateOverflowControlsClip() {
     return;
 
   if (NeedsOverflowControlsClip()) {
-    // Clip overflow controls to the border box rect. Not wrapped with
-    // OnUpdateClip() because this clip doesn't affect descendants. Wrap with
-    // OnUpdate() to let PrePaintTreeWalk see the change. This may cause
-    // unnecessary subtree update, but is not a big deal because it is rare.
+    // Clip overflow controls to the border box rect. Though this clip doesn't
+    // affect descendants, wrap with OnUpdate() to let PrePaintTreeWalk see the
+    // change. This may cause unnecessary subtree update, but is not a big deal
+    // because it is rare.
     const auto& clip_rect = PhysicalRect(context_.current.paint_offset,
                                          To<LayoutBox>(object_).Size());
     OnUpdate(properties_->UpdateOverflowControlsClip(
@@ -1834,10 +1835,10 @@ void FragmentPaintPropertyTreeBuilder::UpdateInnerBorderRadiusClip() {
                                              paint_clip_rect);
       ClipPaintPropertyNode::State state(context_.current.transform,
                                          layout_clip_rect, paint_clip_rect);
-      OnUpdateClip(properties_->UpdateInnerBorderRadiusClip(
-          *context_.current.clip, std::move(state)));
+      OnUpdate(properties_->UpdateInnerBorderRadiusClip(*context_.current.clip,
+                                                        std::move(state)));
     } else {
-      OnClearClip(properties_->ClearInnerBorderRadiusClip());
+      OnClear(properties_->ClearInnerBorderRadiusClip());
     }
   }
 
@@ -1912,10 +1913,10 @@ void FragmentPaintPropertyTreeBuilder::UpdateOverflowClip() {
         // the first parameter?
         state.SetClipRect(clip_rect, FloatRoundedRect(clip_rect));
       }
-      OnUpdateClip(properties_->UpdateOverflowClip(*context_.current.clip,
-                                                   std::move(state)));
+      OnUpdate(properties_->UpdateOverflowClip(*context_.current.clip,
+                                               std::move(state)));
     } else {
-      OnClearClip(properties_->ClearOverflowClip());
+      OnClear(properties_->ClearOverflowClip());
     }
   }
 

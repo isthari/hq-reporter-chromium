@@ -296,6 +296,7 @@
 <translation id="3556731189587832921">engleski (US) s međunarodnom tipkovnicom za PC</translation>
 <translation id="3567221313191587603">Odaberite datoteku i uključite <ph name="OFFLINE_CHECKBOX_NAME" /> da biste pristupili svojim datotekama izvanmrežno.</translation>
 <translation id="357479282490346887">Litavski</translation>
+<translation id="3587482841069643663">Sve</translation>
 <translation id="3592251141500063301">Postavljanje izvanmrežne dostupnosti datoteke <ph name="FILE_NAME" /> nije uspjelo</translation>
 <translation id="3601151620448429694"><ph name="NETWORK_NAME" /> · <ph name="CARRIER_NAME" /></translation>
 <translation id="3603385196401704894">francuska (kanadska)</translation>
@@ -680,6 +681,7 @@
 <translation id="6935521024859866267">Naopako</translation>
 <translation id="6943836128787782965">HTTP GET neuspješan</translation>
 <translation id="6949408524333579394">transliteracija za srpski</translation>
+<translation id="6954309393500027528">Administrator je blokirao ljepljenje te datoteke</translation>
 <translation id="6960565108681981554">Nije aktivirano. Obratite se mobilnom operateru.</translation>
 <translation id="696203921837389374">Omogući sinkronizaciju putem mobilnih podataka</translation>
 <translation id="6965382102122355670">U redu</translation>

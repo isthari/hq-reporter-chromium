@@ -242,7 +242,7 @@ FontDescription::FamilyDescription StyleBuilderConverterBase::ConvertFontFamily(
 
   FontFamily* curr_family = nullptr;
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
   bool has_seen_system_ui = false;
 #endif
 
@@ -266,7 +266,7 @@ FontDescription::FamilyDescription StyleBuilderConverterBase::ConvertFontFamily(
     // TODO(crbug.com/1065468): Get rid of GenericFamilyType.
     bool is_generic = generic_family != FontDescription::kNoFamily ||
                       IsA<CSSIdentifierValue>(*family);
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     // TODO(https://crbug.com/554590): Remove this counter when it's no longer
     // necessary.
     if (!has_seen_system_ui) {
@@ -346,6 +346,32 @@ StyleBuilderConverter::ConvertFontVariationSettings(
   }
   std::sort(settings->begin(), settings->end(), CompareTags);
   return settings;
+}
+
+scoped_refptr<FontPalette> StyleBuilderConverter::ConvertFontPalette(
+    StyleResolverState& state,
+    const CSSValue& value) {
+  auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
+  if (identifier_value &&
+      identifier_value->GetValueID() == CSSValueID::kNormal) {
+    return nullptr;
+  }
+
+  if (identifier_value && identifier_value->GetValueID() == CSSValueID::kDark) {
+    return FontPalette::Create(FontPalette::kDarkPalette);
+  }
+
+  if (identifier_value &&
+      identifier_value->GetValueID() == CSSValueID::kLight) {
+    return FontPalette::Create(FontPalette::kLightPalette);
+  }
+
+  auto* custom_identifier = DynamicTo<CSSCustomIdentValue>(value);
+  if (custom_identifier) {
+    return FontPalette::Create(custom_identifier->Value());
+  }
+
+  return nullptr;
 }
 
 float MathScriptScaleFactor(StyleResolverState& state) {
@@ -1101,7 +1127,7 @@ void StyleBuilderConverter::ConvertGridTrackList(
         repeated_track_sizes.push_back(
             ConvertGridTrackSize(state, *auto_repeat_value));
       }
-      if (RuntimeEnabledFeatures::LayoutNGGridEnabled()) {
+      if (RuntimeEnabledFeatures::LayoutNGEnabled()) {
         track_sizes.NGTrackList().AddRepeater(
             repeated_track_sizes,
             static_cast<NGGridTrackRepeater::RepeatType>(auto_repeat_type));
@@ -1124,7 +1150,7 @@ void StyleBuilderConverter::ConvertGridTrackList(
         }
       }
 
-      if (RuntimeEnabledFeatures::LayoutNGGridEnabled() &&
+      if (RuntimeEnabledFeatures::LayoutNGEnabled() &&
           (grid_axis_type == GridAxisType::kStandaloneAxis)) {
         Vector<GridTrackSize, 1> repeater_track_sizes;
         for (auto integer_repeat_value : *grid_integer_repeat_value) {
@@ -1141,7 +1167,7 @@ void StyleBuilderConverter::ConvertGridTrackList(
     }
 
     ConvertLineNameOrTrackSize(**curr_value);
-    if (RuntimeEnabledFeatures::LayoutNGGridEnabled() &&
+    if (RuntimeEnabledFeatures::LayoutNGEnabled() &&
         !curr_value->Get()->IsGridLineNamesValue()) {
       track_sizes.NGTrackList().AddRepeater(
           {ConvertGridTrackSize(state, **curr_value)});
@@ -1733,9 +1759,9 @@ TextEmphasisPosition StyleBuilderConverter::ConvertTextTextEmphasisPosition(
   CSSValueID first = To<CSSIdentifierValue>(list.Item(0)).GetValueID();
   if (list.length() < 2) {
     if (first == CSSValueID::kOver)
-      return TextEmphasisPosition::kOver;
+      return TextEmphasisPosition::kOverRight;
     if (first == CSSValueID::kUnder)
-      return TextEmphasisPosition::kUnder;
+      return TextEmphasisPosition::kUnderRight;
     return TextEmphasisPosition::kOverRight;
   }
   CSSValueID second = To<CSSIdentifierValue>(list.Item(1)).GetValueID();

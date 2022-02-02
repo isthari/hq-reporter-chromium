@@ -130,7 +130,7 @@ class HistoryClustersService : public KeyedService {
   void CompleteVisitContextAnnotationsIfReady(int64_t nav_id);
 
   // Returns the freshest clusters created from the user visit history based on
-  // `query`, `begin_time`, `end_time`, and `max_count`.
+  // `query`, `begin_time`, and `end_time`.
   // - `begin_time` is an inclusive lower bound. In the general case where the
   //   caller wants to traverse to the start of history, `base::Time()` should
   //   be used.
@@ -142,7 +142,6 @@ class HistoryClustersService : public KeyedService {
   void QueryClusters(const std::string& query,
                      base::Time begin_time,
                      base::Time end_time,
-                     size_t max_count,
                      QueryClustersCallback callback,
                      base::CancelableTaskTracker* task_tracker);
 
@@ -158,11 +157,6 @@ class HistoryClustersService : public KeyedService {
   // request while immediately returning false. It's expected that on the next
   // keystroke, the cache may be ready and return true then.
   bool DoesQueryMatchAnyCluster(const std::string& query);
-
-  // Collapses all the duplicate visits into the canonical visits, thereby
-  // "unflattening" the output of the backend. Public for testing purposes.
-  // TODO(tommycli): Move into the backend.
-  static void CollapseDuplicateVisits(std::vector<history::Cluster>* clusters);
 
   // Clears `all_keywords_cache_` and cancels any pending tasks to populate it.
   void ClearKeywordCache();

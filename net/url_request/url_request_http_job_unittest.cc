@@ -1568,7 +1568,8 @@ TEST_F(URLRequestHttpJobTest, CookieSchemeRequestSchemeHistogram) {
   base::HistogramTester histograms;
   const std::string test_histogram = "Cookie.CookieSchemeRequestScheme";
 
-  CookieMonster cm(nullptr, nullptr);
+  CookieMonster cm(/*store=*/nullptr, /*net_log=*/nullptr,
+                   /*first_party_sets_enabled=*/false);
   TestURLRequestContext context(true);
   context.set_cookie_store(&cm);
   context.Init();
@@ -1661,7 +1662,8 @@ TEST_F(URLRequestHttpJobTest, PrivacyMode_ExclusionReason) {
   ASSERT_TRUE(test_server.Start());
 
   FilteringTestNetworkDelegate network_delegate;
-  CookieMonster cm(nullptr, nullptr);
+  CookieMonster cm(/*store=*/nullptr, /*net_log=*/nullptr,
+                   /*first_party_sets_enabled=*/false);
   TestURLRequestContext context(true);
   context.set_cookie_store(&cm);
   context.set_network_delegate(&network_delegate);
@@ -1732,7 +1734,8 @@ TEST_F(URLRequestHttpJobTest, IndividuallyBlockedCookies) {
   FilteringTestNetworkDelegate network_delegate;
   network_delegate.set_block_get_cookies_by_name(true);
   network_delegate.SetCookieFilter("blocked_");
-  CookieMonster cm(nullptr, nullptr);
+  CookieMonster cm(/*store=*/nullptr, /*net_log=*/nullptr,
+                   /*first_party_sets_enabled=*/false);
   TestURLRequestContext context(true);
   context.set_cookie_store(&cm);
   context.set_network_delegate(&network_delegate);
@@ -1809,7 +1812,8 @@ TEST_P(PartitionedCookiesURLRequestHttpJobTest, SetPartitionedCookie) {
   ASSERT_TRUE(https_test.Start());
 
   TestURLRequestContext context;
-  CookieMonster cookie_monster(nullptr, nullptr);
+  CookieMonster cookie_monster(nullptr, nullptr,
+                               false /* first_party_sets_enabled */);
   context.set_cookie_store(&cookie_monster);
 
   TestDelegate delegate;
@@ -1891,7 +1895,8 @@ TEST_P(PartitionedCookiesURLRequestHttpJobTest,
       kOwnerSite, std::set<SchemefulSite>({kOwnerSite, kMemberSite})));
 
   TestURLRequestContext context;
-  CookieMonster cookie_monster(nullptr, nullptr);
+  CookieMonster cookie_monster(nullptr, nullptr,
+                               false /* first_party_sets_enabled */);
   auto cookie_access_delegate = std::make_unique<TestCookieAccessDelegate>();
   cookie_access_delegate->SetFirstPartySets(first_party_sets);
   cookie_monster.SetCookieAccessDelegate(std::move(cookie_access_delegate));
@@ -1974,6 +1979,114 @@ TEST_P(PartitionedCookiesURLRequestHttpJobTest,
     } else {
       EXPECT_EQ("__Host-foo=0; __Host-bar=1", delegate.data_received());
     }
+  }
+}
+
+TEST_P(PartitionedCookiesURLRequestHttpJobTest, PrivacyMode) {
+  EmbeddedTestServer https_test(EmbeddedTestServer::TYPE_HTTPS);
+  https_test.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(https_test.Start());
+
+  FilteringTestNetworkDelegate network_delegate;
+  CookieMonster cm(/*store=*/nullptr, /*net_log=*/nullptr,
+                   /*first_party_sets_enabled=*/false);
+  TestURLRequestContext context(true);
+  context.set_cookie_store(&cm);
+  context.set_network_delegate(&network_delegate);
+  context.Init();
+
+  const url::Origin kTopFrameOrigin =
+      url::Origin::Create(GURL("https://www.toplevelsite.com"));
+  const IsolationInfo kTestIsolationInfo =
+      IsolationInfo::CreateForInternalRequest(kTopFrameOrigin);
+
+  // Set an unpartitioned and partitioned cookie.
+  TestDelegate delegate;
+  std::unique_ptr<URLRequest> req(context.CreateRequest(
+      https_test.GetURL(
+          "/set-cookie?__Host-partitioned=0;SameSite=None;Secure;Path=/"
+          ";Partitioned;&__Host-unpartitioned=1;SameSite=None;Secure;Path=/"),
+      DEFAULT_PRIORITY, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  req->set_isolation_info(kTestIsolationInfo);
+  req->Start();
+  ASSERT_TRUE(req->is_pending());
+  delegate.RunUntilComplete();
+
+  {  // Get both cookies when privacy mode is disabled.
+    TestDelegate delegate;
+    std::unique_ptr<URLRequest> req(context.CreateRequest(
+        https_test.GetURL("/echoheader?Cookie"), DEFAULT_PRIORITY, &delegate,
+        TRAFFIC_ANNOTATION_FOR_TESTS));
+    req->set_isolation_info(kTestIsolationInfo);
+    req->Start();
+    delegate.RunUntilComplete();
+    EXPECT_EQ("__Host-partitioned=0; __Host-unpartitioned=1",
+              delegate.data_received());
+  }
+
+  {  // Get cookies with privacy mode enabled and partitioned state allowed.
+    network_delegate.set_force_privacy_mode(true);
+    network_delegate.set_partitioned_state_allowed(true);
+    TestDelegate delegate;
+    std::unique_ptr<URLRequest> req(context.CreateRequest(
+        https_test.GetURL("/echoheader?Cookie"), DEFAULT_PRIORITY, &delegate,
+        TRAFFIC_ANNOTATION_FOR_TESTS));
+    req->set_isolation_info(kTestIsolationInfo);
+    req->Start();
+    delegate.RunUntilComplete();
+    EXPECT_EQ(PartitionedCookiesEnabled() ? "__Host-partitioned=0" : "None",
+              delegate.data_received());
+    auto want_exclusion_reasons =
+        PartitionedCookiesEnabled()
+            ? std::vector<CookieInclusionStatus::ExclusionReason>{}
+            : std::vector<CookieInclusionStatus::ExclusionReason>{
+                  CookieInclusionStatus::EXCLUDE_USER_PREFERENCES};
+    EXPECT_THAT(
+        req->maybe_sent_cookies(),
+        UnorderedElementsAre(
+            MatchesCookieWithAccessResult(
+                MatchesCookieWithName("__Host-partitioned"),
+                MatchesCookieAccessResult(HasExactlyExclusionReasonsForTesting(
+                                              want_exclusion_reasons),
+                                          _, _, _)),
+            MatchesCookieWithAccessResult(
+                MatchesCookieWithName("__Host-unpartitioned"),
+                MatchesCookieAccessResult(
+                    HasExactlyExclusionReasonsForTesting(
+                        std::vector<CookieInclusionStatus::ExclusionReason>{
+                            CookieInclusionStatus::EXCLUDE_USER_PREFERENCES}),
+                    _, _, _))));
+  }
+
+  {  // Get cookies with privacy mode enabled and partitioned state is not
+     // allowed.
+    network_delegate.set_force_privacy_mode(true);
+    network_delegate.set_partitioned_state_allowed(false);
+    TestDelegate delegate;
+    std::unique_ptr<URLRequest> req(context.CreateRequest(
+        https_test.GetURL("/echoheader?Cookie"), DEFAULT_PRIORITY, &delegate,
+        TRAFFIC_ANNOTATION_FOR_TESTS));
+    req->set_isolation_info(kTestIsolationInfo);
+    req->Start();
+    delegate.RunUntilComplete();
+    EXPECT_EQ("None", delegate.data_received());
+    EXPECT_THAT(
+        req->maybe_sent_cookies(),
+        UnorderedElementsAre(
+            MatchesCookieWithAccessResult(
+                MatchesCookieWithName("__Host-partitioned"),
+                MatchesCookieAccessResult(
+                    HasExactlyExclusionReasonsForTesting(
+                        std::vector<CookieInclusionStatus::ExclusionReason>{
+                            CookieInclusionStatus::EXCLUDE_USER_PREFERENCES}),
+                    _, _, _)),
+            MatchesCookieWithAccessResult(
+                MatchesCookieWithName("__Host-unpartitioned"),
+                MatchesCookieAccessResult(
+                    HasExactlyExclusionReasonsForTesting(
+                        std::vector<CookieInclusionStatus::ExclusionReason>{
+                            CookieInclusionStatus::EXCLUDE_USER_PREFERENCES}),
+                    _, _, _))));
   }
 }
 

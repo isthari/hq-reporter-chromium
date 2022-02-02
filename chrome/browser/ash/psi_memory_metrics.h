@@ -10,7 +10,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/synchronization/atomic_flag.h"
+#include "base/sequence_checker.h"
 #include "base/task/delayed_task_handle.h"
 #include "base/task/task_runner.h"
 #include "base/time/time.h"
@@ -78,10 +78,14 @@ class PSIMemoryMetrics : public base::RefCountedThreadSafe<PSIMemoryMetrics> {
   metrics::PSIMemoryParser parser_;
   base::TimeDelta collection_interval_;
 
-  // Task controllers/monitors.
+  // The background task runner where the collection takes place.
   scoped_refptr<base::SequencedTaskRunner> runner_;
-  base::AtomicFlag stopped_;
-  base::DelayedTaskHandle last_timer_;
+
+  // The timer that schedules the collection on a regular interval.
+  base::DelayedTaskHandle last_timer_
+      GUARDED_BY_CONTEXT(background_sequence_checker_);
+
+  SEQUENCE_CHECKER(background_sequence_checker_);
 };
 
 }  // namespace ash

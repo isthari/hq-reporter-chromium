@@ -4,8 +4,15 @@
 
 #include "net/cookies/cookie_partition_key_collection.h"
 
+#include <vector>
+
+#include "base/bind.h"
+#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "net/cookies/cookie_access_delegate.h"
+#include "net/cookies/cookie_partition_key.h"
 
 namespace net {
 
@@ -18,13 +25,12 @@ CookiePartitionKeyCollection::CookiePartitionKeyCollection(
     CookiePartitionKeyCollection&& other) = default;
 
 CookiePartitionKeyCollection::CookiePartitionKeyCollection(
-    const CookiePartitionKey& key) {
-  keys_.push_back(key);
-}
+    const CookiePartitionKey& key)
+    : CookiePartitionKeyCollection(base::flat_set<CookiePartitionKey>({key})) {}
 
 CookiePartitionKeyCollection::CookiePartitionKeyCollection(
-    const std::vector<CookiePartitionKey>& keys)
-    : keys_(keys) {}
+    base::flat_set<CookiePartitionKey> keys)
+    : keys_(std::move(keys)) {}
 
 CookiePartitionKeyCollection::CookiePartitionKeyCollection(
     bool contains_all_keys)
@@ -38,23 +44,49 @@ CookiePartitionKeyCollection& CookiePartitionKeyCollection::operator=(
 
 CookiePartitionKeyCollection::~CookiePartitionKeyCollection() = default;
 
-CookiePartitionKeyCollection CookiePartitionKeyCollection::FirstPartySetify(
-    const CookieAccessDelegate* cookie_access_delegate) const {
-  if (!cookie_access_delegate || IsEmpty() || ContainsAllKeys())
-    return *this;
-  std::vector<CookiePartitionKey> keys;
-  keys.reserve(PartitionKeys().size());
-  for (const auto& key : PartitionKeys()) {
-    absl::optional<SchemefulSite> fps_owner =
-        cookie_access_delegate->FindFirstPartySetOwner(key.site());
-    if (fps_owner) {
-      keys.push_back(
-          CookiePartitionKey::FromWire(fps_owner.value(), key.nonce()));
-    } else {
-      keys.push_back(key);
-    }
+void CookiePartitionKeyCollection::FirstPartySetify(
+    const CookieAccessDelegate* cookie_access_delegate,
+    base::OnceCallback<void(CookiePartitionKeyCollection)> callback) const {
+  if (!cookie_access_delegate || IsEmpty() || ContainsAllKeys()) {
+    std::move(callback).Run(*this);
+    return;
   }
-  return CookiePartitionKeyCollection(keys);
+
+  std::vector<SchemefulSite> sites;
+  sites.reserve(PartitionKeys().size());
+  for (const CookiePartitionKey& key : PartitionKeys()) {
+    // Partition keys that have a nonce are not available across top-level sites
+    // in the same First-Party Set.
+    if (key.nonce())
+      continue;
+    sites.push_back(key.site());
+  }
+  if (sites.empty()) {
+    std::move(callback).Run(*this);
+    return;
+  }
+  cookie_access_delegate->FindFirstPartySetOwners(
+      sites,
+      base::BindOnce(
+          [](const base::flat_set<CookiePartitionKey>& keys,
+             base::OnceCallback<void(CookiePartitionKeyCollection)> callback,
+             base::flat_map<SchemefulSite, SchemefulSite> sites_to_owners) {
+            std::vector<CookiePartitionKey> canonicalized_keys;
+            canonicalized_keys.reserve(keys.size());
+            for (const CookiePartitionKey& key : keys) {
+              const auto first_party_set_owner_iter =
+                  sites_to_owners.find(key.site());
+              canonicalized_keys.push_back(
+                  !key.nonce() &&
+                          first_party_set_owner_iter != sites_to_owners.end()
+                      ? CookiePartitionKey::FromWire(
+                            first_party_set_owner_iter->second)
+                      : key);
+            }
+            std::move(callback).Run(
+                CookiePartitionKeyCollection(canonicalized_keys));
+          },
+          PartitionKeys(), std::move(callback)));
 }
 
 bool CookiePartitionKeyCollection::Contains(

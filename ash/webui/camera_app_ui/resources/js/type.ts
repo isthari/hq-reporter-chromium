@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {assertExists, assertInstanceof} from './assert.js';
+
 /**
  * Photo or video resolution.
  */
@@ -188,6 +190,59 @@ export interface PerfEntry {
   event: PerfEvent;
   duration: number;
   perfInfo?: PerfInformation;
+}
+
+export interface VideoTrackSettings {
+  deviceId: string;
+  width: number;
+  height: number;
+  frameRate: number;
+}
+
+export function getVideoTrackSettings(videoTrack: MediaStreamTrack):
+    VideoTrackSettings {
+  // TODO(pihsun): The type from TypeScript lib.dom.d.ts is wrong on Chrome and
+  // the .deviceId should never be undefined. Try to override that when we have
+  // newer TypeScript compiler (>= 4.5) that supports overriding lib.dom.d.ts.
+  const {deviceId, width, height, frameRate} = videoTrack.getSettings();
+  return {
+    deviceId: assertExists(deviceId),
+    width: assertExists(width),
+    height: assertExists(height),
+    frameRate: assertExists(frameRate),
+  };
+}
+
+/**
+ * A proxy to get preview video or stream with notification of when the video
+ * stream is expired.
+ */
+export class PreviewVideo {
+  private expired = false;
+
+  constructor(
+      readonly video: HTMLVideoElement, readonly onExpired: Promise<void>) {
+    (async () => {
+      await this.onExpired;
+      this.expired = true;
+    })();
+  }
+
+  getStream(): MediaStream {
+    return assertInstanceof(this.video.srcObject, MediaStream);
+  }
+
+  getVideoTrack(): MediaStreamTrack {
+    return this.getStream().getVideoTracks()[0];
+  }
+
+  getVideoSettings(): VideoTrackSettings {
+    return getVideoTrackSettings(this.getVideoTrack());
+  }
+
+  isExpired(): boolean {
+    return this.expired;
+  }
 }
 
 /**

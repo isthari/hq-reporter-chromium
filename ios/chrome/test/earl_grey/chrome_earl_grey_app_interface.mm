@@ -16,6 +16,7 @@
 #include "components/browsing_data/core/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/metrics/demographics/demographic_metrics_provider.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/pref_names.h"
 #include "components/unified_consent/unified_consent_service.h"
@@ -30,6 +31,7 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
+#import "ios/chrome/browser/ui/popup_menu/overflow_menu/feature_flags.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
@@ -53,6 +55,8 @@
 #include "ios/testing/verify_custom_webkit.h"
 #import "ios/web/common/features.h"
 #import "ios/web/public/deprecated/crw_js_injection_receiver.h"
+#import "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/test/earl_grey/js_test_util.h"
 #import "ios/web/public/test/element_selector.h"
@@ -91,6 +95,19 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return base::SysUTF8ToNSString(serialized_value);
 }
 }
+
+@implementation JavaScriptExecutionResult
+
+- (instancetype)initWithResult:(NSString*)result
+           successfulExecution:(BOOL)outcome {
+  self = [super init];
+  if (self) {
+    _result = result;
+    _success = outcome;
+  }
+  return self;
+}
+@end
 
 @implementation ChromeEarlGreyAppInterface
 
@@ -349,12 +366,12 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return CGRectZero;
 }
 
-+ (NSUInteger)windowCount WARN_UNUSED_RESULT {
++ (NSUInteger)windowCount [[nodiscard]] {
   // If the scene API is in use, return the count of open sessions.
   return UIApplication.sharedApplication.openSessions.count;
 }
 
-+ (NSUInteger)foregroundWindowCount WARN_UNUSED_RESULT {
++ (NSUInteger)foregroundWindowCount [[nodiscard]] {
   // If the scene API is in use, look at all the connected scenes and count
   // those in the foreground.
   NSUInteger count = 0;
@@ -531,6 +548,20 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   if (!success) {
     NSString* NSErrorDescription = [NSString
         stringWithFormat:@"Failed waiting for web state containing element %@",
+                         selector.selectorDescription];
+    return testing::NSErrorWithLocalizedDescription(NSErrorDescription);
+  }
+  return nil;
+}
+
++ (NSError*)waitForWebStateNotContainingElement:(ElementSelector*)selector {
+  bool success = WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
+    return !web::test::IsWebViewContainingElement(
+        chrome_test_util::GetCurrentWebState(), selector);
+  });
+  if (!success) {
+    NSString* NSErrorDescription = [NSString
+        stringWithFormat:@"Failed waiting for web state without element %@",
                          selector.selectorDescription];
     return testing::NSErrorWithLocalizedDescription(NSErrorDescription);
   }
@@ -922,6 +953,42 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return blockResult;
 }
 
++ (JavaScriptExecutionResult*)executeJavaScript:(NSString*)javaScript {
+  __block bool handlerCalled = false;
+  __block NSString* blockResult = nil;
+  __block bool blockError = false;
+
+  std::string script = base::SysNSStringToUTF8(javaScript);
+  web::WebFrame* web_frame =
+      web::GetMainFrame(chrome_test_util::GetCurrentWebState());
+
+  web_frame->ExecuteJavaScript(
+      script, base::BindOnce(^(const base::Value* value, bool error) {
+        handlerCalled = true;
+        blockError = error;
+
+        base::Value none_value(base::Value::Type::NONE);
+        const base::Value* result = value ? value : &none_value;
+        DCHECK(result);
+
+        std::string serialized_value;
+        JSONStringValueSerializer serializer(&serialized_value);
+        serializer.Serialize(*result);
+        blockResult = base::SysUTF8ToNSString(serialized_value);
+      }));
+
+  bool completed = WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
+    return handlerCalled;
+  });
+
+  BOOL success = completed && !blockError;
+
+  JavaScriptExecutionResult* result =
+      [[JavaScriptExecutionResult alloc] initWithResult:blockResult
+                                    successfulExecution:success];
+  return result;
+}
+
 + (NSString*)mobileUserAgentString {
   return base::SysUTF8ToNSString(
       web::GetWebClient()->GetUserAgent(web::UserAgentType::MOBILE));
@@ -962,6 +1029,11 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
       {variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT,
        variations::GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY});
   return std::find(ids.begin(), ids.end(), variationID) != ids.end();
+}
+
++ (BOOL)isAddCredentialsInSettingsEnabled {
+  return base::FeatureList::IsEnabled(
+      password_manager::features::kSupportForAddPasswordsInSettings);
 }
 
 + (BOOL)isUKMEnabled {
@@ -1005,6 +1077,15 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 
 + (BOOL)isContextMenuActionsRefreshEnabled {
   return IsContextMenuActionsRefreshEnabled();
+}
+
++ (BOOL)isContextMenuInWebViewEnabled {
+  return base::FeatureList::IsEnabled(
+      web::features::kWebViewNativeContextMenuPhase2);
+}
+
++ (BOOL)isNewOverflowMenuEnabled {
+  return IsNewOverflowMenuEnabled();
 }
 
 #pragma mark - ScopedBlockPopupsPref

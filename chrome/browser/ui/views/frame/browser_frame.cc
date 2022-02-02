@@ -48,11 +48,11 @@
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "ui/display/screen.h"
 #endif
 
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
 #include "ui/views/linux_ui/linux_ui.h"
 #endif
 
@@ -61,7 +61,7 @@ namespace {
 bool IsUsingGtkTheme(Profile* profile) {
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return ThemeServiceFactory::GetForProfile(profile)->UsingSystemTheme();
 #else
   return false;
@@ -263,7 +263,7 @@ void BrowserFrame::OnNativeWidgetWorkspaceChanged() {
                                            IsVisibleOnAllWorkspaces());
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // If the window was sent to a different workspace, prioritize it if
   // it was sent to the current workspace and deprioritize it
   // otherwise.  This is done by MoveBrowsersInWorkspaceToFront()
@@ -370,23 +370,13 @@ void BrowserFrame::SelectNativeTheme() {
   ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
 
   if (browser_view_->browser()->profile()->IsIncognitoProfile()) {
-    // If the flag is enabled, then no matter if we are using the default theme
-    // or not we always use the dark ui instance.
-    if (base::FeatureList::IsEnabled(
-            features::kIncognitoBrandConsistencyForDesktop)) {
-      SetNativeTheme(ui::NativeTheme::GetInstanceForDarkUI());
-      return;
-    }
-
-    // Flag is disabled, fallback to using dark theme only if the incognito
-    // profile is using a default theme.
-    if (ThemeServiceFactory::GetForProfile(browser_view_->browser()->profile())
-            ->UsingDefaultTheme()) {
-      native_theme = ui::NativeTheme::GetInstanceForDarkUI();
-    }
+    // No matter if we are using the default theme or not we always use the dark
+    // ui instance.
+    SetNativeTheme(ui::NativeTheme::GetInstanceForDarkUI());
+    return;
   }
 
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
   const views::LinuxUI* linux_ui = views::LinuxUI::instance();
   // Ignore GTK+ for web apps with window-controls-overlay as the
   // display_override so the web contents can blend with the overlay by using
@@ -405,13 +395,13 @@ bool BrowserFrame::RegenerateFrameOnThemeChange(
   bool need_regenerate = false;
   // TODO(crbug.com/1052397): Revisit the macro expression once build flag
   // switch of lacros-chrome is complete.
-#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // GTK and user theme changes can both change frame buttons, so the frame
   // always needs to be regenerated on Linux.
   need_regenerate = true;
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // On Windows, DWM transition does not performed for a frame regeneration in
   // fullscreen mode, so do a lighweight theme change to refresh a bookmark bar
   // on new tab. (see crbug/1002480)

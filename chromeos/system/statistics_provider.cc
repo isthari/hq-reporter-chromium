@@ -93,6 +93,7 @@ const char kKeyboardMechanicalLayoutPath[] = "keyboard_mechanical_layout";
 // devices. It's known *not* to be present on caroline.
 // TODO(tnagel): Remove "Product_S/N" after all devices that have it are AUE.
 const char* const kMachineInfoSerialNumberKeys[] = {
+    "client_id",      // Used by Reven devices
     "Product_S/N",    // Samsung legacy
     "serial_number",  // VPD v2+ devices (Samsung: caroline and later)
 };
@@ -386,7 +387,7 @@ bool StatisticsProviderImpl::GetMachineStatistic(const std::string& name,
 
   // Test region should override VPD values.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kCrosRegion) &&
+          ash::switches::kCrosRegion) &&
       GetRegionalInformation(name, result)) {
     return true;
   }
@@ -523,7 +524,7 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
   }
 
   base::FilePath machine_info_path;
-  base::PathService::Get(chromeos::FILE_MACHINE_INFO, &machine_info_path);
+  base::PathService::Get(FILE_MACHINE_INFO, &machine_info_path);
   if (!base::SysInfo::IsRunningOnChromeOS() &&
       !base::PathExists(machine_info_path)) {
     // Use time value to create an unique stub serial because clashes of the
@@ -542,7 +543,7 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
   }
 
   base::FilePath vpd_path;
-  base::PathService::Get(chromeos::FILE_VPD, &vpd_path);
+  base::PathService::Get(FILE_VPD, &vpd_path);
   if (!base::PathExists(vpd_path)) {
     if (base::SysInfo::IsRunningOnChromeOS()) {
       ReportVpdCacheReadResult(VpdCacheReadResult::KMissing);
@@ -619,9 +620,8 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
     region_ = std::string();
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(chromeos::switches::kCrosRegion)) {
-    region_ =
-        command_line->GetSwitchValueASCII(chromeos::switches::kCrosRegion);
+  if (command_line->HasSwitch(ash::switches::kCrosRegion)) {
+    region_ = command_line->GetSwitchValueASCII(ash::switches::kCrosRegion);
     machine_info_[kRegionKey] = region_;
     VLOG(1) << "CrOS region set to '" << region_ << "'";
   }

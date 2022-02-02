@@ -22,7 +22,6 @@
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "v8/include/v8.h"
 
@@ -30,7 +29,7 @@ namespace blink {
 
 namespace {
 
-class NotReachedFunction : public NewScriptFunction::Callable {
+class NotReachedFunction : public ScriptFunction::Callable {
  public:
   NotReachedFunction() = default;
 
@@ -42,7 +41,7 @@ ScriptValue NotReachedFunction::Call(ScriptState*, ScriptValue) {
   return ScriptValue();
 }
 
-class StubFunction : public NewScriptFunction::Callable {
+class StubFunction : public ScriptFunction::Callable {
  public:
   StubFunction(ScriptValue& value, size_t& call_count)
       : value_(value), call_count_(call_count) {}
@@ -81,7 +80,7 @@ class GarbageCollectedHolder final : public GarbageCollectedScriptWrappable {
   Member<Property> property_;
 };
 
-class ScriptPromisePropertyResetter : public NewScriptFunction::Callable {
+class ScriptPromisePropertyResetter : public ScriptFunction::Callable {
  public:
   using Property =
       ScriptPromiseProperty<Member<GarbageCollectedScriptWrappable>,
@@ -92,7 +91,7 @@ class ScriptPromisePropertyResetter : public NewScriptFunction::Callable {
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(property_);
-    NewScriptFunction::Callable::Trace(visitor);
+    ScriptFunction::Callable::Trace(visitor);
   }
 
   ScriptValue Call(ScriptState*, ScriptValue arg) override {
@@ -140,14 +139,14 @@ class ScriptPromisePropertyTestBase {
   void Gc() { ThreadState::Current()->CollectAllGarbageForTesting(); }
 
   v8::Local<v8::Function> NotReached(ScriptState* script_state) {
-    return MakeGarbageCollected<NewScriptFunction>(
+    return MakeGarbageCollected<ScriptFunction>(
                script_state, MakeGarbageCollected<NotReachedFunction>())
         ->V8Function();
   }
   v8::Local<v8::Function> Stub(ScriptState* script_state,
                                ScriptValue& value,
                                size_t& call_count) {
-    return MakeGarbageCollected<NewScriptFunction>(
+    return MakeGarbageCollected<ScriptFunction>(
                script_state,
                MakeGarbageCollected<StubFunction>(value, call_count))
         ->V8Function();
@@ -542,7 +541,7 @@ TEST_F(ScriptPromisePropertyGarbageCollectedTest, SyncResolve) {
         GetIsolate(), v8::MicrotasksScope::kDoNotRunMicrotasks);
     main_v8_resolution = ToV8(resolution, MainScriptState()).As<v8::Object>();
     v8::PropertyDescriptor descriptor(
-        MakeGarbageCollected<NewScriptFunction>(
+        MakeGarbageCollected<ScriptFunction>(
             MainScriptState(),
             MakeGarbageCollected<ScriptPromisePropertyResetter>(GetProperty()))
             ->V8Function(),
@@ -559,7 +558,7 @@ TEST_F(ScriptPromisePropertyGarbageCollectedTest, SyncResolve) {
         GetIsolate(), v8::MicrotasksScope::kDoNotRunMicrotasks);
     other_v8_resolution = ToV8(resolution, OtherScriptState()).As<v8::Object>();
     v8::PropertyDescriptor descriptor(
-        MakeGarbageCollected<NewScriptFunction>(
+        MakeGarbageCollected<ScriptFunction>(
             OtherScriptState(),
             MakeGarbageCollected<ScriptPromisePropertyResetter>(GetProperty()))
             ->V8Function(),

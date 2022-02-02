@@ -7,18 +7,21 @@
 #include <memory>
 
 #import "base/metrics/histogram_functions.h"
-#include "base/scoped_observation.h"
-#include "components/profile_metrics/browser_profile_type.h"
+#import "base/scoped_observation.h"
+#import "components/profile_metrics/browser_profile_type.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_abuse_detector.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
 #import "ios/chrome/browser/autofill/autofill_tab_helper.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/download/download_directory_util.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/chrome_url_constants.h"
+#import "ios/chrome/browser/download/download_directory_util.h"
 #import "ios/chrome/browser/download/external_app_util.h"
 #import "ios/chrome/browser/download/pass_kit_tab_helper.h"
 #import "ios/chrome/browser/find_in_page/find_tab_helper.h"
 #import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/prerender/prerender_service.h"
+#import "ios/chrome/browser/prerender/prerender_service_factory.h"
+#import "ios/chrome/browser/signin/account_consistency_service_factory.h"
 #import "ios/chrome/browser/store_kit/store_kit_coordinator.h"
 #import "ios/chrome/browser/store_kit/store_kit_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab_title_util.h"
@@ -26,14 +29,16 @@
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_positioner.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/alert_coordinator/repost_form_coordinator.h"
-#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_signout/enterprise_signout_coordinator.h"
-#import "ios/chrome/browser/ui/authentication/enterprise/user_policy_signout/user_policy_signout_coordinator.h"
+#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_coordinator.h"
+#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_type.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_coordinator.h"
 #import "ios/chrome/browser/ui/badges/badge_popup_menu_coordinator.h"
 #import "ios/chrome/browser/ui/browser_container/browser_container_coordinator.h"
+#import "ios/chrome/browser/ui/browser_view/browser_view_controller+delegates.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller+private.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller_dependency_factory.h"
+#import "ios/chrome/browser/ui/browser_view/tab_lifecycle_mediator.h"
 #import "ios/chrome/browser/ui/commands/activity_service_commands.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_coordinator_commands.h"
@@ -83,7 +88,7 @@
 #import "ios/chrome/browser/ui/text_zoom/text_zoom_coordinator.h"
 #import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_presenter.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/browser/web/font_size/font_size_tab_helper.h"
@@ -95,9 +100,9 @@
 #import "ios/chrome/browser/web_state_list/view_source_browser_agent.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/text_zoom/text_zoom_api.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -107,7 +112,7 @@
                                   BrowserCoordinatorCommands,
                                   DefaultBrowserPromoCommands,
                                   DefaultPromoNonModalPresentationDelegate,
-                                  EnterpriseSignoutCoordinatorDelegate,
+                                  EnterprisePromptCoordinatorDelegate,
                                   FormInputAccessoryCoordinatorNavigator,
                                   PageInfoCommands,
                                   PasswordBreachCommands,
@@ -116,7 +121,6 @@
                                   RepostFormTabHelperDelegate,
                                   ToolbarAccessoryCoordinatorDelegate,
                                   URLLoadingDelegate,
-                                  UserPolicySignoutCoordinatorDelegate,
                                   WebStateListObserving>
 
 // Whether the coordinator is started.
@@ -134,6 +138,9 @@
 
 // Mediator for incognito reauth.
 @property(nonatomic, strong) IncognitoReauthMediator* incognitoAuthMediator;
+
+// Mediator for tab lifecylce.
+@property(nonatomic, strong) TabLifecycleMediator* tabLifecycleMediator;
 
 // =================================================
 // Child Coordinators, listed in alphabetical order.
@@ -227,17 +234,9 @@
 @property(nonatomic, strong)
     DefaultBrowserPromoNonModalCoordinator* nonModalPromoCoordinator;
 
-// The coordinator that manages the prompt for when the user is signed out due
-// to policy.
+// The coordinator that manages enterprise prompts.
 @property(nonatomic, strong)
-    UserPolicySignoutCoordinator* policySignoutPromptCoordinator;
-
-// The coordinator that manages alerts for enterprise sync policy changes.
-@property(nonatomic, strong) AlertCoordinator* syncDisabledAlertCoordinator;
-
-// The coordinator that manages the view for enterprise signout.
-@property(nonatomic, strong)
-    EnterpriseSignoutCoordinator* enterpriseSignoutCoordinator;
+    EnterprisePromptCoordinator* enterprisePromptCoordinator;
 
 // The coordinator used for the Text Fragments feature.
 @property(nonatomic, strong) TextFragmentsCoordinator* textFragmentsCoordinator;
@@ -285,9 +284,12 @@
 
   [self startBrowserContainer];
   [self createViewController];
-  [self startChildCoordinators];
+  // Mediators should start before coordinators so model state is accurate for
+  // any UI that starts up.
   [self startMediators];
   [self installDelegatesForAllWebStates];
+  [self startChildCoordinators];
+  // Browser delegates can have dependencies on coordinators.
   [self installDelegatesForBrowser];
   [self addWebStateListObserver];
   [super start];
@@ -301,6 +303,7 @@
   [self removeWebStateListObserver];
   [self uninstallDelegatesForBrowser];
   [self uninstallDelegatesForAllWebStates];
+  [self.tabLifecycleMediator disconnect];
   self.viewController.commandDispatcher = nil;
   [self.dispatcher stopDispatchingToTarget:self];
   [self stopChildCoordinators];
@@ -574,6 +577,19 @@
 
 // Starts mediators owned by this coordinator.
 - (void)startMediators {
+  // Cache frequently repeated property values to curb generated code bloat.
+  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  BrowserViewController* browserViewController = self.viewController;
+
+  TabLifecycleDependencies dependencies;
+  dependencies.prerenderService =
+      PrerenderServiceFactory::GetForBrowserState(browserState);
+
+  self.tabLifecycleMediator = [[TabLifecycleMediator alloc]
+      initWithWebStateList:self.browser->GetWebStateList()
+                  delegate:browserViewController
+              dependencies:dependencies];
+
   self.viewController.reauthHandler =
       HandlerForProtocol(self.dispatcher, IncognitoReauthCommands);
 
@@ -584,12 +600,12 @@
       [DefaultBrowserSceneAgent agentFromScene:sceneState].nonModalScheduler;
   self.viewController.nonModalPromoPresentationDelegate = self;
 
-  if (self.browser->GetBrowserState()->IsOffTheRecord()) {
+  if (browserState->IsOffTheRecord()) {
     IncognitoReauthSceneAgent* reauthAgent =
         [IncognitoReauthSceneAgent agentFromScene:sceneState];
 
     self.incognitoAuthMediator =
-        [[IncognitoReauthMediator alloc] initWithConsumer:self.viewController
+        [[IncognitoReauthMediator alloc] initWithConsumer:browserViewController
                                               reauthAgent:reauthAgent];
   }
 }
@@ -871,7 +887,8 @@
 
 - (void)openPasswordSettings {
   [HandlerForProtocol(self.dispatcher, ApplicationCommands)
-      showSavedPasswordsSettingsFromViewController:self.viewController];
+      showSavedPasswordsSettingsFromViewController:self.viewController
+                                  showCancelButton:YES];
 }
 
 - (void)openAddressSettings {
@@ -1136,86 +1153,49 @@
 
 #pragma mark - PolicyChangeCommands
 
-- (void)showPolicySignoutPrompt {
-  if (!self.policySignoutPromptCoordinator) {
-    self.policySignoutPromptCoordinator = [[UserPolicySignoutCoordinator alloc]
+- (void)showForceSignedOutPrompt {
+  if (!self.enterprisePromptCoordinator) {
+    self.enterprisePromptCoordinator = [[EnterprisePromptCoordinator alloc]
         initWithBaseViewController:self.viewController
-                           browser:self.browser];
-    self.policySignoutPromptCoordinator.delegate = self;
+                           browser:self.browser
+                        promptType:EnterprisePromptTypeForceSignOut];
+    self.enterprisePromptCoordinator.delegate = self;
   }
-  [self.policySignoutPromptCoordinator start];
+  [self.enterprisePromptCoordinator start];
 }
 
-- (void)showSyncDisabledAlert {
-  if (self.syncDisabledAlertCoordinator) {
-    [self.syncDisabledAlertCoordinator stop];
+- (void)showSyncDisabledPrompt {
+  if (!self.enterprisePromptCoordinator) {
+    self.enterprisePromptCoordinator = [[EnterprisePromptCoordinator alloc]
+        initWithBaseViewController:self.viewController
+                           browser:self.browser
+                        promptType:EnterprisePromptTypeSyncDisabled];
+    self.enterprisePromptCoordinator.delegate = self;
   }
-  self.syncDisabledAlertCoordinator = [[AlertCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser
-                           title:l10n_util::GetNSString(
-                                     IDS_IOS_SYNC_SYNC_DISABLED)
-                         message:l10n_util::GetNSString(
-                                     IDS_IOS_SYNC_SYNC_DISABLED_DESCRIPTION)];
-
-  __weak BrowserCoordinator* weakSelf = self;
-  [self.syncDisabledAlertCoordinator
-      addItemWithTitle:l10n_util::GetNSString(
-                           IDS_IOS_SYNC_SYNC_DISABLED_CONTINUE)
-                action:^{
-                  [weakSelf.syncDisabledAlertCoordinator stop];
-                  weakSelf.syncDisabledAlertCoordinator = nil;
-                }
-                 style:UIAlertActionStyleCancel];
-  [self.syncDisabledAlertCoordinator
-      addItemWithTitle:l10n_util::GetNSString(
-                           IDS_IOS_SYNC_SYNC_DISABLED_LEARN_MORE)
-                action:^{
-                  if (weakSelf) {
-                    UrlLoadParams params =
-                        UrlLoadParams::InNewTab(GURL(kChromeUIManagementURL));
-                    UrlLoadingBrowserAgent::FromBrowser(weakSelf.browser)
-                        ->Load(params);
-                    [weakSelf.syncDisabledAlertCoordinator stop];
-                    weakSelf.syncDisabledAlertCoordinator = nil;
-                  }
-                }
-                 style:UIAlertActionStyleDefault];
-
-  [self.syncDisabledAlertCoordinator start];
+  [self.enterprisePromptCoordinator start];
 }
 
-- (void)showEnterpriseSignout {
+- (void)showRestrictAccountSignedOutPrompt {
   SceneState* sceneState =
       SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
   if (sceneState.activationLevel >= SceneActivationLevelForegroundActive) {
-    if (!self.enterpriseSignoutCoordinator) {
-      self.enterpriseSignoutCoordinator = [[EnterpriseSignoutCoordinator alloc]
+    if (!self.enterprisePromptCoordinator) {
+      self.enterprisePromptCoordinator = [[EnterprisePromptCoordinator alloc]
           initWithBaseViewController:self.viewController
-                             browser:self.browser];
-      self.enterpriseSignoutCoordinator.delegate = self;
+                             browser:self.browser
+                          promptType:
+                              EnterprisePromptTypeRestrictAccountSignedOut];
+      self.enterprisePromptCoordinator.delegate = self;
     }
-    [self.enterpriseSignoutCoordinator start];
+    [self.enterprisePromptCoordinator start];
   } else {
     __weak BrowserCoordinator* weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                  static_cast<int64_t>(1 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-                     [weakSelf showEnterpriseSignout];
+                     [weakSelf showRestrictAccountSignedOutPrompt];
                    });
   }
-}
-
-#pragma mark - UserPolicySignoutCoordinatorDelegate
-
-- (void)hidePolicySignoutPromptForLearnMore:(BOOL)learnMore {
-  [self.policySignoutPromptCoordinator stop];
-  self.policySignoutPromptCoordinator = nil;
-}
-
-- (void)userPolicySignoutDidDismiss {
-  [self.policySignoutPromptCoordinator stop];
-  self.policySignoutPromptCoordinator = nil;
 }
 
 #pragma mark - DefaultBrowserPromoNonModalCommands
@@ -1259,11 +1239,11 @@
                                                    completion:completion];
 }
 
-#pragma mark - EnterpriseSignoutCoordinatorDelegate
+#pragma mark - EnterprisePromptCoordinatorDelegate
 
-- (void)enterpriseSignoutCoordinatorDidDismiss {
-  [self.enterpriseSignoutCoordinator stop];
-  self.enterpriseSignoutCoordinator = nil;
+- (void)hideEnterprisePrompForLearnMore:(BOOL)learnMore {
+  [self.enterprisePromptCoordinator stop];
+  self.enterprisePromptCoordinator = nil;
 }
 
 @end

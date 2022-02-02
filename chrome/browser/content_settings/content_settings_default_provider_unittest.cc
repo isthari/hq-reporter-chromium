@@ -125,11 +125,14 @@ TEST_F(ContentSettingsDefaultProviderTest, ObservePref) {
                                          ContentSettingsType::COOKIES, false));
 }
 
-// Tests that fullscreen and mouselock content settings are cleared.
+// Tests that fullscreen, obsolete NFC (with the old semantics, see
+// crbug.com/1275576), and mouselock content settings are cleared.
 TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   static const char kFullscreenPrefPath[] =
       "profile.default_content_setting_values.fullscreen";
-#if !defined(OS_ANDROID)
+  static const char kNfcPrefPath[] =
+      "profile.default_content_setting_values.nfc";
+#if !BUILDFLAG(IS_ANDROID)
   static const char kMouselockPrefPath[] =
       "profile.default_content_setting_values.mouselock";
   const char kObsoletePluginsDefaultPref[] =
@@ -145,7 +148,7 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   PrefService* prefs = profile_.GetPrefs();
   // Set some pref data.
   prefs->SetInteger(kFullscreenPrefPath, CONTENT_SETTING_BLOCK);
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
   prefs->SetInteger(kMouselockPrefPath, CONTENT_SETTING_ALLOW);
   prefs->SetInteger(kObsoletePluginsDefaultPref, CONTENT_SETTING_ALLOW);
   prefs->SetInteger(kObsoletePluginsDataDefaultPref, CONTENT_SETTING_ALLOW);
@@ -159,7 +162,8 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
 
   // Check that obsolete prefs have been deleted.
   EXPECT_FALSE(prefs->HasPrefPath(kFullscreenPrefPath));
-#if !defined(OS_ANDROID)
+  EXPECT_FALSE(prefs->HasPrefPath(kNfcPrefPath));
+#if !BUILDFLAG(IS_ANDROID)
   EXPECT_FALSE(prefs->HasPrefPath(kMouselockPrefPath));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsDefaultPref));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsDataDefaultPref));
@@ -170,7 +174,7 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   EXPECT_EQ(CONTENT_SETTING_BLOCK, prefs->GetInteger(kGeolocationPrefPath));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_WIN)
 // Tests that the protected media identifier setting is migrated.
 TEST_F(ContentSettingsDefaultProviderTest,
        MigrateProtectedMediaIdentifierPreferenceBlock) {
@@ -224,7 +228,7 @@ TEST_F(ContentSettingsDefaultProviderTest,
           website_settings->Get(ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER)
               ->default_value_pref_name()));
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_WIN)
 
 TEST_F(ContentSettingsDefaultProviderTest, OffTheRecord) {
   DefaultProvider otr_provider(profile_.GetPrefs(), true /* incognito */);

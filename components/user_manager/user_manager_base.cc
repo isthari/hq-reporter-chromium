@@ -406,9 +406,8 @@ void UserManagerBase::SaveUserOAuthStatus(
   {
     DictionaryPrefUpdate oauth_status_update(GetLocalState(),
                                              kUserOAuthTokenStatus);
-    oauth_status_update->SetKey(
-        account_id.GetUserEmail(),
-        base::Value(static_cast<int>(oauth_token_status)));
+    oauth_status_update->SetIntKey(account_id.GetUserEmail(),
+                                   static_cast<int>(oauth_token_status));
   }
   GetLocalState()->CommitPendingWrite();
 }
@@ -429,8 +428,8 @@ void UserManagerBase::SaveForceOnlineSignin(const AccountId& account_id,
   {
     DictionaryPrefUpdate force_online_update(GetLocalState(),
                                              kUserForceOnlineSignin);
-    force_online_update->SetKey(account_id.GetUserEmail(),
-                                base::Value(force_online_signin));
+    force_online_update->SetBoolKey(account_id.GetUserEmail(),
+                                    force_online_signin);
   }
   GetLocalState()->CommitPendingWrite();
 }
@@ -447,8 +446,8 @@ void UserManagerBase::SaveUserDisplayName(const AccountId& account_id,
     if (!IsUserNonCryptohomeDataEphemeral(account_id)) {
       DictionaryPrefUpdate display_name_update(GetLocalState(),
                                                kUserDisplayName);
-      display_name_update->SetKey(account_id.GetUserEmail(),
-                                  base::Value(display_name));
+      display_name_update->SetStringKey(account_id.GetUserEmail(),
+                                        display_name);
     }
   }
 }
@@ -477,8 +476,7 @@ void UserManagerBase::SaveUserDisplayEmail(const AccountId& account_id,
     return;
 
   DictionaryPrefUpdate display_email_update(GetLocalState(), kUserDisplayEmail);
-  display_email_update->SetKey(account_id.GetUserEmail(),
-                               base::Value(display_email));
+  display_email_update->SetStringKey(account_id.GetUserEmail(), display_email);
 }
 
 void UserManagerBase::SaveUserType(const User* user) {
@@ -491,8 +489,8 @@ void UserManagerBase::SaveUserType(const User* user) {
     return;
 
   DictionaryPrefUpdate user_type_update(GetLocalState(), kUserType);
-  user_type_update->SetKey(user->GetAccountId().GetAccountIdKey(),
-                           base::Value(static_cast<int>(user->GetType())));
+  user_type_update->SetIntKey(user->GetAccountId().GetAccountIdKey(),
+                              static_cast<int>(user->GetType()));
   GetLocalState()->CommitPendingWrite();
 }
 
@@ -508,23 +506,22 @@ void UserManagerBase::UpdateUserAccountData(
     user->set_given_name(given_name);
     if (!IsUserNonCryptohomeDataEphemeral(account_id)) {
       DictionaryPrefUpdate given_name_update(GetLocalState(), kUserGivenName);
-      given_name_update->SetKey(account_id.GetUserEmail(),
-                                base::Value(given_name));
+      given_name_update->SetStringKey(account_id.GetUserEmail(), given_name);
     }
   }
 
   UpdateUserAccountLocale(account_id, account_data.locale());
 }
 
-void UserManagerBase::ParseUserList(const base::ListValue& users_list,
-                                    const std::set<AccountId>& existing_users,
-                                    std::vector<AccountId>* users_vector,
-                                    std::set<AccountId>* users_set) {
+void UserManagerBase::ParseUserList(
+    const base::Value::ConstListView& users_list,
+    const std::set<AccountId>& existing_users,
+    std::vector<AccountId>* users_vector,
+    std::set<AccountId>* users_set) {
   users_vector->clear();
   users_set->clear();
-  base::Value::ConstListView users_list_view = users_list.GetList();
-  for (size_t i = 0; i < users_list_view.size(); ++i) {
-    const std::string* email = users_list_view[i].GetIfString();
+  for (size_t i = 0; i < users_list.size(); ++i) {
+    const std::string* email = users_list[i].GetIfString();
     if (!email || email->empty()) {
       LOG(ERROR) << "Corrupt entry in user list at index " << i << ".";
       continue;
@@ -823,8 +820,8 @@ void UserManagerBase::EnsureUsersLoaded() {
   // Load regular users and supervised users.
   std::vector<AccountId> regular_users;
   std::set<AccountId> regular_users_set;
-  ParseUserList(base::Value::AsListValue(*prefs_regular_users),
-                device_local_accounts_set, &regular_users, &regular_users_set);
+  ParseUserList(prefs_regular_users->GetList(), device_local_accounts_set,
+                &regular_users, &regular_users_set);
   for (std::vector<AccountId>::const_iterator it = regular_users.begin();
        it != regular_users.end(); ++it) {
     if (IsDeprecatedSupervisedAccountId(*it)) {

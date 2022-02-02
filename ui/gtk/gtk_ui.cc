@@ -52,6 +52,7 @@
 #include "ui/gtk/gtk_compat.h"
 #include "ui/gtk/gtk_key_bindings_handler.h"
 #include "ui/gtk/gtk_ui_platform.h"
+#include "ui/gtk/gtk_ui_platform_stub.h"
 #include "ui/gtk/gtk_util.h"
 #include "ui/gtk/input_method_context_impl_gtk.h"
 #include "ui/gtk/native_theme_gtk.h"
@@ -210,7 +211,8 @@ class GtkButtonPainter : public views::Painter {
   gfx::Size GetMinimumSize() const override { return gfx::Size(); }
   void Paint(gfx::Canvas* canvas, const gfx::Size& size) override {
     gfx::ImageSkia image(
-        std::make_unique<GtkButtonImageSource>(focus_, button_state_, size), 1);
+        std::make_unique<GtkButtonImageSource>(focus_, button_state_, size),
+        1.f);
     canvas->DrawImageInt(image, 0, 0);
   }
 
@@ -303,6 +305,8 @@ views::LinuxUI::WindowFrameAction GetDefaultMiddleClickAction() {
 
 std::unique_ptr<GtkUiPlatform> CreateGtkUiPlatform(ui::LinuxUiBackend backend) {
   switch (backend) {
+    case ui::LinuxUiBackend::kStub:
+      return std::make_unique<GtkUiPlatformStub>();
 #if defined(USE_X11)
     case ui::LinuxUiBackend::kX11:
       return std::make_unique<GtkUiPlatformX11>();
@@ -948,11 +952,6 @@ void GtkUi::UpdateColors() {
       color_provider->GetColor(ui::kColorTextfieldSelectionBackground);
   active_selection_fg_color_ =
       color_provider->GetColor(ui::kColorTextfieldSelectionForeground);
-
-  colors_[ThemeProperties::COLOR_TAB_THROBBER_SPINNING] =
-      color_provider->GetColor(ui::kColorThrobber);
-  colors_[ThemeProperties::COLOR_TAB_THROBBER_WAITING] =
-      color_provider->GetColor(ui::kColorThrobberPreconnect);
 
   // Generate colors that depend on whether or not a custom window frame is
   // used.  These colors belong in |color_map| below, not |colors_|.

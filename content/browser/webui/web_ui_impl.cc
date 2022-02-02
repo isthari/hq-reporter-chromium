@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
-#include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_piece.h"
@@ -21,7 +20,6 @@
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/renderer_host/dip_util.h"
 #include "content/browser/renderer_host/frame_tree.h"
-#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -274,10 +272,6 @@ void WebUIImpl::RegisterDeprecatedMessageCallback(
 void WebUIImpl::ProcessWebUIMessage(const GURL& source_url,
                                     const std::string& message,
                                     const base::ListValue& args) {
-  // Crash keys for https://crbug.com/1275766
-  SCOPED_CRASH_KEY_STRING32("WebUI", "URL", source_url.spec());
-  SCOPED_CRASH_KEY_STRING64("WebUI", "message", message);
-
   if (controller_->OverrideHandleWebUIMessage(source_url, message, args))
     return;
 

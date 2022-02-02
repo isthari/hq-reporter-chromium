@@ -6,16 +6,20 @@
 
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/style_util.h"
+#include "ash/utility/haptics_util.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/events/devices/haptic_touchpad_effects.h"
+#include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
@@ -86,6 +90,7 @@ IconButton::IconButton(PressedCallback callback,
 
   SetImageHorizontalAlignment(ALIGN_CENTER);
   SetImageVerticalAlignment(ALIGN_MIDDLE);
+  GetViewAccessibility().OverrideIsLeaf(true);
   StyleUtil::SetUpInkDropForButton(this, gfx::Insets(),
                                    /*highlight_on_hover=*/false,
                                    /*highlight_on_focus=*/false);
@@ -116,6 +121,13 @@ IconButton::~IconButton() = default;
 
 void IconButton::SetVectorIcon(const gfx::VectorIcon& icon) {
   icon_ = &icon;
+  UpdateVectorIcon();
+}
+
+void IconButton::SetIconColor(const SkColor icon_color) {
+  if (icon_color_ == icon_color)
+    return;
+  icon_color_ = icon_color;
   UpdateVectorIcon();
 }
 
@@ -181,13 +193,22 @@ void IconButton::OnThemeChanged() {
   SchedulePaint();
 }
 
+void IconButton::NotifyClick(const ui::Event& event) {
+  if (is_togglable_) {
+    haptics_util::PlayHapticToggleEffect(
+        !toggled_, ui::HapticTouchpadEffectStrength::kMedium);
+  }
+  views::Button::NotifyClick(event);
+}
+
 void IconButton::UpdateVectorIcon() {
   if (!icon_)
     return;
 
   auto* color_provider = AshColorProvider::Get();
-  const SkColor normal_icon_color = color_provider->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kButtonIconColor);
+  const SkColor normal_icon_color =
+      icon_color_.value_or(color_provider->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kButtonIconColor));
   const SkColor toggled_icon_color = color_provider->GetContentLayerColor(
       AshColorProvider::ContentLayerType::kButtonIconColorPrimary);
   const SkColor icon_color = toggled_ ? toggled_icon_color : normal_icon_color;

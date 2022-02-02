@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/apps/app_service/intent_util.h"
+
 #include <initializer_list>
 #include <memory>
 #include <string>
@@ -13,8 +15,8 @@
 #include "base/check.h"
 #include "base/containers/flat_map.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/apps/app_service/intent_util.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/web_applications/test/web_app_test_utils.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -127,28 +129,6 @@ class IntentUtilsTest : public testing::Test {
     return true;
   }
 };
-
-TEST_F(IntentUtilsTest, CreateIntentForArcIntentAndActivity) {
-  arc::mojom::IntentInfoPtr arc_intent = CreateArcIntent();
-  arc::mojom::ActivityNamePtr src_activity = CreateActivity();
-  apps::mojom::IntentPtr intent =
-      apps_util::CreateIntentForArcIntentAndActivity(arc_intent.Clone(),
-                                                     src_activity.Clone());
-
-  std::string intent_str =
-      apps_util::CreateLaunchIntent("com.android.vending", intent);
-  EXPECT_TRUE(intent_str.empty());
-
-  arc::mojom::ActivityNamePtr dst_activity = arc::mojom::ActivityName::New();
-  if (intent->activity_name.has_value() &&
-      !intent->activity_name.value().empty()) {
-    dst_activity->activity_name = intent->activity_name.value();
-  }
-
-  EXPECT_TRUE(IsEqual(std::move(arc_intent),
-                      apps_util::ConvertAppServiceToArcIntent(intent)));
-  EXPECT_TRUE(IsEqual(std::move(src_activity), std::move(dst_activity)));
-}
 
 TEST_F(IntentUtilsTest, CreateIntentForActivity) {
   const std::string& activity_name = "com.android.vending.AssetBrowserActivity";
@@ -594,7 +574,7 @@ TEST_F(IntentUtilsTest, ConvertArcIntentFilter_DeduplicatesHosts) {
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 TEST_F(IntentUtilsTest, CrosapiIntentConversion) {
   apps::mojom::IntentPtr original_intent =
       apps_util::CreateIntentFromUrl(GURL("www.google.com"));

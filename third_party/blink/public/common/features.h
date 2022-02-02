@@ -21,7 +21,6 @@ BLINK_COMMON_EXPORT extern const base::Feature
 BLINK_COMMON_EXPORT extern const base::Feature kBackForwardCacheDedicatedWorker;
 BLINK_COMMON_EXPORT extern const base::Feature
     kBlockingDownloadsInAdFrameWithoutUserActivation;
-BLINK_COMMON_EXPORT extern const base::Feature kCOEPForSharedWorker;
 BLINK_COMMON_EXPORT extern const base::Feature kCOLRV1Fonts;
 BLINK_COMMON_EXPORT extern const base::Feature kCSSContainerQueries;
 BLINK_COMMON_EXPORT extern const base::Feature kConversionMeasurement;
@@ -59,6 +58,7 @@ BLINK_COMMON_EXPORT extern const base::Feature
 BLINK_COMMON_EXPORT extern const base::Feature
     kPrefersColorSchemeClientHintHeader;
 BLINK_COMMON_EXPORT extern const base::Feature kViewportHeightClientHintHeader;
+BLINK_COMMON_EXPORT extern const base::Feature kFullUserAgent;
 
 enum class FencedFramesImplementationType {
   kShadowDOM,
@@ -93,6 +93,12 @@ BLINK_COMMON_EXPORT bool IsPrerender2Enabled();
 BLINK_COMMON_EXPORT bool IsFencedFramesEnabled();
 BLINK_COMMON_EXPORT bool IsFencedFramesMPArchBased();
 
+// Whether we will create initial NavigationEntry or not on FrameTree creation,
+// which also impacts the session history replacement decisions made in the
+// renderer.
+BLINK_COMMON_EXPORT extern const base::Feature kInitialNavigationEntry;
+BLINK_COMMON_EXPORT bool IsInitialNavigationEntryEnabled();
+
 BLINK_COMMON_EXPORT extern const base::Feature
     kPreviewsResourceLoadingHintsSpecificResourceTypes;
 BLINK_COMMON_EXPORT extern const base::Feature
@@ -116,6 +122,7 @@ BLINK_COMMON_EXPORT extern const base::Feature
 BLINK_COMMON_EXPORT extern const base::Feature kIntensiveWakeUpThrottling;
 BLINK_COMMON_EXPORT extern const char
     kIntensiveWakeUpThrottling_GracePeriodSeconds_Name[];
+BLINK_COMMON_EXPORT extern const base::Feature kThrottleForegroundTimers;
 
 #if BUILDFLAG(RTC_USE_H264) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
 BLINK_COMMON_EXPORT extern const base::Feature kWebRtcH264WithOpenH264FFmpeg;
@@ -131,7 +138,6 @@ BLINK_COMMON_EXPORT extern const base::Feature kStorageAccessAPI;
 BLINK_COMMON_EXPORT extern const base::Feature kTextFragmentAnchor;
 BLINK_COMMON_EXPORT extern const base::Feature kCssSelectorFragmentAnchor;
 BLINK_COMMON_EXPORT extern const base::Feature kFontAccess;
-BLINK_COMMON_EXPORT extern const base::Feature kFontAccessPersistent;
 BLINK_COMMON_EXPORT extern const base::Feature kComputePressure;
 BLINK_COMMON_EXPORT extern const base::Feature kFileHandlingAPI;
 BLINK_COMMON_EXPORT extern const base::Feature kFileHandlingIcons;
@@ -184,10 +190,6 @@ BLINK_COMMON_EXPORT extern const base::Feature
 
 BLINK_COMMON_EXPORT extern const base::Feature kBackfaceVisibilityInterop;
 
-BLINK_COMMON_EXPORT extern const base::Feature kSubresourceRedirect;
-
-BLINK_COMMON_EXPORT extern const base::Feature kSubresourceRedirectSrcVideo;
-
 BLINK_COMMON_EXPORT extern const base::Feature kSetLowPriorityForBeacon;
 
 BLINK_COMMON_EXPORT extern const base::Feature kCacheStorageCodeCacheHintHeader;
@@ -203,6 +205,8 @@ BLINK_COMMON_EXPORT extern const base::Feature kLowLatencyWebGLSwapChain;
 BLINK_COMMON_EXPORT extern const base::Feature kDawn2dCanvas;
 
 BLINK_COMMON_EXPORT extern const base::Feature kWebviewAccelerateSmallCanvases;
+
+BLINK_COMMON_EXPORT extern const base::Feature kCanvas2dStaysGPUOnReadback;
 
 BLINK_COMMON_EXPORT extern const base::Feature kDiscardCodeCacheAfterFirstUse;
 
@@ -292,6 +296,8 @@ extern const char
     kSkipTouchEventFilterFilteringProcessParamValueBrowserAndRenderer[];
 
 BLINK_COMMON_EXPORT extern const base::Feature kCompressParkableStrings;
+BLINK_COMMON_EXPORT bool ParkableStringsUseSnappy();
+BLINK_COMMON_EXPORT extern const base::Feature kUseSnappyForParkableStrings;
 BLINK_COMMON_EXPORT bool IsParkableStringsToDiskEnabled();
 BLINK_COMMON_EXPORT extern const base::Feature kDelayFirstParkingOfStrings;
 
@@ -363,7 +369,6 @@ BLINK_COMMON_EXPORT extern const base::Feature kScopeMemoryCachePerContext;
 BLINK_COMMON_EXPORT extern const base::Feature kEnablePenetratingImageSelection;
 
 BLINK_COMMON_EXPORT extern const base::Feature kDocumentTransition;
-BLINK_COMMON_EXPORT extern const base::Feature kDocumentTransitionRenderer;
 
 // Used to configure a per-origin allowlist of performance.mark events that are
 // permitted to be included in slow reports traces. See crbug.com/1181774.
@@ -553,6 +558,8 @@ BLINK_COMMON_EXPORT extern const base::Feature kLateFormNewlineNormalization;
 // and released to stable with no issues.
 BLINK_COMMON_EXPORT extern const base::Feature kAutoExpandDetailsElement;
 
+BLINK_COMMON_EXPORT extern const base::Feature kEarlyBodyLoad;
+
 BLINK_COMMON_EXPORT extern const base::Feature kEarlyCodeCache;
 
 BLINK_COMMON_EXPORT extern const base::Feature
@@ -574,7 +581,7 @@ BLINK_COMMON_EXPORT extern const base::Feature
 
 BLINK_COMMON_EXPORT extern const base::Feature kClientHintThirdPartyDelegation;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 BLINK_COMMON_EXPORT extern const base::Feature kPrefetchAndroidFonts;
 #endif
 
@@ -582,6 +589,17 @@ BLINK_COMMON_EXPORT extern const base::Feature
     kLazyInitializeTimeZoneController;
 
 BLINK_COMMON_EXPORT extern const base::Feature kCompositedCaret;
+
+// Allows pages that support App Install Banners to stay eligible for the
+// back/forward cache.
+BLINK_COMMON_EXPORT extern const base::Feature kBackForwardCacheAppBanner;
+
+BLINK_COMMON_EXPORT extern const base::Feature kDefaultStyleSheetsEarlyInit;
+
+BLINK_COMMON_EXPORT extern const base::Feature kSystemColorChooser;
+
+// Disables forced frame updates for web tests. Used by web test runner only.
+BLINK_COMMON_EXPORT extern const base::Feature kNoForcedFrameUpdates;
 
 }  // namespace features
 }  // namespace blink

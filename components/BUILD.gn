@@ -41,6 +41,34 @@ if (is_ios) {
   }
 }
 
+# Omit Lacros because it allows //components to depend on //chrome, which in
+# turn depends on //extensions.
+if (!is_chromeos_lacros) {
+  disallowed_extension_deps_ = [
+    # Components should largely not depend on //extensions. Since // extensions
+    # is not a component target and is linked with //chrome, depending on most
+    # //extensions targets will result in duplicate code. See
+    # //docs/component_build.md#dependencies-between-targets and
+    # https://bugs.chromium.org/p/chromium/issues/detail?id=1215550#c6 for an
+    # example of this going awry.
+    # However, there are two //extensions targets we allow:
+    # //extensions/buildflags (needed to see if extensions are enabled) and
+    # //extensions/common:common_constants (which *is* a component target, and
+    # is needed by a number of components).
+    # Since there's no way to say "no //extensions targets _except_", we
+    # instead list ~all the other targets here.
+    "//extensions/browser/*",
+    "//extensions/common",
+    "//extensions/common:mojom",
+    "//extensions/common:core_api_provider",
+    "//extensions/common/api/*",
+    "//extensions/renderer/*",
+    "//extensions/shell/*",
+    "//extensions/components/*",
+    "//extensions/strings/*",
+  ]
+}
+
 # To add a unit test to this target, make a "unit_tests" source_set in your
 # component(it's important to use a source_set instead of a static library or
 # no tests will run) and add a reference here.You can add more than one unit
@@ -245,6 +273,7 @@ test("components_unittests") {
       "//components/previous_session_info:unit_tests",
       "//components/safe_browsing/ios/browser:unit_tests",
       "//components/security_state/ios:unit_tests",
+      "//components/shared_highlighting/ios:unit_tests",
       "//components/signin/ios/browser:unit_tests",
       "//components/signin/public/identity_manager/objc:unit_tests",
       "//components/translate/ios/browser:unit_tests",
@@ -268,7 +297,7 @@ test("components_unittests") {
       "//components/contextual_search/core:unit_tests",
       "//components/continuous_search/browser:unit_tests",
       "//components/continuous_search/common:unit_tests",
-      "//components/data_use_measurement/core:unit_tests",
+      "//components/custom_handlers:unit_tests",
       "//components/digital_asset_links:unit_tests",
       "//components/discardable_memory/client:unit_tests",
       "//components/discardable_memory/common:unit_tests",
@@ -354,6 +383,8 @@ test("components_unittests") {
       "//components/webapps/browser:unit_tests",
       "//components/webapps/services/web_app_origin_association:unit_tests",
       "//components/webcrypto:unit_tests",
+      "//components/webrtc:unit_tests",
+      "//components/webrtc_logging:unit_tests",
       "//components/webrtc_logging/browser:unit_tests",
       "//components/webrtc_logging/common:unit_tests",
     ]
@@ -370,7 +401,6 @@ test("components_unittests") {
         "//components/crash/content/browser:unit_tests",
         "//components/crash/core/app:unit_tests",
         "//components/data_reduction_proxy/core/browser:unit_tests",
-        "//components/data_reduction_proxy/core/common:unit_tests",
       ]
     }
 
@@ -394,6 +424,7 @@ test("components_unittests") {
       "//base:base_java_unittest_support",
       "//components/android_autofill/browser:unit_tests",
       "//components/autofill_assistant/browser:unit_tests",
+      "//components/autofill_assistant/content/renderer:unit_tests",
       "//components/browser_ui/sms/android:unit_tests",
       "//components/cdm/browser:unit_tests",
       "//components/component_updater/android:embedded_component_loader_java",
@@ -437,8 +468,7 @@ test("components_unittests") {
     ]
     if (use_v8_context_snapshot) {
       deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-    }
-    if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+    } else {
       deps += [ "//v8:v8_external_startup_data_assets" ]
     }
 
@@ -529,6 +559,10 @@ test("components_unittests") {
     ]
   }
 
+  if (safe_browsing_mode != 0 && !is_ios && !is_fuchsia) {
+    deps += [ "//components/safe_browsing/content/common:file_type_policies_policy_util_unittest" ]
+  }
+
   if (safe_browsing_mode == 1) {
     deps += [
       "//components/safe_browsing/content/renderer:websocket_sb_handshake_throttle_unittest",
@@ -570,8 +604,11 @@ test("components_unittests") {
 
   # On LaCrOS, tests use ash - chrome as a window manager, thus the dependency.
   # On other platforms, no components should depend on Chrome.
+  # Since //chrome depends on //extensions, we also only assert_no_deps on
+  # extensions targets for non-lacros builds.
   if (!is_chromeos_lacros) {
     assert_no_deps = [ "//chrome/*" ]
+    assert_no_deps += disallowed_extension_deps_
   }
 
   if (is_ios) {
@@ -623,8 +660,7 @@ if (is_android) {
     ]
     if (use_v8_context_snapshot) {
       deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-    }
-    if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+    } else {
       deps += [ "//v8:v8_external_startup_data_assets" ]
     }
   }
@@ -782,19 +818,19 @@ if (!is_ios) {
 
     if (is_android) {
       sources += [
-        "autofill_assistant/browser/js_flow_executor_impl_unittest.cc",
+        "autofill_assistant/browser/fake_script_executor_ui_delegate.cc",
+        "autofill_assistant/browser/fake_script_executor_ui_delegate.h",
+        "autofill_assistant/browser/js_flow_executor_impl_browsertest.cc",
         "autofill_assistant/browser/mock_script_executor_delegate.cc",
         "autofill_assistant/browser/mock_script_executor_delegate.h",
         "autofill_assistant/browser/web/web_controller_browsertest.cc",
-        "autofill_assistant/content/renderer/autofill_assistant_agent_browsertest.cc",
         "browser_ui/client_certificate/android/ssl_client_certificate_request_browsertest.cc",
         "test/android/browsertests_apk/components_browser_tests_jni_onload.cc",
       ]
       deps += [
         "//components/autofill_assistant/browser",
         "//components/autofill_assistant/browser:proto",
-        "//components/autofill_assistant/content/common:mojo_interfaces",
-        "//components/autofill_assistant/content/renderer",
+        "//components/autofill_assistant/content/renderer:browser_tests",
         "//components/browser_ui/client_certificate/android",
         "//components/browser_ui/client_certificate/android:java",
         "//components/download/internal/common:internal_java",
@@ -832,10 +868,13 @@ if (!is_ios) {
       ]
     }
 
-    # On LaCrOS, tests use ash - chrome as a window manager, thus the dependency.
-    # On other platforms, no components should depend on Chrome.
+    # On LaCrOS, tests use ash - chrome as a window manager, thus the
+    # dependency. On other platforms, no components should depend on Chrome.
+    # Since //chrome depends on //extensions, we also only assert_no_deps on
+    # extensions targets for non-lacros builds.
     if (!is_chromeos_lacros) {
       assert_no_deps = [ "//chrome/*" ]
+      assert_no_deps += disallowed_extension_deps_
     }
 
     if (is_fuchsia) {
@@ -909,8 +948,7 @@ if (!is_ios) {
       deps += [ "//ui/android:ui_java" ]
       if (use_v8_context_snapshot) {
         deps += [ "//tools/v8_context_snapshot:v8_context_snapshot_assets" ]
-      }
-      if (!use_v8_context_snapshot || include_both_v8_snapshots) {
+      } else {
         deps += [ "//v8:v8_external_startup_data_assets" ]
       }
     }

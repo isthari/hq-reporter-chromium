@@ -325,6 +325,7 @@ ASTRO_EXEC_FLAGS = _COMMON_FUCHSIA_ARGS + [
 SHERLOCK_EXEC_FLAGS = _COMMON_FUCHSIA_ARGS + [
     '--system-image-dir=%s' % _SHERLOCK_IMAGE_DIR
 ]
+ATLAS_EXEC_FLAGS = ['-d', '--os-check=ignore']
 
 _FUCHSIA_ASTRO_EXECUTABLE_CONFIGS = frozenset([
     _base_perftests(900,
@@ -335,6 +336,11 @@ _FUCHSIA_SHERLOCK_EXECUTABLE_CONFIGS = frozenset([
     _base_perftests(900,
                     path='bin/run_base_perftests',
                     additional_flags=SHERLOCK_EXEC_FLAGS)
+])
+_FUCHSIA_ATLAS_EXECUTABLE_CONFIGS = frozenset([
+    _base_perftests(900,
+                    path='bin/run_base_perftests',
+                    additional_flags=ATLAS_EXEC_FLAGS)
 ])
 
 _LINUX_BENCHMARK_CONFIGS = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove([
@@ -524,6 +530,7 @@ _FUCHSIA_SHERLOCK_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('rendering.mobile'),
     _GetBenchmarkConfig('media.mobile')
 ])
+_FUCHSIA_ATLAS_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite([])
 _LINUX_PERF_CALIBRATION_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('speedometer2'),
     _GetBenchmarkConfig('blink_perf.shadow_dom'),
@@ -552,15 +559,15 @@ LINUX_REL = PerfPlatform(
     executables=_LINUX_EXECUTABLE_CONFIGS)
 
 # Mac
-MAC_HIGH_END = PerfPlatform(
-    'mac-10_13_laptop_high_end-perf',
+MAC_HIGH_END_LAPTOP = PerfPlatform(
+    'mac-laptop_high_end-perf',
     'MacBook Pro, Core i7 2.8 GHz, 16GB RAM, 256GB SSD, Radeon 55',
     _MAC_HIGH_END_BENCHMARK_CONFIGS,
     26,
     'mac',
     executables=_MAC_HIGH_END_EXECUTABLE_CONFIGS)
-MAC_LOW_END = PerfPlatform(
-    'mac-10_12_laptop_low_end-perf',
+MAC_LOW_END_LAPTOP = PerfPlatform(
+    'mac-laptop_low_end-perf',
     'MacBook Air, Core i5 1.8 GHz, 8GB RAM, 128GB SSD, HD Graphics',
     _MAC_LOW_END_BENCHMARK_CONFIGS,
     26,
@@ -643,7 +650,7 @@ ANDROID_PIXEL4_WEBLAYER = PerfPlatform(
 ANDROID_PIXEL4A_POWER = PerfPlatform('android-pixel4a_power-perf',
                                      'Android QD4A.200102.001.A1',
                                      _ANDROID_PIXEL4A_POWER_BENCHMARK_CONFIGS,
-                                     10, 'android')
+                                     12, 'android')
 
 # Cros/Lacros
 LACROS_EVE_PERF = PerfPlatform('lacros-eve-perf', '',
@@ -701,6 +708,14 @@ FUCHSIA_PERF_SHERLOCK_FYI = PerfPlatform(
     'fuchsia',
     is_fyi=True,
     executables=_FUCHSIA_SHERLOCK_EXECUTABLE_CONFIGS)
+FUCHSIA_PERF_ATLAS_FYI = PerfPlatform(
+    'fuchsia-perf-atlas-fyi',
+    '',
+    _FUCHSIA_ATLAS_PERF_FYI_BENCHMARK_CONFIGS,
+    1,
+    'fuchsia',
+    is_fyi=True,
+    executables=_FUCHSIA_ATLAS_EXECUTABLE_CONFIGS)
 
 # Calibration bots
 LINUX_PERF_CALIBRATION = PerfPlatform(

@@ -449,20 +449,15 @@ class CORE_EXPORT LayoutObject : public GarbageCollected<LayoutObject>,
 
   LayoutBox* EnclosingScrollableBox() const;
 
-  // Returns the |LayoutBlockFlow| that has |NGFragmentItems| for |this|. This
-  // is usually the same as |ContainingNGBlockFlow()|, but it is the child of
-  // that when the IFC has multicol applied. TODO(crbug.com/1076470)
+  // Return the NG |LayoutBlockFlow| that will have any |NGFragmentItems| for
+  // |this|, or nullptr if the containing block isn't an NG inline formatting
+  // context root. |this| is required to be an object that participates in an
+  // inline formatting context (i.e. something inline-level, or a float).
   LayoutBlockFlow* FragmentItemsContainer() const;
 
-  // Returns the containing block flow if it's a LayoutNGBlockFlow, or nullptr
-  // otherwise. Note that the semantics is different from |EnclosingBox| for
-  // atomic inlines that this function returns the container, while
-  // |EnclosingBox| returns the atomic inline itself.
-  //
-  // |this| must be |IsInline()|. The root is the object that holds
-  // |NGInlineNodeData| and the root |NGPaintFragment| if it's in
-  // LayoutNG context.
-  LayoutBlockFlow* ContainingNGBlockFlow() const;
+  // Return the containing NG block, if the containing block is an NG block,
+  // nullptr otherwise.
+  LayoutBlock* ContainingNGBlock() const;
 
   // Function to return our enclosing flow thread if we are contained inside
   // one. This function follows the containing block chain.
@@ -1508,36 +1503,36 @@ class CORE_EXPORT LayoutObject : public GarbageCollected<LayoutObject>,
   // For non-boxes, for better performance, the caller can prepare
   // |block_for_flipping| (= ContainingBlock()) if it will loop through many
   // rects/points to flip to avoid the cost of repeated ContainingBlock() calls.
-  WARN_UNUSED_RESULT LayoutRect
-  FlipForWritingMode(const PhysicalRect& r,
-                     const LayoutBox* box_for_flipping = nullptr) const {
+  [[nodiscard]] LayoutRect FlipForWritingMode(
+      const PhysicalRect& r,
+      const LayoutBox* box_for_flipping = nullptr) const {
     NOT_DESTROYED();
     if (LIKELY(!HasFlippedBlocksWritingMode()))
       return r.ToLayoutRect();
     return {FlipForWritingModeInternal(r.X(), r.Width(), box_for_flipping),
             r.Y(), r.Width(), r.Height()};
   }
-  WARN_UNUSED_RESULT PhysicalRect
-  FlipForWritingMode(const LayoutRect& r,
-                     const LayoutBox* box_for_flipping = nullptr) const {
+  [[nodiscard]] PhysicalRect FlipForWritingMode(
+      const LayoutRect& r,
+      const LayoutBox* box_for_flipping = nullptr) const {
     NOT_DESTROYED();
     if (LIKELY(!HasFlippedBlocksWritingMode()))
       return PhysicalRect(r);
     return {FlipForWritingModeInternal(r.X(), r.Width(), box_for_flipping),
             r.Y(), r.Width(), r.Height()};
   }
-  WARN_UNUSED_RESULT LayoutPoint
-  FlipForWritingMode(const PhysicalOffset& p,
-                     const LayoutBox* box_for_flipping = nullptr) const {
+  [[nodiscard]] LayoutPoint FlipForWritingMode(
+      const PhysicalOffset& p,
+      const LayoutBox* box_for_flipping = nullptr) const {
     NOT_DESTROYED();
     if (LIKELY(!HasFlippedBlocksWritingMode()))
       return p.ToLayoutPoint();
     return {FlipForWritingModeInternal(p.left, LayoutUnit(), box_for_flipping),
             p.top};
   }
-  WARN_UNUSED_RESULT PhysicalOffset
-  FlipForWritingMode(const LayoutPoint& p,
-                     const LayoutBox* box_for_flipping = nullptr) const {
+  [[nodiscard]] PhysicalOffset FlipForWritingMode(
+      const LayoutPoint& p,
+      const LayoutBox* box_for_flipping = nullptr) const {
     NOT_DESTROYED();
     if (LIKELY(!HasFlippedBlocksWritingMode()))
       return PhysicalOffset(p);

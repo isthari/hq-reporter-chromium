@@ -74,6 +74,9 @@
   <message name="IDS_FILE_BROWSER_MY_FILES_ROOT_LABEL" desc="A label for the 'My files' root which is parent of Downloads, Linux and Android files. Use sentence case.">
     My files
   </message>
+  <message name="IDS_FILE_BROWSER_MEDIA_VIEW_ALL_ROOT_LABEL" desc="A label for the 'All' root of media views.">
+    All
+  </message>
   <message name="IDS_FILE_BROWSER_MEDIA_VIEW_IMAGES_ROOT_LABEL" desc="A label for the 'Images' root of media views.">
     Images
   </message>
@@ -1533,4 +1536,13 @@
   <message name="IDS_VIDEO_PLAYER_DISABLE_SUBTITLES_BUTTON_LABEL" desc="Label for a button which is used to disable subtitles in video player.">
     Disable subtitles
   </message>
+
+<!-- Data Leak Prevention -->
+  <message name="IDS_FILE_BROWSER_DLP_BLOCK_COPY_TOAST" desc="A toast informing the user that copying files is blocked by the administrator.">
+    Pasting this file is blocked by your administrator
+  </message>
+  <message name="IDS_FILE_BROWSER_DLP_TOAST_BUTTON_LABEL" desc="Toast button label, learn more about data leak prevention policies.">
+    Learn more
+  </message>
+
 </grit-part>

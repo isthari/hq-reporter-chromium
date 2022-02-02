@@ -186,9 +186,9 @@ source_set("formats") {
   sources += [
     "hls/items.cc",
     "hls/items.h",
-    "hls/parse_context.cc",
-    "hls/parse_context.h",
     "hls/parse_status.h",
+    "hls/source_string.cc",
+    "hls/source_string.h",
     "hls/tags.cc",
     "hls/tags.h",
     "hls/types.cc",
@@ -312,6 +312,15 @@ source_set("unit_tests") {
 # TODO(https://crbug.com/1266991): This should be gated behind `enable_hls_demuxer`, once that's enabled by default.
 fuzzer_test("hls_items_fuzzer") {
   sources = [ "hls/items_fuzzer.cc" ]
+  deps = [
+    "//base",
+    "//media",
+  ]
+}
+
+# TODO(https://crbug.com/1266991): This should be gated behind `enable_hls_demuxer`, once that's enabled by default.
+fuzzer_test("hls_attribute_list_fuzzer") {
+  sources = [ "hls/attribute_list_fuzzer.cc" ]
   deps = [
     "//base",
     "//media",

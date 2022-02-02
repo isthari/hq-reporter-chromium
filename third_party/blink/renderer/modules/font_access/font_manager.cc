@@ -43,46 +43,15 @@ ScriptPromise FontManager::query(ScriptState* script_state,
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
-  if (options->persistentAccess() &&
-      RuntimeEnabledFeatures::FontAccessPersistentEnabled()) {
-    remote_manager_->EnumerateLocalFonts(WTF::Bind(
-        &FontManager::DidGetEnumerationResponse, WrapWeakPersistent(this),
-        WrapPersistent(resolver), options->select()));
-    return promise;
-  }
-
-  remote_manager_->ChooseLocalFonts(
-      options->select(),
-      WTF::Bind(&FontManager::DidShowFontChooser, WrapWeakPersistent(this),
-                WrapPersistent(resolver)));
-
+  remote_manager_->EnumerateLocalFonts(WTF::Bind(
+      &FontManager::DidGetEnumerationResponse, WrapWeakPersistent(this),
+      WrapPersistent(resolver), options->select()));
   return promise;
 }
 
 void FontManager::Trace(blink::Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
-}
-
-void FontManager::DidShowFontChooser(
-    ScriptPromiseResolver* resolver,
-    FontEnumerationStatus status,
-    Vector<mojom::blink::FontMetadataPtr> fonts) {
-  if (RejectPromiseIfNecessary(status, resolver))
-    return;
-
-  auto entries = HeapVector<Member<FontMetadata>>();
-  for (const auto& font : fonts) {
-    auto entry = FontEnumerationEntry{.postscript_name = font->postscript_name,
-                                      .full_name = font->full_name,
-                                      .family = font->family,
-                                      .style = font->style,
-                                      .italic = font->italic,
-                                      .stretch = font->stretch,
-                                      .weight = font->weight};
-    entries.push_back(FontMetadata::Create(std::move(entry)));
-  }
-  resolver->Resolve(std::move(entries));
 }
 
 void FontManager::DidGetEnumerationResponse(
@@ -125,9 +94,6 @@ void FontManager::DidGetEnumerationResponse(
         .full_name = String::FromUTF8(element.full_name().c_str()),
         .family = String::FromUTF8(element.family().c_str()),
         .style = String::FromUTF8(element.style().c_str()),
-        .italic = element.italic(),
-        .stretch = element.stretch(),
-        .weight = element.weight(),
     };
     entries.push_back(FontMetadata::Create(std::move(entry)));
   }

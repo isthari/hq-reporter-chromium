@@ -159,6 +159,10 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="SafeBrowsing.BlockingPage.ResourceType"
     enum="ContentResourceType2" expires_after="2022-02-06">
+  <obsolete>
+    Removed from code in M94. Replaced with
+    SafeBrowsing.BlockingPage.RequestDestination.
+  </obsolete>
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -177,7 +181,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="SafeBrowsing.BrowserThrottle.IsCheckCompletedOnProcessResponse"
-    enum="BooleanCompleted" expires_after="2022-05-08">
+    enum="BooleanCompleted" expires_after="2022-07-11">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -223,7 +227,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.CookieAgeHours" units="hours" expires_after="M98">
+<histogram name="SafeBrowsing.CookieAgeHours" units="hours"
+    expires_after="2022-07-07">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -245,7 +250,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="SafeBrowsing.Daily.BypassCountLast28Days.{UserState}.{EventType}"
-    units="events" expires_after="2022-02-12">
+    units="events" expires_after="2023-01-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -429,7 +434,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.DeepScan.DragAndDrop.Duration" units="ms"
-    expires_after="2022-05-15">
+    expires_after="2022-07-17">
   <owner>domfc@chromium.org</owner>
   <owner>webprotect-team@google.com</owner>
   <summary>
@@ -952,7 +957,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.EsbDisabled.BypassCountLast28Days.{EventType}"
-    units="events" expires_after="2022-02-22">
+    units="events" expires_after="2023-01-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -965,7 +970,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.EsbDisabled.LastBypassEventInterval.{EventType}"
-    units="ms" expires_after="2022-02-22">
+    units="ms" expires_after="2023-01-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1057,6 +1062,33 @@ chromium-metrics-reviews@google.com.
       variants="MetricsCollectorTimesDisabledEnabledDuration"/>
 </histogram>
 
+<histogram
+    name="SafeBrowsing.ExtensionTelemetry.NetworkRequestResponseCodeOrError"
+    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2022-06-01">
+  <owner>anunoy@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    The HTTP response code or net error from each upload attempt. This is
+    recorded once for each network request made as part of an upload, i.e. if an
+    upload fails the first time, but a retry succeeds, this metric is recorded
+    twice. Upload attempts occur periodically (default period is 1 hour) and
+    there are multiple retries attempted (if necessary) after every upload
+    interval.
+  </summary>
+</histogram>
+
+<histogram name="SafeBrowsing.ExtensionTelemetry.RetriesTillUploadSuccess"
+    units="retries" expires_after="2022-06-01">
+  <owner>anunoy@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Counts how many retries were needed to successfully complete the upload
+    request. This is emitted only for a successful upload. Upload attempts occur
+    periodically (default period is 1 hour) and there are multiple retries
+    attempted (if necessary) after every upload interval.
+  </summary>
+</histogram>
+
 <histogram name="SafeBrowsing.ExtensionTelemetry.Signals.SignalType"
     enum="SBExtensionTelemetrySignalsSignalType" expires_after="2022-06-26">
   <owner>anunoy@chromium.org</owner>
@@ -1065,6 +1097,47 @@ chromium-metrics-reviews@google.com.
     Records the extension telemetry signal type. Logged each time a signal is
     triggered (eg. a tabs.executeScript API call is invoked).
   </summary>
+</histogram>
+
+<histogram name="SafeBrowsing.ExtensionTelemetry.UploadSize" units="bytes"
+    expires_after="2022-06-01">
+  <owner>anunoy@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    The size of the upload request body. This is recorded once for each upload,
+    regardless of whether it was successful. Upload attempts occur periodically
+    (default period is 1 hour).
+  </summary>
+</histogram>
+
+<histogram name="SafeBrowsing.ExtensionTelemetry.UploadSuccess"
+    enum="BooleanSuccess" expires_after="2022-06-01">
+  <owner>anunoy@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Whether the overall upload request succeeded or not. This is recorded once
+    for an upload request, regardless of how many retries were needed to
+    complete the upload. Upload attempts occur periodically (default period is 1
+    hour) and there are multiple retries attempted (if necessary) after every
+    upload interval.
+  </summary>
+</histogram>
+
+<histogram name="SafeBrowsing.ExtensionTelemetry.{Result}UploadDuration"
+    units="s" expires_after="2022-06-01">
+  <owner>anunoy@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Measures the total duration (including delay due to retries) of a {Result}
+    upload request. This is recorded after the last retry on every {Result}
+    upload. Upload attempts occur periodically (default period is 1 hour) and
+    there are multiple retries attempted (if necessary) after every upload
+    interval.
+  </summary>
+  <token key="Result">
+    <variant name="Failed" summary="failed"/>
+    <variant name="Successful" summary="successful"/>
+  </token>
 </histogram>
 
 <histogram name="SafeBrowsing.FileTypeUpdate.DynamicUpdateResult"
@@ -1122,25 +1195,12 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.HasCookieAtStartup" enum="Boolean"
-    expires_after="M98">
+    expires_after="2022-07-07">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Records whether a Safe Browsing cookie exists at startup or when a new
     profile is created.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.Interstitial.Type" enum="InterstitialTypeEnum"
-    expires_after="2021-07-07">
-  <obsolete>
-    Removed from the code May 2021.
-  </obsolete>
-  <owner>ntfschr@chromium.org</owner>
-  <owner>src/android_webview/OWNERS</owner>
-  <summary>
-    Which interstitial type is being displayed to the user? This currently
-    applies only to WebView (where we show Loud vs. Quiet interstitials).
   </summary>
 </histogram>
 
@@ -1165,7 +1225,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.NavigationObserver.AppendRecentNavigationsTime"
-    units="ms" expires_after="2022-05-15">
+    units="ms" expires_after="2022-07-17">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1217,19 +1277,6 @@ chromium-metrics-reviews@google.com.
   <summary>
     Logs the time it takes to identify referrer chain by web contents. Logged
     each time the function is called.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.NavigationObserver.NavigationEventCleanUpCount"
-    units="NavigationEvents" expires_after="2021-01-27">
-  <obsolete>
-    Removed 01-29-2021 due to lack of use.
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Count of how many NavigationEvents get removed in each periodic clean up.
-    This is a rough estimation of the number of navigations every two minutes.
   </summary>
 </histogram>
 
@@ -1364,7 +1411,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.Pref.Enhanced" enum="BooleanEnabled"
-    expires_after="2022-05-08">
+    expires_after="2022-07-11">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1376,7 +1423,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.Pref.Extended" enum="BooleanEnabled"
-    expires_after="2022-05-08">
+    expires_after="2022-07-11">
   <owner>vakh@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1388,7 +1435,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.Pref.General" enum="BooleanEnabled"
-    expires_after="2022-05-08">
+    expires_after="2022-07-11">
   <owner>vakh@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1410,19 +1457,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.Pref.SawInterstitial" enum="Boolean"
-    expires_after="2021-01-30">
-  <obsolete>
-    Removed 10-2021 due to lack of use
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Whether the current user has ever seen a security interstitial. Recorded for
-    all non-Incognito profiles on profile startup.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.ReferrerAttributionResult"
     enum="SafeBrowsingAttributionResultTypes" expires_after="2022-10-31">
   <owner>drubery@chromium.org</owner>
@@ -1431,20 +1465,6 @@ chromium-metrics-reviews@google.com.
     The result of referrer attribution, including different types of success or
     failure. This is incremented each time a safe browsing ping or download ping
     is generated.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.ReferrerHasInvalidTabID" enum="BooleanInvalid"
-    expires_after="2021-10-25">
-  <obsolete>
-    Removed 09-2021 due to lack of use
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Number of times referrer attribution encounters an invalid tab ID. This is
-    incremented a safe browsing ping or download ping is generated and an
-    invalid tab ID is encountered during attribution.
   </summary>
 </histogram>
 
@@ -1563,7 +1583,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.GetCache.Time" units="ms"
-    expires_after="2022-05-08">
+    expires_after="2022-07-11">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1574,7 +1594,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.GetCacheResult"
-    enum="SafeBrowsingRTLookupResponseVerdictType" expires_after="2022-05-08">
+    enum="SafeBrowsingRTLookupResponseVerdictType" expires_after="2022-07-11">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1586,7 +1606,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.GetToken.Time" units="ms"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1618,22 +1638,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.RT.HasValidCacheManager" enum="BooleanValid"
-    expires_after="2021-08-29">
-  <obsolete>
-    Removed from code in M95. Not useful.
-  </obsolete>
-  <owner>xinghuilu@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Logs if cache manager is valid when real time URL check is enabled. Logged
-    each time if the URL doesn't match the high confidence allowlist. Ideally,
-    cache manager should be valid whenever real time URL check is enabled.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.RT.IsLookupServiceAvailable"
-    enum="BooleanAvailable" expires_after="2022-05-22">
+    enum="BooleanAvailable" expires_after="2022-07-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1645,7 +1651,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.IsLookupSuccessful" enum="BooleanSuccess"
-    expires_after="2022-05-22">
+    expires_after="2022-07-24">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1727,7 +1733,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.Request.Size" units="bytes"
-    expires_after="2022-05-15">
+    expires_after="2022-07-17">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1767,44 +1773,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.RT.ResourceTypes.Checked"
-    enum="ContentResourceType2" expires_after="2021-10-04">
-  <obsolete>
-    Removed from code in M94. Replaced with
-    SafeBrowsing.RT.RequestDestinations.Checked.
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Logs the resource type that was checked by Safe Browsing real time URL
-    lookup. Logged on each resource check that is eligible for real time checks.
-
-    Starting M89, this metric is derived from
-    network::mojom::RequestDestination. kPrefetch, kFavicon, kXhr, kPing,
-    kNavigationPreloadMainFrame, and kNavigationPreloadSubFrame are all mapped
-    to kSubResource.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.RT.ResourceTypes.Requested"
-    enum="ContentResourceType2" expires_after="2021-10-04">
-  <obsolete>
-    Removed from code in M94. Replaced with
-    SafeBrowsing.RT.RequestDestinations.Requested.
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Logs the resource type that was requested to be checked by Safe Browsing
-    real time URL lookup. Logged on each resource check.
-
-    Starting M89, this metric is derived from
-    network::mojom::RequestDestination. kPrefetch, kFavicon, kXhr, kPing,
-    kNavigationPreloadMainFrame, and kNavigationPreloadSubFrame are all mapped
-    to kSubResource.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.RT.Response.VerdictType"
     enum="SafeBrowsingRTLookupResponseVerdictType" expires_after="2022-09-10">
   <owner>xinghuilu@chromium.org</owner>
@@ -1831,6 +1799,18 @@ chromium-metrics-reviews@google.com.
     <variant name="NotEnhancedProtection"
         summary="Any Non-Enhanced Protection"/>
   </token>
+</histogram>
+
+<histogram name="SafeBrowsing.RT.SampledRequestSent" units="Boolean"
+    expires_after="2022-07-06">
+  <owner>zackhan@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Logs the type of the real time URL check requests. It could be a sampled
+    report request that only happens 1% of the time when URLs match the Protego
+    allowlist, or a full report request otherwise when an real time URL request
+    is sent.
+  </summary>
 </histogram>
 
 <histogram name="SafeBrowsing.RT.ThreatInfoSize" units="verdicts"
@@ -1917,20 +1897,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.TailoredSecurityUnconsentedMessageOutcome"
-    enum="SafeBrowsingTailoredSecurityOutcome" expires_after="2022-11-11">
-  <obsolete>
-    Removed 12-2021 and replaced with
-    SafeBrowsing.TailoredSecurityUnconsentedInFlowMessageOutcome
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Logs the outcome of displaying the message when a signed-in, non-syncing
-    user changes their account tailored security setting.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.TailoredSecurityUnconsentedModalOutcome"
     enum="SafeBrowsingTailoredSecurityOutcome" expires_after="2022-11-11">
   <owner>drubery@chromium.org</owner>
@@ -1958,38 +1924,13 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.TokenFetcher.ErrorType"
-    enum="GoogleServiceAuthError" expires_after="2022-04-24">
+    enum="GoogleServiceAuthError" expires_after="2022-07-11">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Logs the error type from the token fetcher. Logs each time safe browsing
     gets a response from the token fetcher. When the error type is none, it
     means the token is obtained successfully.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.Triggers.AdPopup.Action"
-    enum="AdPopupTriggerAction" expires_after="2021-07-01">
-  <obsolete>
-    Feature removed in M93.
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Tracks the actions taken by the Ad Popup trigger whenever it is executed.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.Triggers.AdRedirect.Action"
-    enum="AdPopupTriggerAction" expires_after="2021-07-01">
-  <obsolete>
-    Feature removed in M93.
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Tracks the actions taken by the Ad Redirect trigger whenever it is executed.
-    It is logged when we detect a blocked redirect attempt caused by an ad.
   </summary>
 </histogram>
 
@@ -2004,39 +1945,13 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.Triggers.SuspiciousSite.DelayTimerState"
-    enum="SuspiciousSiteTriggerState" expires_after="2021-07-01">
-  <obsolete>
-    Removed 10-2021 due to lack of use
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Tracks the state of the Suspicious Site trigger when its report delay timer
-    fires. Used to investigate variance in event order.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.Triggers.SuspiciousSite.Event"
-    enum="SuspiciousSiteTriggerEvent" expires_after="2022-05-08">
+    enum="SuspiciousSiteTriggerEvent" expires_after="2022-07-11">
   <owner>vakh@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Tracks the events occurring in the Suspicious Site trigger whenever it is
     executed.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.Triggers.SuspiciousSite.ReportRejectionReason"
-    enum="TriggerManagerReason" expires_after="2021-11-07">
-  <obsolete>
-    Removed 11-2021 due to lack of use
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Tracks the reasons that a report requested by the Suspicious Site trigger is
-    rejected by the Trigger Manager.
   </summary>
 </histogram>
 
@@ -2088,7 +2003,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SafeBrowsing.V4GetHash.Network.Result"
-    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2022-05-07">
+    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2022-07-11">
   <owner>vakh@google.com</owner>
   <owner>kcarattini@google.com</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
@@ -2135,34 +2050,6 @@ Safe Browsing lookup mechanism is working as expected -->
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.V4LocalDatabaseManager.AreAllStoresAvailableNow"
-    enum="SafeBrowsingStoreAvailabilityResult" expires_after="M94">
-  <obsolete>
-    Removed in M94 due to lack of use.
-  </obsolete>
-  <owner>vakh@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Records the outcome of a check to AreAllStoresAvailableNow. This will be
-    logged whenever the database is queried (several times in the process of a
-    download, and once when a potentially dangerous subresource is loaded).
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.V4LocalDatabaseManager.HasReceivedUpdateResponse"
-    enum="BooleanUpdateReceived" expires_after="2021-03-04">
-  <obsolete>
-    Removed 03-03-2021 due to stability and lack of use.
-  </obsolete>
-  <owner>ajuma@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Records whether a network response has been received for a request to update
-    the Safe Browsing local database, since the browser was launched. This will
-    be logged whenever the database is queried.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsing.V4LocalDatabaseManager.ThreatInfoSize"
     units="verdicts" expires_after="2022-06-05">
   <owner>xinghuilu@chromium.org</owner>
@@ -2183,19 +2070,6 @@ Safe Browsing lookup mechanism is working as expected -->
     to udpate the Safe Browsing local database. This will be logged whenever the
     database is queried, but only if at least one such network response has been
     received since the browser was launched.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.V4ProcessFullUpdate.AdditionsHashesCount"
-    units="entries" expires_after="2021-08-29">
-  <obsolete>
-    Removed in M92 and replaced with
-    SafeBrowsing.V4ProcessFullUpdate.AdditionsHashesCount2
-  </obsolete>
-  <owner>xinghuilu@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Records the number of additions hashes in a SafeBrowsing list full update.
   </summary>
 </histogram>
 
@@ -2515,52 +2389,6 @@ failing to fetch the updates which puts users' security at risk. -->
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsing.WebView.UserOptIn" enum="SafeBrowsingUserOptIn"
-    expires_after="2021-07-07">
-  <obsolete>
-    Removed from the code May 2021.
-  </obsolete>
-  <owner>ntfschr@chromium.org</owner>
-  <owner>src/android_webview/OWNERS</owner>
-  <summary>
-    Records whether the user has explicitly opted in or out of Safe Browsing
-    (determined by the Google Play Protect Verify Apps setting in GMS). This
-    also captures when WebView cannot determine user preference due to a GMS API
-    failure. This is recorded once during startup.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsing.WebView.Viewable" enum="BooleanVisible"
-    expires_after="2021-07-07">
-  <obsolete>
-    Removed from the code May 2021.
-  </obsolete>
-  <owner>ntfschr@chromium.org</owner>
-  <owner>src/android_webview/OWNERS</owner>
-  <summary>
-    When encountering an unsafe resource, this indicates whether the WebView is
-    considered to be viewable or not. Currently, we define &quot;viewable&quot;
-    as getVisibility() == View.VISIBLE and attached to the Android View
-    hierarchy.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsingBinaryUploadRequest.AdvancedProtectionScanVerdict"
-    enum="SafeBrowsingMalwareDeepScanningVerdict" expires_after="2021-01-14">
-  <obsolete>
-    Marked obsolete 12-2020. Replaced by
-    SBClientDownload.MalwareDeepScanResult.AdvancedProtectionPrompt.
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    This records the verdict of deep scanning for Advanced Protection users. It
-    can be used to determine how often we warn the user about malware after they
-    upload a file for deep scanning. It is recorded after every Advanced
-    Protection deep scan.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsingBinaryUploadRequest.DlpResult"
     enum="BooleanSuccess" expires_after="2022-05-01">
   <owner>drubery@chromium.org</owner>
@@ -2594,21 +2422,6 @@ failing to fetch the updates which puts users' security at risk. -->
   </summary>
 </histogram>
 
-<histogram name="SafeBrowsingBinaryUploadRequest.MalwareScanVerdict"
-    enum="SafeBrowsingMalwareDeepScanningVerdict" expires_after="2021-01-14">
-  <obsolete>
-    Removed 12-2020. Replaced by SafeBrowsingBinaryUploadRequest.MalwareResult.
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    This records the verdict of deep scanning for enterprise users. It can be
-    used to determine how often we warn the user about malware after they upload
-    a file for deep scanning. It is recorded after every enterprise malware deep
-    scan.
-  </summary>
-</histogram>
-
 <histogram name="SafeBrowsingBinaryUploadRequest.Result"
     enum="SafeBrowsingBinaryUploadResult" expires_after="2022-06-12">
   <owner>drubery@chromium.org</owner>
@@ -2631,7 +2444,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadService.ActiveRequestsAtShutdown"
-    units="requests" expires_after="2022-04-24">
+    units="requests" expires_after="2022-07-11">
   <owner>domfc@chromium.org</owner>
   <owner>jgingras@chromium.org</owner>
   <owner>webprotect-eng@google.com</owner>
@@ -2639,22 +2452,6 @@ failing to fetch the updates which puts users' security at risk. -->
     This records the number of active requests when a BinaryUploadService
     instance is shutdown. This metric is only logged if the number of active
     requests is not 0.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsingFCMService.IncomingMessageHasKey" enum="Boolean"
-    expires_after="M95">
-  <obsolete>
-    Removed 09-2021 since all recorded values were True
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Whether the incoming message has the expected key. Recorded on every FCM
-    message received by the Safe Browsing FCM handler.
-
-    Warning: This histogram was expired in M91 and restored in M92. Data may be
-    missing in M91.
   </summary>
 </histogram>
 
@@ -2666,40 +2463,6 @@ failing to fetch the updates which puts users' security at risk. -->
     Whether the incoming message has a token that was previously registered with
     the FCM handler. Recorded on every FCM message received by the Safe Browsing
     FCM handler.
-
-    Warning: This histogram was expired in M91 and restored in M92. Data may be
-    missing in M91.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsingFCMService.IncomingMessageParsedBase64"
-    enum="BooleanSuccess" expires_after="M95">
-  <obsolete>
-    Removed 09-2021 since all recorded values were True
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Whether the incoming message was successfully parsed as valid base64-encoded
-    data. Recorded on every FCM message received by the Safe Browsing FCM
-    handler.
-
-    Warning: This histogram was expired in M91 and restored in M92. Data may be
-    missing in M91.
-  </summary>
-</histogram>
-
-<histogram name="SafeBrowsingFCMService.IncomingMessageParsedProto"
-    enum="BooleanSuccess" expires_after="M95">
-  <obsolete>
-    Removed 09-2021 since all recorded values were True
-  </obsolete>
-  <owner>drubery@chromium.org</owner>
-  <owner>chrome-safebrowsing-alerts@google.com</owner>
-  <summary>
-    Whether the incoming message was successfully parsed as a valid
-    base64-encoded serialized proto. Recorded on every FCM message received by
-    the Safe Browsing FCM handler.
 
     Warning: This histogram was expired in M91 and restored in M92. Data may be
     missing in M91.

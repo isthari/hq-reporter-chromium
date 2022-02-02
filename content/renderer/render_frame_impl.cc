@@ -241,7 +241,7 @@
 #include "content/renderer/pepper/plugin_module.h"
 #endif
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
 #include <cpu-features.h>
 
 #include "content/renderer/java/gin_java_bridge_dispatcher.h"
@@ -310,10 +310,6 @@ const size_t kMaxURLLogChars = 1024;
 constexpr base::TimeDelta kDelaySecondsForContentStateSyncHidden =
     base::Seconds(5);
 constexpr base::TimeDelta kDelaySecondsForContentStateSync = base::Seconds(1);
-
-const blink::PreviewsState kDisabledPreviewsBits =
-    blink::PreviewsTypes::PREVIEWS_OFF |
-    blink::PreviewsTypes::PREVIEWS_NO_TRANSFORM;
 
 typedef std::map<int, RenderFrameImpl*> RoutingIDFrameMap;
 static base::LazyInstance<RoutingIDFrameMap>::DestructorAtExit
@@ -462,14 +458,6 @@ void FillNavigationParamsRequest(
     }
   }
 
-  if (common_params.previews_state & kDisabledPreviewsBits) {
-    // Sanity check disabled vs. enabled bits here before passing on.
-    DCHECK(!(common_params.previews_state & ~kDisabledPreviewsBits))
-        << common_params.previews_state;
-  }
-  navigation_params->previews_state =
-      static_cast<blink::PreviewsState>(common_params.previews_state);
-
   // Set the request initiator origin, which is supplied by the browser
   // process. It is present in cases such as navigating a frame in a different
   // process, which is routed through RenderFrameProxy and the origin is
@@ -584,7 +572,6 @@ blink::mojom::CommonNavigationParamsPtr MakeCommonNavigationParams(
       std::move(referrer), url_request_extra_data->transition_type(),
       navigation_type, download_policy,
       info->frame_load_type == WebFrameLoadType::kReplaceCurrentItem, GURL(),
-      static_cast<blink::PreviewsState>(info->url_request.GetPreviewsState()),
       base::TimeTicks::Now(), info->url_request.HttpMethod().Latin1(),
       blink::GetRequestBodyForWebURLRequest(info->url_request),
       std::move(source_location), false /* started_from_context_menu */,
@@ -950,7 +937,7 @@ void ApplyFilePathAlias(blink::WebURLRequest* request) {
     return;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   std::wstring path = base::UTF16ToWide(request->Url().GetString().Utf16());
   const std::wstring file_prefix =
       base::ASCIIToWide(url::kFileScheme) +
@@ -967,7 +954,7 @@ void ApplyFilePathAlias(blink::WebURLRequest* request) {
 
   base::ReplaceFirstSubstringAfterOffset(&path, 0, alias_mapping[0],
                                          alias_mapping[1]);
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   request->SetUrl(blink::WebURL(GURL(base::WideToUTF8(path))));
 #else
   request->SetUrl(blink::WebURL(GURL(path)));
@@ -1041,7 +1028,7 @@ void FillMiscNavigationParams(
   navigation_params->is_cross_site_cross_browsing_context_group =
       commit_params.is_cross_site_cross_browsing_context_group;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // Only android webview uses this.
   navigation_params->grant_load_local_resources =
       commit_params.can_load_local_resources;
@@ -1074,6 +1061,7 @@ void FillMiscNavigationParams(
 
   navigation_params->origin_agent_cluster = commit_params.origin_agent_cluster;
 
+  navigation_params->anonymous = commit_params.anonymous;
   navigation_params->enabled_client_hints.reserve(
       commit_params.enabled_client_hints.size());
   for (auto enabled_hint : commit_params.enabled_client_hints)
@@ -1962,7 +1950,7 @@ RenderFrameImpl::RenderFrameImpl(CreateParams params)
 
   // Everything below subclasses RenderFrameObserver and is automatically
   // deleted when the RenderFrame gets deleted.
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   new GinJavaBridgeDispatcher(this);
 #endif
 }
@@ -2267,11 +2255,11 @@ void RenderFrameImpl::Delete(mojom::FrameDeleteIntention intent) {
       // frame when a commit (and ownership transfer) is imminent.
       // TODO(dcheng): This is the case of https://crbug.com/838348.
       DCHECK(is_main_frame_);
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
       // This check is not enabled on Android, since it seems like it's much
       // easier to trigger data races there.
       CHECK(!in_frame_tree_);
-#endif  // !defined(OS_ANDROID)
+#endif  // !BUILDFLAG(IS_ANDROID)
       break;
   }
 
@@ -2496,12 +2484,6 @@ void RenderFrameImpl::AddMessageToConsole(
   AddMessageToConsoleImpl(level, message, false /* discard_duplicates */);
 }
 
-blink::PreviewsState RenderFrameImpl::GetPreviewsState() {
-  WebDocumentLoader* document_loader = frame_->GetDocumentLoader();
-  return document_loader ? document_loader->GetPreviewsState()
-                         : blink::PreviewsTypes::PREVIEWS_UNSPECIFIED;
-}
-
 bool RenderFrameImpl::IsPasting() {
   return GetLocalRootWebFrameWidget()->IsPasting();
 }
@@ -2523,12 +2505,6 @@ void RenderFrameImpl::AddAutoplayFlags(const url::Origin& origin,
 // blink::mojom::ResourceLoadInfoNotifier implementation
 // --------------------------
 
-#if defined(OS_ANDROID)
-void RenderFrameImpl::NotifyUpdateUserGestureCarryoverInfo() {
-  GetFrameHost()->UpdateUserGestureCarryoverInfo();
-}
-#endif
-
 void RenderFrameImpl::NotifyResourceRedirectReceived(
     const net::RedirectInfo& redirect_info,
     network::mojom::URLResponseHeadPtr redirect_response) {}
@@ -2537,14 +2513,13 @@ void RenderFrameImpl::NotifyResourceResponseReceived(
     int64_t request_id,
     const GURL& response_url,
     network::mojom::URLResponseHeadPtr response_head,
-    network::mojom::RequestDestination request_destination,
-    int32_t previews_state) {
+    network::mojom::RequestDestination request_destination) {
   if (!blink::IsRequestDestinationFrame(request_destination)) {
     GetFrameHost()->SubresourceResponseStarted(response_url,
                                                response_head->cert_status);
   }
   DidStartResponse(response_url, request_id, std::move(response_head),
-                   request_destination, previews_state);
+                   request_destination);
 }
 
 void RenderFrameImpl::NotifyResourceTransferSizeUpdated(
@@ -2699,7 +2674,7 @@ void RenderFrameImpl::CommitNavigation(
   // Sanity check that the browser always sends us new loader factories on
   // cross-document navigations.
   DCHECK(common_params->url.SchemeIs(url::kJavaScriptScheme) ||
-         common_params->url.IsAboutSrcdoc() || subresource_loader_factories);
+         subresource_loader_factories);
 
   int request_id = blink::WebResourceRequestSender::MakeRequestID();
   std::unique_ptr<DocumentState> document_state = BuildDocumentStateFromParams(
@@ -2735,7 +2710,7 @@ void RenderFrameImpl::CommitNavigation(
   // - The actual data: URL will be saved in the document's DocumentState to
   // later be returned as the `url` in DidCommitProvisionalLoadParams.
   bool should_handle_data_url_as_string = false;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   should_handle_data_url_as_string |=
       is_main_frame_ && !commit_params->data_url_as_string.empty();
 #endif
@@ -2850,45 +2825,17 @@ void RenderFrameImpl::CommitNavigationWithParams(
     mojom::StorageInfoPtr storage_info,
     std::unique_ptr<DocumentState> document_state,
     std::unique_ptr<WebNavigationParams> navigation_params) {
-  // Here, creator means either the parent frame or the window opener.
-  bool inherit_loaders_from_creator =
-      // Iframe with the about:srcdoc URL inherits subresource loaders from
-      // its parent. If its parent is able to use the FileUrlLoader, then its
-      // about:srcdoc iframe can use it too.
-      // TODO(arthursonzogni): Ideally, this decision should be made by the
-      // browser process. However, giving an iframe the FileUrlLoader mistakenly
-      // could have terrible consequences (e.g. give access to user's file from
-      // an unknown website). Inheriting from the parent in the renderer process
-      // is more conservative and feels more cautious for now.
-      // TODO(arthursonzogni): Something similar needs to be done for
-      // about:blank.
-      common_params->url.IsAboutSrcdoc();
-
-  // TODO(lukasza): https://crbug.com/936696: No need to postpone setting the
-  // |new_loader_factories| once we start swapping RenderFrame^H^H^H
-  // RenderDocument on every cross-document navigation.
-  scoped_refptr<blink::ChildURLLoaderFactoryBundle> new_loader_factories;
-  if (inherit_loaders_from_creator) {
-    // The browser process didn't provide any way to fetch subresources, it
-    // expects this document to inherit loaders from its parent.
-    DCHECK(!subresource_loader_factories);
-    DCHECK(!subresource_overrides);
-    DCHECK(!prefetch_loader_factory);
-
-    // Presence of the parent is verified by the browser process before
-    // committing.
-    //
-    // TODO(arthursonzogni, dcheng): If `inherit_loaders_from_creator` is ever
-    // extended to 'about:blank', then `creator` might also need to come from
-    // the opener.
-    auto* creator = RenderFrameImpl::FromWebFrame(frame_->Parent());
-    DCHECK(creator);
-    new_loader_factories = creator->CloneLoaderFactories();
-  } else {
-    new_loader_factories = CreateLoaderFactoryBundle(
-        std::move(subresource_loader_factories),
-        std::move(subresource_overrides), std::move(prefetch_loader_factory));
+  if (common_params->url.IsAboutSrcdoc()) {
+    WebNavigationParams::FillStaticResponse(navigation_params.get(),
+                                            "text/html", "UTF-8",
+                                            commit_params->srcdoc_value);
   }
+
+  scoped_refptr<blink::ChildURLLoaderFactoryBundle> new_loader_factories =
+      CreateLoaderFactoryBundle(std::move(subresource_loader_factories),
+                                std::move(subresource_overrides),
+                                std::move(prefetch_loader_factory));
+
   DCHECK(new_loader_factories);
   DCHECK(new_loader_factories->HasBoundDefaultFactory());
 
@@ -2982,6 +2929,7 @@ void RenderFrameImpl::CommitFailedNavigation(
     std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
         subresource_loader_factories,
     blink::mojom::PolicyContainerPtr policy_container,
+    mojom::AlternativeErrorPageOverrideInfoPtr alternative_error_page_info,
     mojom::NavigationClient::CommitFailedNavigationCallback callback) {
   TRACE_EVENT1("navigation,benchmark,rail",
                "RenderFrameImpl::CommitFailedNavigation", "id", routing_id_);
@@ -3054,7 +3002,7 @@ void RenderFrameImpl::CommitFailedNavigation(
     DCHECK_NE(commit_params->http_response_code, -1);
     GetContentClient()->renderer()->PrepareErrorPageForHttpStatusError(
         this, error, navigation_params->http_method.Ascii(),
-        commit_params->http_response_code, error_html_ptr);
+        commit_params->http_response_code, nullptr, error_html_ptr);
   } else {
     if (error_page_content) {
       error_html = error_page_content.value();
@@ -3064,7 +3012,8 @@ void RenderFrameImpl::CommitFailedNavigation(
     // null above, PrepareErrorPage might have other side effects e.g. setting
     // some error-related states, so we should still call it.
     GetContentClient()->renderer()->PrepareErrorPage(
-        this, error, navigation_params->http_method.Ascii(), error_html_ptr);
+        this, error, navigation_params->http_method.Ascii(),
+        std::move(alternative_error_page_info), error_html_ptr);
   }
 
   // Make sure we never show errors in view source mode.
@@ -3184,7 +3133,7 @@ void RenderFrameImpl::CommitSameDocumentNavigation(
     // should keep the base URL as document URL.
     bool use_base_url_for_data_url =
         !common_params->base_url_for_data_url.is_empty();
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
     use_base_url_for_data_url |= !commit_params->data_url_as_string.empty();
 #endif
 
@@ -3254,11 +3203,10 @@ void RenderFrameImpl::UpdateSubresourceLoaderFactories(
   } else {
 #if DCHECK_IS_ON()
     // This situation should happen only if the frame hosts a document that
-    // isn't related to a real navigation (i.e. if the frame should "inherit"
-    // the factories from its opener/parent - for example for about:blank or
-    // about:srcdoc or about:blank#someHref frames, or for frames with no URL
-    // - like the initial frame opened by window('', 'popup')).
+    // isn't related to a real navigation (i.e. if an initial empty document
+    // should "inherit" the factories from its opener/parent).
     WebURL url = GetWebFrame()->GetDocument().Url();
+    DCHECK(!GURL(url).IsAboutSrcdoc());
     if (url.IsValid() && !url.IsEmpty())
       DCHECK(url.ProtocolIs(url::kAboutScheme));
 #endif
@@ -3365,7 +3313,7 @@ RenderFrameImpl::CreateWorkerContentSettingsClient() {
       this);
 }
 
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
 std::unique_ptr<media::SpeechRecognitionClient>
 RenderFrameImpl::CreateSpeechRecognitionClient(
     media::SpeechRecognitionClient::OnReadyCallback callback) {
@@ -4083,6 +4031,11 @@ void RenderFrameImpl::DidFinishLoad() {
                                       ".MainFrameDidFinishLoad");
 }
 
+void RenderFrameImpl::DidFinishLoadForPrinting() {
+  for (auto& observer : observers_)
+    observer.DidFinishLoadForPrinting();
+}
+
 void RenderFrameImpl::DidFinishSameDocumentNavigation(
     blink::WebHistoryCommitType commit_type,
     bool is_synchronously_committed,
@@ -4293,7 +4246,7 @@ void RenderFrameImpl::WillSendRequest(blink::WebURLRequest& request,
   // a navigation concept. We pass ui::PAGE_TRANSITION_LINK as default one.
   WillSendRequestInternal(request, /*for_main_frame=*/false,
                           ui::PAGE_TRANSITION_LINK, for_redirect);
-#if !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID)
   for (auto& observer : observers_) {
     observer.WillSendRequest(request);
   }
@@ -4393,11 +4346,10 @@ void RenderFrameImpl::DidStartResponse(
     const GURL& response_url,
     int request_id,
     network::mojom::URLResponseHeadPtr response_head,
-    network::mojom::RequestDestination request_destination,
-    blink::PreviewsState previews_state) {
+    network::mojom::RequestDestination request_destination) {
   for (auto& observer : observers_) {
     observer.DidStartResponse(response_url, request_id, *response_head,
-                              request_destination, previews_state);
+                              request_destination);
   }
 }
 
@@ -4465,13 +4417,10 @@ void RenderFrameImpl::DidObserveLayoutShift(double score,
 void RenderFrameImpl::DidObserveLayoutNg(uint32_t all_block_count,
                                          uint32_t ng_block_count,
                                          uint32_t all_call_count,
-                                         uint32_t ng_call_count,
-                                         uint32_t flexbox_ng_block_count,
-                                         uint32_t grid_ng_block_count) {
+                                         uint32_t ng_call_count) {
   for (auto& observer : observers_)
     observer.DidObserveLayoutNg(all_block_count, ng_block_count, all_call_count,
-                                ng_call_count, flexbox_ng_block_count,
-                                grid_ng_block_count);
+                                ng_call_count);
 }
 
 void RenderFrameImpl::DidObserveLazyLoadBehavior(
@@ -4765,14 +4714,18 @@ RenderFrameImpl::MakeDidCommitProvisionalLoadParams(
   params->app_history_key = item.GetAppHistoryKey().Utf8();
 
   // Note that the value of `referrer` will be overwritten in the browser with a
-  // browser-calculated value, except for renderer-initated same-document
-  // navigations and the synchronous about:blank commit (because the browser
-  // doesn't know anything about those navigations).
+  // browser-calculated value in most cases. The exceptions are
+  // renderer-initated same-document navigations and the synchronous about:blank
+  // commit (because the browser doesn't know anything about those navigations).
+  // In those cases, the referrer policy component will still be overwritten in
+  // the browser, because this navigation won't change it and the browser
+  // already had access to the previous one. Send ReferrerPolicy::kDefault as a
+  // placeholder.
   // TODO(https://crbug.com/1131832): Remove `referrer` from
   // DidCommitProvisionalLoadParams.
   params->referrer = blink::mojom::Referrer::New(
       blink::WebStringToGURL(document_loader->Referrer()),
-      document_loader->GetReferrerPolicy());
+      network::mojom::ReferrerPolicy::kDefault);
 
   if (!frame_->Parent()) {
     // Top-level navigation.
@@ -4829,7 +4782,7 @@ RenderFrameImpl::MakeDidCommitProvisionalLoadParams(
   // adapted to the renderer process side.
   if (!params->origin.opaque() && params->url.IsStandard() &&
       GetBlinkPreferences().web_security_enabled) {
-    if (!params->origin.IsSameOriginWith(url::Origin::Create(params->url))) {
+    if (!params->origin.IsSameOriginWith(params->url)) {
       // Exclude file: URLs when settings allow them access any origin.
       if (!file_scheme_with_universal_access) {
         SCOPED_CRASH_KEY_STRING256("MakeDCPLParams", "mismatched_url",
@@ -5193,7 +5146,7 @@ void RenderFrameImpl::BeginNavigation(
                      !url.SchemeIs(url::kDataScheme);
   DCHECK(!(use_archive && IsMainFrame()));
 
-#ifdef OS_ANDROID
+#if BUILDFLAG(IS_ANDROID)
   bool render_view_was_created_by_renderer =
       render_view_->was_created_by_renderer_;
   // The handlenavigation API is deprecated and will be removed once
@@ -5890,7 +5843,7 @@ void RenderFrameImpl::DecodeDataURL(
     GURL* base_url) {
   // A loadData request with a specified base URL.
   GURL data_url = common_params.url;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   if (!commit_params.data_url_as_string.empty()) {
 #if DCHECK_IS_ON()
     {

@@ -708,12 +708,12 @@ class ReadableStream::PipeToEngine final
     return StreamThenPromise(
         script_state_->GetContext(), promise,
         on_fulfilled
-            ? MakeGarbageCollected<NewScriptFunction>(
+            ? MakeGarbageCollected<ScriptFunction>(
                   script_state_, MakeGarbageCollected<WrappedPromiseReaction>(
                                      this, on_fulfilled))
             : nullptr,
         on_rejected
-            ? MakeGarbageCollected<NewScriptFunction>(
+            ? MakeGarbageCollected<ScriptFunction>(
                   script_state_, MakeGarbageCollected<WrappedPromiseReaction>(
                                      this, on_rejected))
             : nullptr);
@@ -791,7 +791,7 @@ class ReadableStream::TeeEngine::PullAlgorithm final : public StreamAlgorithm {
         script_state->GetContext(),
         ReadableStreamDefaultReader::Read(script_state, engine_->reader_)
             ->V8Promise(script_state->GetIsolate()),
-        MakeGarbageCollected<NewScriptFunction>(
+        MakeGarbageCollected<ScriptFunction>(
             script_state, MakeGarbageCollected<ResolveFunction>(engine_)));
   }
 
@@ -1084,7 +1084,7 @@ void ReadableStream::TeeEngine::Start(ScriptState* script_state,
   StreamThenPromise(
       script_state->GetContext(),
       reader_->closed_promise_->V8Promise(script_state->GetIsolate()), nullptr,
-      MakeGarbageCollected<NewScriptFunction>(
+      MakeGarbageCollected<ScriptFunction>(
           script_state, MakeGarbageCollected<RejectFunction>(this)));
 
   // Step "19. Return « branch1, branch2 »."
@@ -1792,14 +1792,11 @@ v8::Local<v8::Promise> ReadableStream::Cancel(ScriptState* script_state,
   //    fulfillment handler that returns undefined.
   return StreamThenPromise(
       script_state->GetContext(), source_cancel_promise,
-      MakeGarbageCollected<NewScriptFunction>(
+      MakeGarbageCollected<ScriptFunction>(
           script_state, MakeGarbageCollected<ReturnUndefinedFunction>()));
 }
 
 void ReadableStream::Close(ScriptState* script_state, ReadableStream* stream) {
-  if (ExecutionContext::From(script_state)->IsContextDestroyed())
-    return;
-
   // https://streams.spec.whatwg.org/#readable-stream-close
   // 1. Assert: stream.[[state]] is "readable".
   CHECK_EQ(stream->state_, kReadable);
@@ -1814,6 +1811,10 @@ void ReadableStream::Close(ScriptState* script_state, ReadableStream* stream) {
   if (!reader) {
     return;
   }
+
+  // Don't resolve promises if the context has been destroyed.
+  if (ExecutionContext::From(script_state)->IsContextDestroyed())
+    return;
 
   // 5. If ! IsReadableStreamDefaultReader(reader) is true,
   if (reader->IsDefaultReader()) {

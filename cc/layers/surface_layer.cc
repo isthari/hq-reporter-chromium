@@ -66,7 +66,7 @@ void SurfaceLayer::SetSurfaceId(const viz::SurfaceId& surface_id,
   } else if (!deadline_policy.use_existing_deadline()) {
     deadline_in_frames_ = deadline_policy.deadline_in_frames();
   }
-  UpdateDrawsContent(HasDrawableContent());
+  SetDrawsContent(HasDrawableContent());
   SetNeedsCommit();
 }
 
@@ -132,7 +132,7 @@ void SurfaceLayer::SetMayContainVideo(bool may_contain_video) {
 }
 
 std::unique_ptr<LayerImpl> SurfaceLayer::CreateLayerImpl(
-    LayerTreeImpl* tree_impl) {
+    LayerTreeImpl* tree_impl) const {
   auto layer_impl = SurfaceLayerImpl::Create(tree_impl, id(),
                                              update_submission_state_callback_);
   return layer_impl;

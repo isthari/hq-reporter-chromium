@@ -198,8 +198,9 @@ std::string GetDebugJSONForClusters(
       debug_visit.SetKey("entities", std::move(debug_entities));
 
       base::ListValue debug_duplicate_visits;
-      for (const auto duplicate_visit : visit.duplicate_visit_ids) {
-        debug_duplicate_visits.Append(int(duplicate_visit));
+      for (const auto& duplicate_visit : visit.duplicate_visits) {
+        debug_duplicate_visits.Append(static_cast<int>(
+            duplicate_visit.annotated_visit.visit_row.visit_id));
       }
       debug_visit.SetKey("duplicate_visits", std::move(debug_duplicate_visits));
 
@@ -219,8 +220,21 @@ std::string GetDebugJSONForClusters(
   return debug_string;
 }
 
-// TODO(tommycli): Explicitly link this number to what's in WebUI.
-constexpr int kMaxCountForKeywordCacheBatch = 10;
+std::string GetDebugJSONForKeywordSet(
+    const HistoryClustersService::KeywordSet& keyword_set) {
+  std::vector<base::Value> keyword_list;
+  for (const auto& keyword : keyword_set) {
+    keyword_list.emplace_back(keyword);
+  }
+
+  std::string debug_string;
+  if (!base::JSONWriter::WriteWithOptions(
+          base::Value(keyword_list), base::JSONWriter::OPTIONS_PRETTY_PRINT,
+          &debug_string)) {
+    debug_string = "Error: Could not write keywords list to JSON.";
+  }
+  return debug_string;
+}
 
 }  // namespace
 
@@ -331,14 +345,12 @@ void HistoryClustersService::QueryClusters(
     const std::string& query,
     base::Time begin_time,
     base::Time end_time,
-    const size_t max_count,
     QueryClustersCallback callback,
     base::CancelableTaskTracker* task_tracker) {
   NotifyDebugMessage("HistoryClustersService::QueryClusters()");
   NotifyDebugMessage("  end_time = " + (end_time.is_null()
                                             ? "null"
                                             : base::TimeToISO8601(end_time)));
-  NotifyDebugMessage("  max_count = " + base::NumberToString(max_count));
 
   if (!backend_) {
     NotifyDebugMessage(
@@ -350,25 +362,16 @@ void HistoryClustersService::QueryClusters(
 
   DCHECK(history_service_);
 
-  size_t max_visit_count = kMaxVisitsToCluster.Get();
-  if (max_count > 0) {
-    // As a primitive heuristic, fetch 3x the amount of visits as requested
-    // clusters. We don't know in advance how big the clusters will be.
-    max_visit_count = max_count * 3;
-  }
-
   NotifyDebugMessage("Starting History Query:");
   NotifyDebugMessage("  end_time = " + (end_time.is_null()
                                             ? "null"
                                             : base::TimeToISO8601(end_time)));
-  NotifyDebugMessage(base::StringPrintf("  max_count = %zu", max_count));
 
   // TODO(crbug/1243049) : Add timing metrics for the history service DB query.
   history_service_->ScheduleDBTask(
       FROM_HERE,
       std::make_unique<GetAnnotatedVisitsToCluster>(
           incomplete_visit_context_annotations_, begin_time, end_time,
-          max_visit_count,
           base::BindOnce(&HistoryClustersService::OnGotHistoryVisits,
                          weak_ptr_factory_.GetWeakPtr(), query,
                          std::move(callback))),
@@ -412,9 +415,10 @@ bool HistoryClustersService::DoesQueryMatchAnyCluster(
     //  `query` parameter is set to empty. However, it would be nice if this
     //  was more explicit, rather than just a happy coincidence. Likely the real
     //  solution will be to explicitly ask the backend for this bag of keywords.
+    NotifyDebugMessage("Starting all_keywords_cache_ generation.");
     QueryClusters(
         /*query=*/"", begin_time, /*end_time=*/
-        base::Time(), kMaxCountForKeywordCacheBatch,
+        base::Time(),
         base::BindOnce(&HistoryClustersService::PopulateClusterKeywordCache,
                        weak_ptr_factory_.GetWeakPtr(), begin_time,
                        std::make_unique<std::vector<std::u16string>>(),
@@ -435,10 +439,11 @@ bool HistoryClustersService::DoesQueryMatchAnyCluster(
     // Update the timestamp right away, to prevent this from running again.
     short_keyword_cache_timestamp_ = base::Time::Now();
 
+    NotifyDebugMessage("Starting short_keywords_cache_ generation.");
     QueryClusters(
         /*query=*/"",
         /*begin_time=*/all_keywords_cache_timestamp_, /*end_time=*/
-        base::Time(), kMaxCountForKeywordCacheBatch,
+        base::Time(),
         base::BindOnce(&HistoryClustersService::PopulateClusterKeywordCache,
                        weak_ptr_factory_.GetWeakPtr(),
                        all_keywords_cache_timestamp_,
@@ -456,52 +461,6 @@ bool HistoryClustersService::DoesQueryMatchAnyCluster(
 
   return short_keyword_cache_.contains(query_lower) ||
          all_keywords_cache_.contains(query_lower);
-}
-
-// static
-void HistoryClustersService::CollapseDuplicateVisits(
-    std::vector<history::Cluster>* clusters) {
-  DCHECK(clusters);
-  for (auto& cluster : *clusters) {
-    // Identify child visits, i.e. visits that are marked duplicate and are not
-    // canonical. We use the temporary vector `child_visits_vector` in order to
-    // construct the set in 1 go as each set insertion is O(n).
-    std::vector<history::VisitID> child_visits_vector;
-    for (const auto& cluster_visit : cluster.visits) {
-      for (const auto& duplicate_id : cluster_visit.duplicate_visit_ids)
-        child_visits_vector.push_back(duplicate_id);
-    }
-    base::flat_set<history::VisitID> child_visits_set{
-        std::move(child_visits_vector)};
-
-    // Split the visits into child visits, stored in a map for constant lookup
-    // later, and parent visits. Because we're `std::move`ing visits,
-    // `cluster.visits` should not be used after this iteration.
-    base::flat_map<int64_t, history::ClusterVisit> child_visits_map;
-    std::vector<history::ClusterVisit> parent_visits;
-    for (const auto& cluster_visit : cluster.visits) {
-      const auto& id = cluster_visit.annotated_visit.visit_row.visit_id;
-      if (child_visits_set.contains(id))
-        child_visits_map[id] = std::move(cluster_visit);
-      else
-        parent_visits.push_back(std::move(cluster_visit));
-    }
-
-    // Move the child visits into the duplicates vectors of the parents.
-    // Because we're `std::move`ing visits, `child_visits_map` and
-    // should not be used after this iteration. Order matters, `parent_visits`
-    // preserves the order of `cluster.visits`.
-    for (auto& visit : parent_visits) {
-      for (const auto& duplicate_id : visit.duplicate_visit_ids) {
-        DCHECK(child_visits_map.count(duplicate_id));
-        visit.duplicate_visits.push_back(
-            std::move(child_visits_map[duplicate_id]));
-      }
-    }
-    // Transfer the newly constructed unflattened list of parent visits back
-    // into the cluster.
-    cluster.visits = std::move(parent_visits);
-  }
 }
 
 void HistoryClustersService::ClearKeywordCache() {
@@ -553,7 +512,6 @@ void HistoryClustersService::PopulateClusterKeywordCache(
        keyword_accumulator->size() < max_keyword_phrases)) {
     QueryClusters(
         /*query=*/"", begin_time, *result.continuation_end_time,
-        kMaxCountForKeywordCacheBatch,
         base::BindOnce(&HistoryClustersService::PopulateClusterKeywordCache,
                        weak_ptr_factory_.GetWeakPtr(), begin_time,
                        // Pass on the accumulator set to the next callback.
@@ -566,6 +524,8 @@ void HistoryClustersService::PopulateClusterKeywordCache(
   // via the constructor for efficiency (as recommended by the flat_set docs).
   // De-duplication is handled by the flat_set itself.
   *cache = KeywordSet(*keyword_accumulator);
+  NotifyDebugMessage("Cache construction complete:");
+  NotifyDebugMessage(GetDebugJSONForKeywordSet(*cache));
 
   // Record keyword phrase & keyword counts for the appropriate cache.
   if (cache == &all_keywords_cache_) {
@@ -664,7 +624,6 @@ QueryClustersResult HistoryClustersService::PostProcessClusters(
   }
 
   FilterClustersMatchingQuery(query, &raw_clusters);
-  CollapseDuplicateVisits(&raw_clusters);
   result.clusters = raw_clusters;
   return result;
 }

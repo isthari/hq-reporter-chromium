@@ -3,8 +3,8 @@
 # found in the LICENSE file.
 
 import("//build/config/chromeos/ui_mode.gni")
-import("//build/config/crypto.gni")
 import("//chrome/common/features.gni")
+import("//crypto/features.gni")
 import("//third_party/closure_compiler/compile_js.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/grit/preprocess_if_expr.gni")
@@ -87,6 +87,8 @@ generate_grd("build_grd") {
     "images/privacy_review/safe_browsing_graphic.svg",
     "images/privacy_review/waa_graphic_dark.svg",
     "images/privacy_review/waa_graphic.svg",
+    "images/privacy_review/welcome_banner_dark.svg",
+    "images/privacy_review/welcome_banner.svg",
     "images/privacy_sandbox_banner_dark.svg",
     "images/privacy_sandbox_banner.svg",
     "images/privacy_sandbox_floc_banner_dark.svg",
@@ -118,12 +120,14 @@ generate_grd("build_grd") {
 }
 
 preprocess_if_expr("preprocess") {
+  defines = chrome_grit_defines
   in_folder = "./"
   out_folder = "$target_gen_dir/$preprocess_folder"
   in_files = non_webcomponent_files
 }
 
 preprocess_if_expr("preprocess_generated") {
+  defines = chrome_grit_defines
   deps = [ ":web_components" ]
   in_folder = target_gen_dir
   out_folder = "$target_gen_dir/$preprocess_folder"

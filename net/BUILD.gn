@@ -6,8 +6,9 @@ import("//build/buildflag_header.gni")
 import("//build/config/chromecast_build.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/compiler/compiler.gni")
-import("//build/config/crypto.gni")
 import("//build/config/features.gni")
+import("//build/config/ios/config.gni")
+import("//crypto/features.gni")
 import("//net/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//testing/test.gni")
@@ -107,6 +108,12 @@ if (is_linux || is_chromeos) {
 source_set("constants") {
   sources = [ "base/trace_constants.h" ]
   deps = [ "//base" ]
+}
+
+buildflag_header("ios_cronet_buildflags") {
+  header = "ios_cronet_buildflags.h"
+  header_dir = "net/socket"
+  flags = [ "CRONET_BUILD=$is_cronet_build" ]
 }
 
 component("net") {
@@ -655,7 +662,6 @@ component("net") {
     "http/url_security_manager.h",
     "http/webfonts_histogram.cc",
     "http/webfonts_histogram.h",
-    "http2/platform/impl/http2_macros_impl.h",
     "log/file_net_log_observer.cc",
     "log/file_net_log_observer.h",
     "log/net_log.cc",
@@ -857,6 +863,8 @@ component("net") {
     "socket/datagram_server_socket.h",
     "socket/datagram_socket.h",
     "socket/diff_serv_code_point.h",
+    "socket/network_binding_client_socket_factory.cc",
+    "socket/network_binding_client_socket_factory.h",
     "socket/next_proto.cc",
     "socket/next_proto.h",
     "socket/server_socket.cc",
@@ -1071,6 +1079,7 @@ component("net") {
   }
 
   deps = [
+    ":ios_cronet_buildflags",
     ":net_deps",
     "//build:chromeos_buildflags",
     "//net/data/ssl/ev_roots:gen_ev_root_store_inc",
@@ -1966,6 +1975,7 @@ bundle_data("test_support_bundle_data") {
     "data/ssl/certificates/prime256v1-ecdsa-intermediate.pem",
     "data/ssl/certificates/punycodetest.pem",
     "data/ssl/certificates/quic-chain.pem",
+    "data/ssl/certificates/quic-ecdsa-leaf.key",
     "data/ssl/certificates/quic-leaf-cert.key",
     "data/ssl/certificates/quic-leaf-cert.key.pkcs8.pem",
     "data/ssl/certificates/quic-leaf-cert.key.sct",
@@ -2501,6 +2511,7 @@ if (is_android) {
       "android/java/src/org/chromium/net/HttpUtil.java",
       "android/java/src/org/chromium/net/NetStringUtil.java",
       "android/java/src/org/chromium/net/NetworkActivationRequest.java",
+      "android/java/src/org/chromium/net/NetworkActiveNotifier.java",
       "android/java/src/org/chromium/net/NetworkChangeNotifier.java",
       "android/java/src/org/chromium/net/ProxyChangeListener.java",
       "android/java/src/org/chromium/net/X509Util.java",
@@ -4827,6 +4838,7 @@ if (!is_ios) {
     data_deps = [
       # Needed for isolate script to execute.
       "//testing:run_perf_test",
+      "//testing/buildbot/filters:net_perftests_filters",
     ]
     if (enable_websockets) {
       sources += [ "websockets/websocket_frame_perftest.cc" ]

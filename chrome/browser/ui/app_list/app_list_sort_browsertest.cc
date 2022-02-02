@@ -24,6 +24,13 @@
 
 namespace {
 
+gfx::ImageSkia CreateImageSkia(int width, int height, SkColor color) {
+  SkBitmap bitmap;
+  bitmap.allocN32Pixels(width, height);
+  bitmap.eraseColor(color);
+  return gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
+}
+
 // Creates a RunLoop that waits until the context menu of app list item is
 // shown.
 void WaitUntilItemMenuShown(ash::AppListItemView* item_view) {
@@ -143,10 +150,19 @@ class AppListSortBrowserTest : public extensions::ExtensionBrowserTest {
     return reorder_item_view;
   }
 
+  enum class AnimationTargetStatus {
+    // Animation should be completed normally.
+    kCompleted,
+
+    // Animation should be aborted.
+    kAborted,
+  };
+
   // Reorders the app list items through the specified context menu indicated by
-  // `menu_type`.
+  // `menu_type`. `target_status` is the reorder animation's target status.
   void ReorderByMouseClickAtContextMenu(ash::AppListSortOrder order,
-                                        MenuType menu_type) {
+                                        MenuType menu_type,
+                                        AnimationTargetStatus target_status) {
     // Custom order is not a menu option.
     ASSERT_NE(order, ash::AppListSortOrder::kCustom);
 
@@ -176,9 +192,14 @@ class AppListSortBrowserTest : public extensions::ExtensionBrowserTest {
     gfx::Point point_on_option =
         reorder_option->GetBoundsInScreen().CenterPoint();
 
+    RegisterReorderAnimationDoneCallback(target_status);
+
     // Click at the sorting option.
     event_generator_->MoveMouseTo(point_on_option);
     event_generator_->ClickLeftButton();
+
+    if (target_status == AnimationTargetStatus::kCompleted)
+      WaitForReorderAnimation();
   }
 
   // Returns the index of the specified sorting option.
@@ -202,6 +223,7 @@ class AppListSortBrowserTest : public extensions::ExtensionBrowserTest {
     extensions::ExtensionBrowserTest::SetUp();
   }
 
+  // extensions::ExtensionBrowserTest:
   void SetUpOnMainThread() override {
     ExtensionBrowserTest::SetUpOnMainThread();
     AppListClientImpl* client = AppListClientImpl::GetInstance();
@@ -246,15 +268,53 @@ class AppListSortBrowserTest : public extensions::ExtensionBrowserTest {
     // Set the IconColor for each app to be used for color sort testing.
     // When ordered by color, the apps should be in the following order:
     //   {app2 (red icon), app3 (green icon), app1 (blue icon)}
-    model_updater->SetIconColor(
-        app1_id_,
-        ash::IconColor(sync_pb::AppListSpecifics_ColorGroup_COLOR_BLUE, 260));
-    model_updater->SetIconColor(
-        app2_id_,
-        ash::IconColor(sync_pb::AppListSpecifics_ColorGroup_COLOR_RED, 5));
-    model_updater->SetIconColor(
-        app3_id_,
-        ash::IconColor(sync_pb::AppListSpecifics_ColorGroup_COLOR_GREEN, 230));
+    model_updater->FindItem(app1_id_)->SetIcon(
+        CreateImageSkia(16, 16, SK_ColorBLUE));
+    model_updater->FindItem(app2_id_)->SetIcon(
+        CreateImageSkia(16, 16, SK_ColorRED));
+    model_updater->FindItem(app3_id_)->SetIcon(
+        CreateImageSkia(16, 16, SK_ColorGREEN));
+  }
+
+  void TearDownOnMainThread() override {
+    // Verify that there is no pending reorder animation callbacks.
+    EXPECT_FALSE(app_list_test_api_.HasAnyWaitingReorderDoneCallback());
+
+    // Verify that the actual reorder animation states are expected.
+    EXPECT_EQ(expected_reorder_animation_stats_,
+              saved_reorder_animation_stats_);
+
+    // There should be no active reorder animations.
+    EXPECT_FALSE(app_list_test_api_.GetTopLevelAppsGridView()
+                     ->IsUnderReorderAnimation());
+
+    extensions::ExtensionBrowserTest::TearDownOnMainThread();
+  }
+
+  void OnReorderAnimationDone(bool abort) {
+    saved_reorder_animation_stats_.push_back(
+        abort ? AnimationTargetStatus::kAborted
+              : AnimationTargetStatus::kCompleted);
+
+    // Callback can be registered without a running loop.
+    if (run_loop_)
+      run_loop_->Quit();
+  }
+
+  // Adds a callback that runs at the end of the reorder animation.
+  void RegisterReorderAnimationDoneCallback(
+      AnimationTargetStatus target_status) {
+    app_list_test_api_.AddReorderAnimationCallback(
+        base::BindRepeating(&AppListSortBrowserTest::OnReorderAnimationDone,
+                            weak_factory_.GetWeakPtr()));
+
+    expected_reorder_animation_stats_.push_back(target_status);
+  }
+
+  // Waits until the reorder animation completes.
+  void WaitForReorderAnimation() {
+    run_loop_ = std::make_unique<base::RunLoop>();
+    run_loop_->Run();
   }
 
   // Returns a list of app ids (excluding the default installed apps) following
@@ -276,7 +336,17 @@ class AppListSortBrowserTest : public extensions::ExtensionBrowserTest {
   std::string app2_id_;
   std::string app3_id_;
   std::unique_ptr<ui::test::EventGenerator> event_generator_;
+  std::unique_ptr<base::RunLoop> run_loop_;
+
+  // The actual states of reorder animations.
+  std::vector<AnimationTargetStatus> saved_reorder_animation_stats_;
+
+  // The expected states of reorder animations.
+  std::vector<AnimationTargetStatus> expected_reorder_animation_stats_;
+
   base::test::ScopedFeatureList feature_list_;
+
+  base::WeakPtrFactory<AppListSortBrowserTest> weak_factory_{this};
 };
 
 // Verifies that the apps in the top level apps grid can be arranged in the
@@ -291,12 +361,14 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, ContextMenuSortItemsInTopLevel) {
   app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListPageMenu);
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
-                                   MenuType::kAppListPageMenu);
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
 }
@@ -316,12 +388,14 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, ContextMenuSortItemsInFolder) {
       app_list_test_api_.CreateFolderWithApps({app1_id_, app2_id_, app3_id_});
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListPageMenu);
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
-                                   MenuType::kAppListPageMenu);
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
 }
@@ -339,12 +413,14 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
   app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListNonFolderItemMenu);
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
-                                   MenuType::kAppListNonFolderItemMenu);
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
 }
@@ -368,12 +444,14 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
       ->LayoutRootViewIfNecessary();
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListNonFolderItemMenu);
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
-                                   MenuType::kAppListNonFolderItemMenu);
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
 }
@@ -394,19 +472,91 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
   app_list_test_api_.GetTopLevelAppsGridView()->Layout();
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListFolderItemMenu);
+                                   MenuType::kAppListFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
-                                   MenuType::kAppListFolderItemMenu);
+                                   MenuType::kAppListFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
 }
 
+// Verify that starting a new reorder before the old animation completes works
+// as expected.
+IN_PROC_BROWSER_TEST_F(
+    AppListSortBrowserTest,
+    ContextMenuOnAppListItemSortItemsInTopLevelWithoutWaiting) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  // Trigger name alphabetical sorting.
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kAborted);
+
+  // Verify that the app order does not change because the animation is ongoing.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  // Trigger another reorder animation without waiting for the current one and
+  // wait until the new animation finishes. The previous animation should be
+  // aborted.
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
+
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app2_id_, app3_id_, app1_id_}));
+}
+
+// Verify that deleting an item during reorder animation works as expected.
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
+                       DeleteItemDuringReorderingAnimation) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  // Trigger name alphabetical sorting.
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kAborted);
+
+  // Verify that the app order does not change because the animation is ongoing.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  UninstallExtension(app3_id_);
+  base::RunLoop().RunUntilIdle();
+
+  AppListModelUpdater* model_updater =
+      test::GetModelUpdater(AppListClientImpl::GetInstance());
+
+  // Verify that `app3_id_` cannot be found from `model_updater_`.
+  EXPECT_FALSE(model_updater->FindItem(app3_id_));
+
+  // Note that the temporary sorting state ends when uninstalling an app.
+  // Therefore the remaining apps are placed following the alphabetical order.
+  EXPECT_TRUE(model_updater->FindItem(app2_id_)->position().GreaterThan(
+      model_updater->FindItem(app1_id_)->position()));
+}
+
 // Verifies that clicking at the reorder undo toast should revert the temporary
-// sorting order.
-IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySorting) {
+// sorting order in bubble launcher.
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySortingClamshell) {
   ash::ShellTestApi().SetTabletModeEnabledForTest(false);
 
   ash::AcceleratorController::Get()->PerformActionIfEnabled(
@@ -418,7 +568,8 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySorting) {
             std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
 
   ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
-                                   MenuType::kAppListPageMenu);
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kCompleted);
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
 
@@ -430,6 +581,8 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySorting) {
   // The toast should be visible.
   EXPECT_TRUE(app_list_test_api_.GetBubbleReorderUndoToastVisibility());
 
+  RegisterReorderAnimationDoneCallback(AnimationTargetStatus::kCompleted);
+
   // Mouse click at the undo button.
   views::View* reorder_undo_toast_button =
       app_list_test_api_.GetBubbleReorderUndoButton();
@@ -437,10 +590,250 @@ IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySorting) {
       reorder_undo_toast_button->GetBoundsInScreen().CenterPoint());
   event_generator_->ClickLeftButton();
 
+  WaitForReorderAnimation();
+
   // Verify that the default app order is recovered.
   EXPECT_EQ(GetAppIdsInOrdinalOrder(),
             std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
 
   // The toast should be hidden.
   EXPECT_FALSE(app_list_test_api_.GetBubbleReorderUndoToastVisibility());
+}
+
+// Verifies that clicking at the reorder undo toast should revert the temporary
+// sorting order in tablet mode.
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, UndoTemporarySortingTablet) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // The toast should be visible.
+  EXPECT_TRUE(app_list_test_api_.GetFullscreenReorderUndoToastVisibility());
+
+  // Register a callback for the reorder animation triggered by the undo button.
+  RegisterReorderAnimationDoneCallback(AnimationTargetStatus::kCompleted);
+
+  // Mouse click at the undo button.
+  views::View* reorder_undo_toast_button =
+      app_list_test_api_.GetFullscreenReorderUndoButton();
+  event_generator_->MoveMouseTo(
+      reorder_undo_toast_button->GetBoundsInScreen().CenterPoint());
+  event_generator_->ClickLeftButton();
+
+  WaitForReorderAnimation();
+
+  // Verify that the default app order is recovered.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  // The toast should be hidden.
+  EXPECT_FALSE(app_list_test_api_.GetFullscreenReorderUndoToastVisibility());
+}
+
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest, TransitionToTabletCommitsSort) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/true);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // Ensure that the reorder undo toast's bounds update.
+  app_list_test_api_.GetTopLevelAppsGridView()
+      ->GetWidget()
+      ->LayoutRootViewIfNecessary();
+
+  // The toast should be visible.
+  EXPECT_TRUE(app_list_test_api_.GetBubbleReorderUndoToastVisibility());
+
+  // Transition to tablet mode - verify that the fullscreen launcher does not
+  // have undo toast, and that the order of apps is still sorted.
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+  EXPECT_FALSE(app_list_test_api_.GetFullscreenReorderUndoToastVisibility());
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // Transition back to clamshell, and verify the bubble launcher undo toast is
+  // now hidden.
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/true);
+
+  EXPECT_FALSE(app_list_test_api_.GetBubbleReorderUndoToastVisibility());
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+}
+
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
+                       TransitionToClamshellCommitsSort) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // The toast should be visible.
+  EXPECT_TRUE(app_list_test_api_.GetFullscreenReorderUndoToastVisibility());
+
+  // Transition to clamshell mode - verify that the bubble launcher does not
+  // have undo toast, and that the order of apps is still sorted.
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/true);
+
+  EXPECT_FALSE(app_list_test_api_.GetBubbleReorderUndoToastVisibility());
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // Transition back to tablet mode, and verify the fullscreen launcher undo
+  // toast is now hidden.
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+
+  EXPECT_FALSE(app_list_test_api_.GetFullscreenReorderUndoToastVisibility());
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+}
+
+#if BUILDFLAG(IS_CHROMEOS)
+// These two transition tests are both flaky on CrOS ASAN: crbug.com/1290890
+#define MAYBE_TransitionToTabletModeDuringReorderAnimation \
+  DISABLED_TransitionToTabletModeDuringReorderAnimation
+#define MAYBE_TransitionToClamshellModeDuringReorderAnimation \
+  DISABLED_TransitionToClamshellModeDuringReorderAnimation
+#else
+#define MAYBE_TransitionToTabletModeDuringReorderAnimation \
+  TransitionToTabletModeDuringReorderAnimation
+#define MAYBE_TransitionToClamshellModeDuringReorderAnimation \
+  TransitionToClamshellModeDuringReorderAnimation
+#endif
+
+
+
+// Verify that switching to tablet mode when the app list reorder animation in
+// clamshell mode is running works as expected.
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
+                       MAYBE_TransitionToTabletModeDuringReorderAnimation) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListPageMenu,
+                                   AnimationTargetStatus::kAborted);
+
+  // Verify that there is active reorder animations.
+  EXPECT_TRUE(app_list_test_api_.HasAnyWaitingReorderDoneCallback());
+
+  // The app order does not change because the reorder animation is in progress.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+
+  // When switching to the tablet mode, the app list is closed so the
+  // temporary sorting order should be committed.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // Verify that reordering in tablet mode works.
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
+
+  // TODO(https://crbug.com/1288880): verify the app order after the color
+  // sorting result becomes consistent.
+}
+
+// Verify that switching to clamshell mode when the app list reorder animation
+// in tablet mode is running works as expected.
+IN_PROC_BROWSER_TEST_F(AppListSortBrowserTest,
+                       MAYBE_TransitionToClamshellModeDuringReorderAnimation) {
+  ash::ShellTestApi().SetTabletModeEnabledForTest(true);
+
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForAppListShowAnimation(/*is_bubble_window=*/false);
+
+  // Verify the default app order.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kNameAlphabetical,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kAborted);
+
+  // Verify that there is active reorder animations.
+  EXPECT_TRUE(app_list_test_api_.HasAnyWaitingReorderDoneCallback());
+
+  // The app order does not change because the reorder animation is in progress.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app3_id_, app2_id_, app1_id_}));
+
+  ash::ShellTestApi().SetTabletModeEnabledForTest(false);
+  ash::AcceleratorController::Get()->PerformActionIfEnabled(
+      ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+  app_list_test_api_.WaitForBubbleWindow(/*wait_for_opening_animation=*/false);
+
+  // Before switching to the tablet mode, the app list is closed so the
+  // temporary sorting order is committed.
+  EXPECT_EQ(GetAppIdsInOrdinalOrder(),
+            std::vector<std::string>({app1_id_, app2_id_, app3_id_}));
+
+  // Verify that reordering in tablet mode works.
+  ReorderByMouseClickAtContextMenu(ash::AppListSortOrder::kColor,
+                                   MenuType::kAppListNonFolderItemMenu,
+                                   AnimationTargetStatus::kCompleted);
+
+  // TODO(https://crbug.com/1288880): verify the app order after the color
+  // sorting result becomes consistent.
 }

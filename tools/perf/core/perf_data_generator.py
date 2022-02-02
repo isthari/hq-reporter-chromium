@@ -95,10 +95,14 @@ class TEST_TYPES(object):
 # The perf data will be handled on a separated 'processor' VM.
 # This list will be removed or replace by an opt-out list.
 LIGHTWEIGHT_TESTERS = [
-    'android-go-perf', 'android-pixel2-perf', 'android-pixel2_webview-perf',
-    'linux-perf', 'mac-10_12_laptop_low_end-perf',
-    'mac-10_13_laptop_high_end-perf', 'win-10-perf',
-    'win-10_laptop_low_end-perf'
+    'android-go-perf',
+    'android-pixel2-perf',
+    'android-pixel2_webview-perf',
+    'linux-perf',
+    'win-10-perf',
+    'win-10_laptop_low_end-perf',
+    'mac-laptop_high_end-perf',
+    'mac-laptop_low_end-perf',
 ]
 
 # This is an opt-in list for builders which uses dynamic sharding.
@@ -913,7 +917,7 @@ BUILDERS = {
             'synthetic_product_name': 'PowerEdge R220 [01] (Dell Inc.)'
         },
     },
-    'mac-10_12_laptop_low_end-perf': {
+    'mac-laptop_low_end-perf': {
         'tests': [
             {
                 'isolate': 'performance_test_suite',
@@ -991,7 +995,7 @@ BUILDERS = {
             'synthetic_product_name': 'PowerEdge R230 (Dell Inc.)'
         },
     },
-    'mac-10_13_laptop_high_end-perf': {
+    'mac-laptop_high_end-perf': {
         'tests': [
             {
                 'isolate': 'performance_test_suite',
@@ -1039,11 +1043,11 @@ BUILDERS = {
         'platform': 'linux',
         'perf_processor': True,
     },
-    'mac-10_12_laptop_low_end-processor-perf': {
+    'mac-laptop_low_end-processor-perf': {
         'platform': 'linux',
         'perf_processor': True,
     },
-    'mac-10_13_laptop_high_end-processor-perf': {
+    'mac-laptop_high_end-processor-perf': {
         'platform': 'linux',
         'perf_processor': True,
     },

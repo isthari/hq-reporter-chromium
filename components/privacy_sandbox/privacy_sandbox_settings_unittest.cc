@@ -41,7 +41,7 @@ class PrivacySandboxSettingsTest : public testing::Test {
     InitializePrefsBeforeStart();
 
     privacy_sandbox_settings_ = std::make_unique<PrivacySandboxSettings>(
-        host_content_settings_map(), cookie_settings(), prefs());
+        host_content_settings_map(), cookie_settings_, prefs());
   }
 
   virtual void InitializePrefsBeforeStart() {}
@@ -56,6 +56,10 @@ class PrivacySandboxSettingsTest : public testing::Test {
 
   PrivacySandboxSettings* privacy_sandbox_settings() {
     return privacy_sandbox_settings_.get();
+  }
+
+  content::BrowserTaskEnvironment* task_environment() {
+    return &browser_task_environment_;
   }
 
  private:
@@ -93,7 +97,7 @@ TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -130,7 +134,7 @@ TEST_F(PrivacySandboxSettingsTest, PreferenceOverridesDefaultContentSetting) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -168,7 +172,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -207,7 +211,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -256,7 +260,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{GURL("https://another-embedded.com")},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -288,7 +292,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
 
   // Exceptions which specify a top frame origin should not match against other
   // top frame origins, or an empty origin.
@@ -318,7 +322,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://another-test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -353,7 +357,7 @@ TEST_F(PrivacySandboxSettingsTest, CookieBlockExceptionsApply) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{GURL("https://another-embedded.com")},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -374,7 +378,7 @@ TEST_F(PrivacySandboxSettingsTest, IsFledgeAllowed) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -392,7 +396,7 @@ TEST_F(PrivacySandboxSettingsTest, IsFledgeAllowed) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -415,7 +419,7 @@ TEST_F(PrivacySandboxSettingsTest, IsFledgeAllowed) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -434,7 +438,7 @@ TEST_F(PrivacySandboxSettingsTest, IsFledgeAllowed) {
 
   EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeAllowed(
       url::Origin::Create(GURL("https://test.com")),
-      GURL("https://embedded.com")));
+      url::Origin::Create(GURL("https://embedded.com"))));
   EXPECT_EQ(std::vector<GURL>{},
             privacy_sandbox_settings()->FilterFledgeAllowedParties(
                 url::Origin::Create(GURL("https://test.com")),
@@ -529,6 +533,116 @@ TEST_F(PrivacySandboxSettingsTest, FlocDataAccessibleSince) {
 
   EXPECT_EQ(base::Time::Now(),
             privacy_sandbox_settings()->FlocDataAccessibleSince());
+}
+
+TEST_F(PrivacySandboxSettingsTest, FledgeJoiningAllowed) {
+  // Whether or not a site can join a user to an interest group is independent
+  // of any other profile state.
+  privacy_sandbox_test_util::SetupTestState(
+      prefs(), host_content_settings_map(),
+      /*privacy_sandbox_enabled=*/false,
+      /*block_third_party_cookies=*/true,
+      /*default_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*user_cookie_exceptions=*/
+      {{"https://example.com", "*", ContentSetting::CONTENT_SETTING_BLOCK}},
+      /*managed_cookie_setting=*/ContentSetting::CONTENT_SETTING_BLOCK,
+      /*managed_cookie_exceptions=*/
+      {{"https://example.com", "*", ContentSetting::CONTENT_SETTING_BLOCK}});
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com"))));
+
+  // Settings should match at the eTLD + 1 level.
+  privacy_sandbox_settings()->SetFledgeJoiningAllowed("example.com", false);
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://subsite.example.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("http://example.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com:888"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com.au"))));
+
+  privacy_sandbox_settings()->SetFledgeJoiningAllowed("example.com", true);
+
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://subsite.example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("http://example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com:888"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com.au"))));
+}
+
+TEST_F(PrivacySandboxSettingsTest, FledgeJoiningEtldChange) {
+  // Confirm that if what constitutes an eTLD+1 changes (e.g. due to Public
+  // Suffix List membership changing) previous settings still apply.
+
+  // Attempting to apply settings to non eTLD+1's will be rejected by the
+  // service, so create them manually.
+  auto dict_pref = std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
+  dict_pref->SetKey("subsite.example.com",
+                    base::TimeToValue(base::Time::Now()));
+  prefs()->SetUserPref(prefs::kPrivacySandboxFledgeJoinBlocked,
+                       std::move(dict_pref));
+
+  // The fact that subsite.example.com exists as a setting means it was once
+  // considered an eTLD+1, and should still affect subdomains.
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://subsite.example.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("http://another.subsite.example.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://example.com"))));
+}
+
+TEST_F(PrivacySandboxSettingsTest, FledgeJoinSettingTimeRangeDeletion) {
+  // Confirm that time range deletions work appropriately for FLEDGE join
+  // settings.
+  privacy_sandbox_settings()->SetFledgeJoiningAllowed("first.com", false);
+  task_environment()->AdvanceClock(base::Hours(1));
+
+  const base::Time kSecondSettingTime = base::Time::Now();
+  privacy_sandbox_settings()->SetFledgeJoiningAllowed("second.com", false);
+
+  task_environment()->AdvanceClock(base::Hours(1));
+  privacy_sandbox_settings()->SetFledgeJoiningAllowed("third.com", false);
+
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://first.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://second.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://third.com"))));
+
+  // Construct a deletion which only targets the second setting.
+  privacy_sandbox_settings()->ClearFledgeJoiningAllowedSettings(
+      kSecondSettingTime - base::Seconds(1),
+      kSecondSettingTime + base::Seconds(1));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://first.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://second.com"))));
+  EXPECT_FALSE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://third.com"))));
+
+  // Perform a maximmal time range deletion, which should remove the two
+  // remaining settings.
+  privacy_sandbox_settings()->ClearFledgeJoiningAllowedSettings(
+      base::Time(), base::Time::Max());
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://first.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://second.com"))));
+  EXPECT_TRUE(privacy_sandbox_settings()->IsFledgeJoiningAllowed(
+      url::Origin::Create(GURL("https://third.com"))));
 }
 
 class PrivacySandboxSettingsTestCookiesClearOnExitTurnedOff

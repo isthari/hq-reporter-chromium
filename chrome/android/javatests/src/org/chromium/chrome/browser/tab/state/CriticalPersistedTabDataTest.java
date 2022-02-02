@@ -319,29 +319,35 @@ public class CriticalPersistedTabDataTest {
         // Saving serialized CriticalPersistedTabData ensures we get a direct ByteBuffer
         // which is assumed in the rest of Clank. See crbug.com/1220839 for more details.
         ThreadUtils.runOnUiThreadBlocking(() -> {
-            CriticalPersistedTabData criticalPersistedTabData =
-                    new CriticalPersistedTabData(tab, "", "", PARENT_ID, ROOT_ID, TIMESTAMP,
-                            TabStateExtractor.getWebContentsState(tab), CONTENT_STATE_VERSION,
-                            OPENER_APP_ID, THEME_COLOR, LAUNCH_TYPE_AT_CREATION, USER_AGENT_A);
-            PersistedTabDataConfiguration config = PersistedTabDataConfiguration.get(
-                    CriticalPersistedTabData.class, tab.isIncognito());
-            FilePersistedTabDataStorage persistedTabDataStorage = new FilePersistedTabDataStorage();
-            persistedTabDataStorage.save(tab.getId(), config.getId(), () -> {
-                return criticalPersistedTabData.getSerializeSupplier().get();
-            }, semaphore::release);
+            try (StrictModeContext ignored = StrictModeContext.allowAllThreadPolicies()) {
+                CriticalPersistedTabData criticalPersistedTabData =
+                        new CriticalPersistedTabData(tab, "", "", PARENT_ID, ROOT_ID, TIMESTAMP,
+                                TabStateExtractor.getWebContentsState(tab), CONTENT_STATE_VERSION,
+                                OPENER_APP_ID, THEME_COLOR, LAUNCH_TYPE_AT_CREATION, USER_AGENT_A);
+                PersistedTabDataConfiguration config = PersistedTabDataConfiguration.get(
+                        CriticalPersistedTabData.class, tab.isIncognito());
+                FilePersistedTabDataStorage persistedTabDataStorage =
+                        new FilePersistedTabDataStorage();
+                persistedTabDataStorage.save(tab.getId(), config.getId(), () -> {
+                    return criticalPersistedTabData.getSerializeSupplier().get();
+                }, semaphore::release);
+            }
         });
         semaphore.acquire();
         ThreadUtils.runOnUiThreadBlocking(() -> {
-            PersistedTabDataConfiguration config = PersistedTabDataConfiguration.get(
-                    CriticalPersistedTabData.class, tab.isIncognito());
+            try (StrictModeContext ignored = StrictModeContext.allowAllThreadPolicies()) {
+                PersistedTabDataConfiguration config = PersistedTabDataConfiguration.get(
+                        CriticalPersistedTabData.class, tab.isIncognito());
 
-            ByteBuffer serialized =
-                    CriticalPersistedTabData.restore(tab.getId(), tab.isIncognito());
-            CriticalPersistedTabData deserialized = new CriticalPersistedTabData(
-                    tab, serialized, config.getStorage(), config.getId());
-            Assert.assertEquals(
-                    EXPECTED_TITLE, deserialized.getWebContentsState().getDisplayTitleFromState());
-            Assert.assertEquals(url, deserialized.getWebContentsState().getVirtualUrlFromState());
+                ByteBuffer serialized =
+                        CriticalPersistedTabData.restore(tab.getId(), tab.isIncognito());
+                CriticalPersistedTabData deserialized = new CriticalPersistedTabData(
+                        tab, serialized, config.getStorage(), config.getId());
+                Assert.assertEquals(EXPECTED_TITLE,
+                        deserialized.getWebContentsState().getDisplayTitleFromState());
+                Assert.assertEquals(
+                        url, deserialized.getWebContentsState().getVirtualUrlFromState());
+            }
         });
     }
 
@@ -597,7 +603,8 @@ public class CriticalPersistedTabDataTest {
     @SmallTest
     @Test
     public void testConvertProtoLaunchTypeToTabLaunchType() {
-        for (int type = 0; type < LaunchTypeAtCreation.names.length; type++) {
+        for (int type = LaunchTypeAtCreation.SIZE;
+                type < LaunchTypeAtCreation.names.length + LaunchTypeAtCreation.SIZE; type++) {
             if (type == LaunchTypeAtCreation.UNKNOWN) continue;
             CriticalPersistedTabData.getLaunchType(type);
         }
@@ -629,5 +636,34 @@ public class CriticalPersistedTabDataTest {
             Assert.assertEquals("TabUserAgent and ProtoUserAgentType should have the same size.",
                     tabUserAgent, TabUserAgent.SIZE);
         }
+    }
+
+    @SmallTest
+    @Test
+    public void testFlatBufferValuesUnchanged() {
+        // FlatBuffer enum values should not be changed as they are persisted across restarts.
+        // Changing them would cause backward compatibility issues crbug.com/1286984.
+        Assert.assertEquals(-2, LaunchTypeAtCreation.SIZE);
+        Assert.assertEquals(-1, LaunchTypeAtCreation.UNKNOWN);
+        Assert.assertEquals(0, LaunchTypeAtCreation.FROM_LINK);
+        Assert.assertEquals(1, LaunchTypeAtCreation.FROM_EXTERNAL_APP);
+        Assert.assertEquals(2, LaunchTypeAtCreation.FROM_CHROME_UI);
+        Assert.assertEquals(3, LaunchTypeAtCreation.FROM_RESTORE);
+        Assert.assertEquals(4, LaunchTypeAtCreation.FROM_LONGPRESS_FOREGROUND);
+        Assert.assertEquals(5, LaunchTypeAtCreation.FROM_LONGPRESS_BACKGROUND);
+        Assert.assertEquals(6, LaunchTypeAtCreation.FROM_REPARENTING);
+        Assert.assertEquals(7, LaunchTypeAtCreation.FROM_LAUNCHER_SHORTCUT);
+        Assert.assertEquals(8, LaunchTypeAtCreation.FROM_SPECULATIVE_BACKGROUND_CREATION);
+        Assert.assertEquals(9, LaunchTypeAtCreation.FROM_BROWSER_ACTIONS);
+        Assert.assertEquals(10, LaunchTypeAtCreation.FROM_LAUNCH_NEW_INCOGNITO_TAB);
+        Assert.assertEquals(11, LaunchTypeAtCreation.FROM_STARTUP);
+        Assert.assertEquals(12, LaunchTypeAtCreation.FROM_START_SURFACE);
+        Assert.assertEquals(13, LaunchTypeAtCreation.FROM_TAB_GROUP_UI);
+        Assert.assertEquals(14, LaunchTypeAtCreation.FROM_LONGPRESS_BACKGROUND_IN_GROUP);
+        Assert.assertEquals(15, LaunchTypeAtCreation.FROM_APP_WIDGET);
+        Assert.assertEquals(
+                "Need to increment 1 to expected value each time a LaunchTypeAtCreation "
+                        + "is added. Also need to add any new LaunchTypeAtCreation to this test.",
+                18, LaunchTypeAtCreation.names.length);
     }
 }

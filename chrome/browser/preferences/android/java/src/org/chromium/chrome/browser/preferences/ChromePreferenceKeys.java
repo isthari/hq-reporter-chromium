@@ -292,59 +292,6 @@ public final class ChromePreferenceKeys {
     public static final String CUSTOM_TABS_LAST_URL = "pref_last_custom_tab_url";
 
     /**
-     * Key used to save the time in milliseconds since epoch that the first run experience or second
-     * run promo was shown.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_PROMO_TIME_MS =
-            "displayed_data_reduction_promo_time_ms";
-    /**
-     * Key used to save the Chrome version the first run experience or second run promo was shown
-     * in.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_PROMO_VERSION =
-            "displayed_data_reduction_promo_version";
-    /**
-     * Key used to save whether the first run experience or second run promo screen has been shown.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_RUN_PROMO =
-            "displayed_data_reduction_promo";
-    /**
-     * Key used to save whether the infobar promo has been shown.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_INFOBAR_PROMO =
-            "displayed_data_reduction_infobar_promo";
-    /**
-     * Key used to save the Chrome version the infobar promo was shown in.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_INFOBAR_PROMO_VERSION =
-            "displayed_data_reduction_infobar_promo_version";
-    /**
-     * Key used to save the saved bytes when the milestone promo was last shown. This value is
-     * initialized to the bytes saved for data saver users that had data saver turned on when this
-     * pref was added. This prevents us from showing promo for savings that have already happened
-     * for existing users.
-     * Note: For historical reasons, this pref key is misnamed. This promotion used to be conveyed
-     * in a snackbar but was moved to an IPH in M74.
-     */
-    public static final String DATA_REDUCTION_DISPLAYED_MILESTONE_PROMO_SAVED_BYTES =
-            "displayed_data_reduction_snackbar_promo_saved_bytes";
-
-    // Visible for backup and restore
-    public static final String DATA_REDUCTION_ENABLED = "BANDWIDTH_REDUCTION_PROXY_ENABLED";
-    public static final String DATA_REDUCTION_FIRST_ENABLED_TIME =
-            "BANDWIDTH_REDUCTION_FIRST_ENABLED_TIME";
-    /**
-     * Key used to save whether the user opted out of the data reduction proxy in the FRE promo.
-     */
-    public static final String DATA_REDUCTION_FRE_PROMO_OPT_OUT = "fre_promo_opt_out";
-    /**
-     * Key used to save the date on which the site breakdown should be shown. If the user has
-     * historical data saver stats, the site breakdown cannot be shown for MAXIMUM_DAYS_IN_CHART.
-     */
-    public static final String DATA_REDUCTION_SITE_BREAKDOWN_ALLOWED_DATE =
-            "data_reduction_site_breakdown_allowed_date";
-
-    /**
      * Keys used to save whether it is ready to promo.
      */
     public static final String DEFAULT_BROWSER_PROMO_SESSION_COUNT =
@@ -381,6 +328,9 @@ public final class ChromePreferenceKeys {
      * org.chromium.chrome.browser.signin.services.FREMobileIdentityConsistencyFieldTrial}.
      */
     public static final String FIRST_RUN_FIELD_TRIAL_GROUP = "Chrome.FirstRun.FieldTrialEnabled";
+
+    public static final String FIRST_RUN_VARIATIONS_FIELD_TRIAL_GROUP =
+            "Chrome.FirstRun.VariationFieldTrialGroup";
 
     /**
      * The Feed articles visibility. This value is used as a pre-native cache and should be kept
@@ -541,9 +491,18 @@ public final class ChromePreferenceKeys {
             "Chrome.CrashReporting.LastSessionApplicationState";
 
     public static final String LOCALE_MANAGER_AUTO_SWITCH = "LocaleManager_PREF_AUTO_SWITCH";
+    public static final String LOCALE_MANAGER_MISSING_TIMEZONES =
+            "com.android.chrome.MISSING_TIMEZONES";
+    public static final String LOCALE_MANAGER_PARTNER_PROMO_KEYWORD_SELECTED =
+            "LocaleManager_PARTNER_PROMO_SELECTED_KEYWORD";
     public static final String LOCALE_MANAGER_PROMO_SHOWN = "LocaleManager_PREF_PROMO_SHOWN";
     public static final String LOCALE_MANAGER_SEARCH_ENGINE_PROMO_SHOW_STATE =
             "com.android.chrome.SEARCH_ENGINE_PROMO_SHOWN";
+    public static final String LOCALE_MANAGER_SEARCH_WIDGET_PRESENT_FIRST_START =
+            "LocaleManager_SEARCH_WIDGET_PRESENT_FIRST_START";
+    public static final String LOCALE_MANAGER_SHOULD_REPING_RLZ_FOR_SEARCH_PROMO =
+            "LocaleManager_SHOULD_REPING_RLZ_FOR_SEARCH_PROMO_KEYWORD";
+    public static final String LOCALE_MANAGER_USER_TYPE = "LocaleManager_USR_TYPE";
     public static final String LOCALE_MANAGER_WAS_IN_SPECIAL_LOCALE =
             "LocaleManager_WAS_IN_SPECIAL_LOCALE";
 
@@ -559,6 +518,13 @@ public final class ChromePreferenceKeys {
     public static final String MULTI_INSTANCE_CLOSE_WINDOW_SKIP_CONFIRM =
             "Chrome.MultiWindow.CloseWindowSkipConfirm";
 
+    public static final String MULTI_INSTANCE_START_TIME = "Chrome.MultiInstance.StartTime";
+
+    // Start timestamp of 1-day period for measuring the max count of instances used simultaneously.
+    public static final String MULTI_INSTANCE_MAX_COUNT_TIME = "Chrome.MultiInstance.MaxCountTime";
+    // Max count of Chrome instances used in a day.
+    public static final String MULTI_INSTANCE_MAX_INSTANCE_COUNT =
+            "Chrome.MultiInstance.MaxInstanceCount";
     // Information on each instance.
     public static final KeyPrefix MULTI_INSTANCE_INCOGNITO_TAB_COUNT =
             new KeyPrefix("Chrome.MultiInstance.IncognitoTabCount.*");
@@ -617,18 +583,13 @@ public final class ChromePreferenceKeys {
             "Chrome.OfflineIndicatorV2.NumTimesBackgrounded";
 
     /**
-     * The measurement interval (in minutes) used to schedule the currently running
-     * OfflineMeasureBackgroundTask. This value is zero if the OfflineMeasureBackgroundTask is not
-     * currently running.
+     * Keys used to store data for the OfflineMeasurementsBackgroundTask. The background task has
+     * been removed, and these keys are just used to clear any persisted data.
      */
     public static final String OFFLINE_MEASUREMENTS_CURRENT_TASK_MEASUREMENT_INTERVAL_IN_MINUTES =
             "Chrome.OfflineMeasurements.CurrentTaskMeasurementIntervalInMinutes";
-
-    /** Time of the last OfflineMeasurementsBackgroundTask check. */
     public static final String OFFLINE_MEASUREMENTS_LAST_CHECK_MILLIS =
             "Chrome.OfflineMeasurements.LastCheckMillis";
-
-    /** Parameters that control the HTTP probe of the Offline Measurements Background task */
     public static final String OFFLINE_MEASUREMENTS_USER_AGENT_STRING =
             "Chrome.OfflineMeasurements.UserAgentString";
     public static final String OFFLINE_MEASUREMENTS_HTTP_PROBE_URL =
@@ -724,7 +685,7 @@ public final class ChromePreferenceKeys {
     public static final KeyPrefix PROMO_TIMES_SEEN = new KeyPrefix("Chrome.PromoCard.TimesSeen.*");
 
     /**
-     * Whether the promotion for data reduction has been skipped on first invocation.
+     * Whether the promotions were skipped on first invocation.
      * Default value is false.
      */
     public static final String PROMOS_SKIPPED_ON_FIRST_START = "promos_skipped_on_first_start";
@@ -751,6 +712,12 @@ public final class ChromePreferenceKeys {
      * Whether query tiles should be shown on NTP. Default value is false.
      */
     public static final String QUERY_TILES_SHOW_ON_NTP = "Chrome.Querytiles.ShowOnNTP";
+
+    /**
+     * Keys used to store result from segmentation model of showing query tiles on NTP.
+     */
+    public static final String QUERY_TILES_SHOW_SEGMENTATION_RESULT =
+            "Chrome.QueryTiles.ShowSegmentationResult";
 
     /**
      * Keys used to store user actions for behavioral targeting of showing Start surface on startup.
@@ -1051,6 +1018,7 @@ public final class ChromePreferenceKeys {
                 EXPLORE_OFFLINE_CONTENT_AVAILABILITY_STATUS,
                 FEED_ARTICLES_LIST_VISIBLE,
                 FIRST_RUN_FIELD_TRIAL_GROUP,
+                FIRST_RUN_VARIATIONS_FIELD_TRIAL_GROUP,
                 FIRST_RUN_SKIPPED_BY_POLICY,
                 FLAGS_CACHED.pattern(),
                 FLAGS_CRASH_STREAK_BEFORE_CACHE,
@@ -1069,7 +1037,10 @@ public final class ChromePreferenceKeys {
                 MULTI_INSTANCE_CLOSE_WINDOW_SKIP_CONFIRM,
                 MULTI_INSTANCE_IS_INCOGNITO_SELECTED.pattern(),
                 MULTI_INSTANCE_INCOGNITO_TAB_COUNT.pattern(),
+                MULTI_INSTANCE_MAX_COUNT_TIME,
+                MULTI_INSTANCE_MAX_INSTANCE_COUNT,
                 MULTI_INSTANCE_LAST_ACCESSED_TIME.pattern(),
+                MULTI_INSTANCE_START_TIME,
                 MULTI_INSTANCE_TAB_COUNT.pattern(),
                 MULTI_INSTANCE_TASK_MAP.pattern(),
                 MULTI_INSTANCE_TITLE.pattern(),
@@ -1105,6 +1076,7 @@ public final class ChromePreferenceKeys {
                 QUERY_TILES_NUM_RECENT_MV_TILE_CLICKS,
                 QUERY_TILES_NUM_RECENT_QUERY_TILE_CLICKS,
                 QUERY_TILES_SHOW_ON_NTP,
+                QUERY_TILES_SHOW_SEGMENTATION_RESULT,
                 REGULAR_TAB_COUNT,
                 SETTINGS_SAFETY_CHECK_LAST_RUN_TIMESTAMP,
                 SETTINGS_SAFETY_CHECK_RUN_COUNTER,
