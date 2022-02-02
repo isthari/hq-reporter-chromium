@@ -7,7 +7,7 @@
 #include <string>
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+//#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -34,11 +34,16 @@ public:
     bool output() { return isOutput_; }
     String modelName() { return String(modelName_); }
     int64_t persistentId() { return persistentId_; }
+    int64_t subDeviceIndex() { return (long) subDeviceIndex_; }
 
     // funciones
     void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     VideoFrame* getVideoFrame(ExecutionContext*);
     void disableVideoInput();
+    
+    void enableVideoOutput(long mode);
+    void disableVideoOutput();
+    
     long getModeCount() { return modes_.size(); }
     VideoCardMode* getMode(long index); 
 
@@ -51,9 +56,15 @@ public:
 
 
 private:
+    // acceso a la tarjeta
     IDeckLink* deckLink_;
+    
     IDeckLinkOutput *deckLinkOutput_;
     IDeckLinkInput *deckLinkInput_;
+    bool isInputEnabled_;
+    bool isOutputEnabled_;
+    long inputVideoMode_;
+    long outputVideoMode_;
 
     std::map<int, IDeckLinkDisplayMode*> displayModes_;
     std::list<VideoCardMode *>modes_;
@@ -62,13 +73,15 @@ private:
     bool isOutput_;
     std::string modelName_;
     int64_t persistentId_;
+    int64_t subDeviceIndex_;
 
     Member<ExecutionContext> executionContext_;
     Member<V8VideoCardFrameCallback> frameCallback_;
     Member<V8VideoCardAudioCallback> audioCallback_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
-    Member<DOMArrayBuffer> buffer0;
-    Member<DOMArrayBuffer> buffer1;    
+    
+    // TODO add frame0 / frame 1
+    IDeckLinkMutableVideoFrame *playbackFrame_;
     Member<VideoFrame> videoFrame;
     uint8_t *frameData0;
     uint8_t *frameData1;

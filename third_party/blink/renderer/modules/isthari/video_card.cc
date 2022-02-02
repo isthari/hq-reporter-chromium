@@ -19,12 +19,14 @@ namespace blink {
 
 VideoCard::VideoCard(IDeckLink *deckLink)
     : deckLink_(deckLink),
+      isInputEnabled_(false),
+      isOutputEnabled_(false),
+      inputVideoMode_(-1),
+      outputVideoMode_(-1),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get())
 {
     frameData0 = (uint8_t*) malloc(1920*1080*4);
     frameData1 = (uint8_t*) malloc(1920*1080*4);
-    buffer0 = DOMArrayBuffer::Create((const void*)frameData0, 1920*1080*4);
-    buffer1 = DOMArrayBuffer::Create((const void*)frameData0, 1920*1080*4);    
     frameCounter_ = 0;
 
     audioData0 = (uint8_t **) malloc(sizeof (uint8_t *) );
@@ -46,6 +48,7 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 			(void**) &deckLinkAttributes);
 
     deckLinkAttributes->GetInt(BMDDeckLinkPersistentID, &persistentId_);
+    deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);
     deckLinkAttributes->Release();
 
     this->checkIO();
@@ -116,25 +119,91 @@ VideoCardMode* VideoCard::getMode(long index)
 	return *l_front;
 }
 
+void VideoCard::enableVideoOutput(long mode) {
+    if (!isOutput_) {
+        VLOG(0) << "Device does not support video output";
+        return;
+    }
+    
+    if (isOutputEnabled_) {
+        VLOG(0) << "Output already enabled";
+        return;
+    }
+    
+    // TODO verificar si admite full duplex antes de desactivar
+    if (isInputEnabled_ ) {
+        VLOG(0) << "Disable video input";
+        this->disableVideoInput();
+    }
+    
+    isOutputEnabled_ = true;
+    outputVideoMode_ = mode;
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
+    BMDDisplayMode bmdMode = displayMode->GetDisplayMode();
+    HRESULT video = deckLinkOutput_->EnableVideoOutput(bmdMode, bmdVideoOutputRP188);
+    if (video == S_OK) {
+        VLOG(0) << "enable video output ok";
+    } else {
+        VLOG(0) << "enable video output error";
+    }
+    
+    // TODO GC
+    deckLinkOutput_->CreateVideoFrame((int32_t) displayMode->GetWidth(),
+		    	(int32_t) displayMode->GetHeight(),
+		    	(int32_t) displayMode->GetWidth()*2, // asume siempre 8 bit YUV
+		    	bmdFormat8BitYUV,
+		    	bmdFrameFlagDefault,
+		    	&playbackFrame_);
+		    	
+    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, 2, bmdAudioOutputStreamContinuous);
+    if (audio == S_OK) {
+        VLOG(0) << "enable audio output ok";        
+    } else {
+        VLOG(0) << "enable audio output error";
+    }
+}
+
 void VideoCard::disableVideoInput() 
 {
     // TODO guardar si esta activo o no para poder hacer un disable al recargar la web
-    deckLinkInput_->DisableVideoInput();
-    deckLinkInput_->DisableAudioInput();
+    if (isInputEnabled_) {
+        deckLinkInput_->DisableVideoInput();
+        deckLinkInput_->DisableAudioInput();
+    }
+    isInputEnabled_ = false;
+}
+
+void VideoCard::disableVideoOutput() {
+    if (isOutputEnabled_) {
+        deckLinkOutput_->DisableVideoOutput();
+        deckLinkOutput_->DisableAudioOutput();
+    }
+    isOutputEnabled_ = false;
 }
 
 void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
+    if (isInputEnabled_) {
+        VLOG(0) << "Input already enabled";
+        return;
+    }
+    
+    inputVideoMode_ = mode;
+    
+    // TODO desactivar si esta en modo output y no soporta full duplex
+
     frameCallback_ = frameCallback;
     audioCallback_ = audioCallback;
     HRESULT result;
+    
+    // Bloque de video
     VLOG(0) << "Enabling Video Input ";
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
-//    IDeckLinkDisplayMode *displayMode = displayModes_[11];
     result = deckLinkInput_->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitYUV, 0);
     if (result != S_OK) {
         VLOG(0) << "  Error enabling Video Input ";
     }
 
+    // bloque de audio
     int channels = 2;
     HRESULT audio = deckLinkInput_->EnableAudioInput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, channels);
     if (audio == S_OK) {
@@ -145,6 +214,9 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, 
     result = deckLinkInput_->StartStreams();
     if (result != S_OK) {
         VLOG(0) << "  Error starting streams ";
+    } else {
+        VLOG(0) << "Input enabled";
+        isInputEnabled_ = true;
     }
 }
 
@@ -156,8 +228,7 @@ HRESULT VideoCard::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDe
 
 HRESULT VideoCard::VideoInputFrameArrived(
 		IDeckLinkVideoInputFrame *videoFrame,
-		IDeckLinkAudioInputPacket *audioFrame) {
-
+		IDeckLinkAudioInputPacket *audioFrame) {    
     if(videoFrame) {
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
 	    // no data
@@ -197,6 +268,11 @@ HRESULT VideoCard::VideoInputFrameArrived(
 }
 
 void VideoCard::OnVideoFrameReceived() {
+    if(!frameCallback_->IsCallbackObjectCallable()) {
+//        VLOG(0) << "No video callback available";     
+        return;
+    }
+
     //VLOG(0) << "pre wrap";
     //VLOG(0) << "pre handle frame";
     auto qtf = frameCallback_->handleFrame(nullptr, 10);
@@ -223,6 +299,11 @@ VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {
 }
 
 void VideoCard::OnAudioFrameReceived(int samples) {
+    if(!audioCallback_->IsCallbackObjectCallable()) {
+//        VLOG(0) << "No audio callback available";
+        return;
+    }
+
 //    VLOG(0) << "audio frame samples: " << samples;
    
     if (audioStart_ == 0){
@@ -250,8 +331,6 @@ void VideoCard::OnAudioFrameReceived(int samples) {
 
 void VideoCard::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
-    visitor->Trace(buffer0);
-    visitor->Trace(buffer1);
     visitor->Trace(videoFrame);
     visitor->Trace(audioCallback_);
     visitor->Trace(frameCallback_);
