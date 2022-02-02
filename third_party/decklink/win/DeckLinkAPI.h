@@ -40,6 +40,9 @@
 #endif
 
 /* Forward Declarations */ 
+#ifndef interface
+#define interface struct
+#endif 
 
 #ifndef __IDeckLinkTimecode_FWD_DEFINED__
 #define __IDeckLinkTimecode_FWD_DEFINED__

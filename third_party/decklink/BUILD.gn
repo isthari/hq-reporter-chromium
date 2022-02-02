@@ -24,7 +24,7 @@ if (is_linux) {
 if (is_win) {
   static_library("decklink") {
     sources = [
-      "win/platform.cpp", 
+      "win/platform.cpp",
       "win/DeckLinkAPI_i.c" 
     ]
   }
