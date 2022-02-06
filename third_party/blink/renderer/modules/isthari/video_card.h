@@ -5,6 +5,7 @@
 #include <list>
 #include <map>
 #include <string>
+
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
@@ -40,6 +41,7 @@ public:
     String modelName() { return String(modelName_); }
     int64_t persistentId() { return persistentId_; }
     int64_t subDeviceIndex() { return (long) subDeviceIndex_; }
+    String identifier();
     
     // Metadata
     long getModeCount() { return (long) modes_.size(); }

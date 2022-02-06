@@ -6,6 +6,7 @@
     readonly attribute DOMString modelName;
     readonly attribute long persistentId;
     readonly attribute long subDeviceIndex;
+    readonly attribute DOMString identifier;
 
     [CallWith=ExecutionContext] void enableVideoInput(long mode,
     	VideoCardFrameCallback callbackVideo, 

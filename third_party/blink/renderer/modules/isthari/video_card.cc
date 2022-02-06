@@ -1,6 +1,7 @@
 #include "video_card.h"
 #include <chrono>
 #include <string>
+#include <sstream>
 
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
@@ -55,6 +56,12 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 
     this->checkIO();
     this->getDisplayModes();
+}
+
+String VideoCard::identifier() { 
+    std::stringstream ss;
+    ss << std::hex << persistentId_;
+    return String(ss.str()); 
 }	
 
 /**
