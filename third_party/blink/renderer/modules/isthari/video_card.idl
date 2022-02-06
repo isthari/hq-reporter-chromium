@@ -18,4 +18,5 @@
     
     void enableVideoOutput(long mode);
     void disableVideoOutput();        
+    void putVideoFrame(VideoFrame frame);
 };

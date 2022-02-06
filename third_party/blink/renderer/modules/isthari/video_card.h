@@ -33,22 +33,27 @@ public:
     void Trace(Visitor*) const override;
 
     // atributos solo lectura
+    // TODO falta duplex
+    // TODO falta un uniqueId en formato string para que sea comun entre todos los tipos de dispositivos
     bool input() { return isInput_; }
     bool output() { return isOutput_; }
     String modelName() { return String(modelName_); }
     int64_t persistentId() { return persistentId_; }
     int64_t subDeviceIndex() { return (long) subDeviceIndex_; }
-
-    // funciones
-    void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
-    VideoFrame* getVideoFrame(ExecutionContext*);
-    void disableVideoInput();
     
-    void enableVideoOutput(long mode);
-    void disableVideoOutput();
-    
+    // Metadata
     long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
+
+    // Input
+    void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
+    void disableVideoInput();
+    VideoFrame* getVideoFrame(ExecutionContext*);
+
+    // output    
+    void enableVideoOutput(long mode);
+    void disableVideoOutput();
+    void putVideoFrame(VideoFrame* frame);        
 
     // IDeckLinkInputCallback
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
@@ -70,30 +75,36 @@ private:
     long outputVideoMode_;
 
     std::map<int, IDeckLinkDisplayMode*> displayModes_;
-    std::list<VideoCardMode *>modes_;
+    std::list<VideoCardMode *> modes_;
 
+    // atributos solo lectura
     bool isInput_;
     bool isOutput_;
     std::string modelName_;
     int64_t persistentId_;
     int64_t subDeviceIndex_;
+    
+    // no se usa de momento
+    BMDTimeValue frameDuration_;
+    BMDTimeScale frameTimescale_;
 
+    // entrada
     Member<ExecutionContext> executionContext_;
     Member<V8VideoCardFrameCallback> frameCallback_;
     Member<V8VideoCardAudioCallback> audioCallback_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     
-    // TODO add frame0 / frame 1
-    IDeckLinkMutableVideoFrame *playbackFrame_;
+    // Parte de entrada SDI
     Member<VideoFrame> videoFrame;
-    uint8_t *frameData0;
-    uint8_t *frameData1;
-    int frameCounter_;
-
-    uint8_t** audioData0;
-    uint8_t** audioData1;
-    int audioCounter_;
-    uint64_t audioStart_;
+    uint8_t *frameData;
+    uint8_t** audioData;
+    int frameInCounter_;    
+    uint64_t inputStart_;
+    base::TimeDelta timeIn_;
+    
+    // Parte de salida SDI
+    IDeckLinkMutableVideoFrame *playbackFrame_;
+    long framesOutVideo_;
 
 private:
     void checkIO();
