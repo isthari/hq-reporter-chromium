@@ -244,7 +244,10 @@ HRESULT VideoCard::VideoInputFrameArrived(
         inputStart_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     } 
     		
-    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();    		
+    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    if (now==inputStart_) {
+        now = now + 10000;
+    }
     timeIn_ = base::Microseconds(now-inputStart_);    		
     if(videoFrame) {
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
@@ -346,26 +349,24 @@ void VideoCard::putVideoFrame(VideoFrame* frame) {
 
     uint8_t *deckLinkBuffer = nullptr;
     playbackFrame_->GetBytes((void**) &deckLinkBuffer);
-    /*
-    libyuv::ARGBToUYVY(mediaFrame->data(0),	
-    	width * 4,
-    	deckLinkBuffer,
-    	width * 2,
-    	width, height);
-*/
-	libyuv::I420ToUYVY(mediaFrame->data(0),
-				mediaFrame->stride(0),
-				mediaFrame->data(1),
-				mediaFrame->stride(1),
-				mediaFrame->data(2),
-				mediaFrame->stride(2),
-				deckLinkBuffer,
-				width*2, width, height-1);
-    // media::VideoFrame	
-//    frame->frame();	
-deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
-//deckLinkOutput_->ScheduleVideoFrame(playbackFrame_, (framesOutVideo_++ * frameDuration_), frameDuration_, frameTimescale_);
+    libyuv::I420ToUYVY(mediaFrame->data(0),
+			mediaFrame->stride(0),
+			mediaFrame->data(1),
+			mediaFrame->stride(1),
+			mediaFrame->data(2),
+			mediaFrame->stride(2),
+			deckLinkBuffer,
+			width*2, width, height-1);
+    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
+}
 
+void VideoCard::putAudioFrame(AudioData* frame) {
+/*
+    LOG(INFO) << "Audio data info";
+    LOG(WARNING) << "Audio data warning";
+    LOG(ERROR) << "Audio data error";
+    LOG(FATAL) << "Audio data falta";
+    */
 }
 
 } // namespace blink

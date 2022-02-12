@@ -56,6 +56,7 @@ public:
     void enableVideoOutput(long mode);
     void disableVideoOutput();
     void putVideoFrame(VideoFrame* frame);        
+    void putAudioFrame(AudioData* frame);
 
     // IDeckLinkInputCallback
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
