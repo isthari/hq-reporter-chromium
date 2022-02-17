@@ -1473,6 +1473,33 @@ void PasswordAutofillAgent::InformNoSavedCredentials(
   field_data_manager_->ClearData();
 }
 
+#if BUILDFLAG(IS_ANDROID)
+void PasswordAutofillAgent::TriggerFormSubmission() {
+  // Find the last interacted element to simulate an enter keystroke at.
+  WebFormControlElement form_control = FindFormControlElementByUniqueRendererId(
+      render_frame()->GetWebFrame()->GetDocument(),
+      last_updated_field_renderer_id_, last_updated_form_renderer_id_);
+  if (form_control.IsNull()) {
+    // The target field doesn't exist anymore. Don't try to submit it.
+    return;
+  }
+
+  // TODO(crbug.com/1283004): Support submission for <form>less forms too.
+  if (!form_control.Form().IsNull()) {
+    WebInputElement* input = ToWebInputElement(&form_control);
+    // |form_control| can only be |WebInputElement|, not |WebSelectElement|.
+    DCHECK(!input || !input->IsNull())
+        << "Form submission attempt for a non-input element";
+
+    // TODO(crbug.com/1283004): Support filling single username fields too.
+    DCHECK(input->IsPasswordFieldForAutofill())
+        << "Form submission attempt for a non-password element";
+
+    input->DispatchSimulatedEnterIfLastInputInForm();
+  }
+}
+#endif
+
 void PasswordAutofillAgent::FocusedNodeHasChanged(const blink::WebNode& node) {
   DCHECK(!node.IsNull());
   focused_input_element_.Reset();

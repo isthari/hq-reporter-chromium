@@ -267,6 +267,28 @@ TEST_F(RawPtrTest, Delete) {
   EXPECT_EQ(g_get_for_dereference_cnt, 0);
 }
 
+TEST_F(RawPtrTest, ClearAndDelete) {
+  CountingRawPtr<int> ptr(new int);
+  ptr.ClearAndDelete();
+  EXPECT_EQ(g_wrap_raw_ptr_cnt, 1);
+  EXPECT_EQ(g_release_wrapped_ptr_cnt, 1);
+  EXPECT_EQ(g_get_for_dereference_cnt, 0);
+  EXPECT_EQ(g_get_for_extraction_cnt, 0);
+  EXPECT_EQ(g_wrapped_ptr_swap_cnt, 0);
+  EXPECT_EQ(ptr.get(), nullptr);
+}
+
+TEST_F(RawPtrTest, ClearAndDeleteArray) {
+  CountingRawPtr<int> ptr(new int[8]);
+  ptr.ClearAndDeleteArray();
+  EXPECT_EQ(g_wrap_raw_ptr_cnt, 1);
+  EXPECT_EQ(g_release_wrapped_ptr_cnt, 1);
+  EXPECT_EQ(g_get_for_dereference_cnt, 0);
+  EXPECT_EQ(g_get_for_extraction_cnt, 0);
+  EXPECT_EQ(g_wrapped_ptr_swap_cnt, 0);
+  EXPECT_EQ(ptr.get(), nullptr);
+}
+
 TEST_F(RawPtrTest, ConstVolatileVoidPtr) {
   int32_t foo[] = {1234567890};
   CountingRawPtr<const volatile void> ptr = foo;
@@ -768,6 +790,68 @@ TEST_F(RawPtrTest, FunctionParameters_Copy) {
   raw_ptr<int> ptr(&x);
   FunctionWithRawPtrParameter(ptr,  // `ptr` will be copied into the function.
                               &x);
+}
+
+TEST_F(RawPtrTest, SetLookupUsesGetForComparison) {
+  std::set<CountingRawPtr<int>> set;
+  int x = 123;
+  CountingRawPtr<int> ptr(&x);
+
+  ClearCounters();
+  set.emplace(&x);
+  EXPECT_EQ(1, g_wrap_raw_ptr_cnt);
+  EXPECT_EQ(0, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
+
+  ClearCounters();
+  set.count(&x);
+  EXPECT_EQ(0, g_wrap_raw_ptr_cnt);
+  EXPECT_NE(0, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
+
+  ClearCounters();
+  set.count(ptr);
+  EXPECT_EQ(0, g_wrap_raw_ptr_cnt);
+  EXPECT_NE(0, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
+}
+
+TEST_F(RawPtrTest, ComparisonOperatorUsesGetForComparison) {
+  int x = 123;
+  CountingRawPtr<int> ptr(&x);
+
+  ClearCounters();
+  EXPECT_FALSE(ptr < ptr);
+  EXPECT_FALSE(ptr > ptr);
+  EXPECT_TRUE(ptr <= ptr);
+  EXPECT_TRUE(ptr >= ptr);
+  EXPECT_EQ(0, g_wrap_raw_ptr_cnt);
+  EXPECT_EQ(8, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
+
+  ClearCounters();
+  EXPECT_FALSE(ptr < &x);
+  EXPECT_FALSE(ptr > &x);
+  EXPECT_TRUE(ptr <= &x);
+  EXPECT_TRUE(ptr >= &x);
+  EXPECT_EQ(0, g_wrap_raw_ptr_cnt);
+  EXPECT_EQ(4, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
+
+  ClearCounters();
+  EXPECT_FALSE(&x < ptr);
+  EXPECT_FALSE(&x > ptr);
+  EXPECT_TRUE(&x <= ptr);
+  EXPECT_TRUE(&x >= ptr);
+  EXPECT_EQ(0, g_wrap_raw_ptr_cnt);
+  EXPECT_EQ(4, g_get_for_comparison_cnt);
+  EXPECT_EQ(0, g_get_for_extraction_cnt);
+  EXPECT_EQ(0, g_get_for_dereference_cnt);
 }
 
 // This test checks how the std library handles collections like

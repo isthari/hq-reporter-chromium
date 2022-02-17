@@ -641,7 +641,7 @@ const base::Feature kFiltersInRecents{"FiltersInRecents",
 
 // Enables the firmware updater app.
 const base::Feature kFirmwareUpdaterApp = {"FirmwareUpdaterApp",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Controls whether to allow keeping full screen mode after unlock.
 const base::Feature kFullscreenAfterUnlockAllowed = {
@@ -799,6 +799,14 @@ const base::Feature kInstantTethering{"InstantTethering",
 const base::Feature kKeyboardBasedDisplayArrangementInSettings{
     "KeyboardBasedDisplayArrangementInSettings",
     base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables to use lacros-chrome as the only web browser on Chrome OS.
+// This works only when both LacrosSupport and LacrosPrimary below are enabled.
+// NOTE: Use crosapi::browser_util::IsAshWebBrowserEnabled() instead of checking
+// the feature directly. Similar to LacrosSupport and LacrosPrimary,
+// this may not be allowed depending on user types and/or policies.
+const base::Feature kLacrosOnly{"LacrosOnly",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables to use lacros-chrome as a primary web browser on Chrome OS.
 // This works only when LacrosSupport below is enabled.
@@ -1211,9 +1219,9 @@ const base::Feature kSystemJapanesePhysicalTyping{
     "SystemJapanesePhysicalTyping", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables or disables using the system input engine for physical typing in
-// Korean.
-const base::Feature kSystemKoreanPhysicalTyping{
-    "SystemKoreanPhysicalTyping", base::FEATURE_ENABLED_BY_DEFAULT};
+// transliteration input methods.
+const base::Feature kSystemTransliterationPhysicalTyping{
+    "SystemTransliterationPhysicalTyping", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables the Chrome OS system-proxy daemon, only for system services. This
 // means that system services like tlsdate, update engine etc. can opt to be
@@ -1891,10 +1899,6 @@ bool IsSystemChinesePhysicalTypingEnabled() {
 
 bool IsSystemJapanesePhysicalTypingEnabled() {
   return base::FeatureList::IsEnabled(kSystemJapanesePhysicalTyping);
-}
-
-bool IsSystemKoreanPhysicalTypingEnabled() {
-  return base::FeatureList::IsEnabled(kSystemKoreanPhysicalTyping);
 }
 
 bool IsTabClusterUIEnabled() {

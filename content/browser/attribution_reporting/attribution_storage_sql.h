@@ -19,6 +19,10 @@
 #include "content/common/content_export.h"
 #include "sql/meta_table.h"
 
+namespace base {
+class GUID;
+}  // namespace base
+
 namespace sql {
 class Database;
 class Statement;
@@ -77,11 +81,11 @@ class CONTENT_EXPORT AttributionStorageSql : public AttributionStorage {
   };
 
   // AttributionStorage:
-  std::vector<DeactivatedSource> StoreSource(
+  StoreSourceResult StoreSource(
       const StorableSource& source,
       int deactivated_source_return_limit = -1) override;
   CreateReportResult MaybeCreateAndStoreReport(
-      const StorableTrigger& trigger) override;
+      const AttributionTrigger& trigger) override;
   std::vector<AttributionReport> GetAttributionsToReport(
       base::Time max_report_time,
       int limit = -1) override;
@@ -171,14 +175,15 @@ class CONTENT_EXPORT AttributionStorageSql : public AttributionStorage {
   absl::optional<std::vector<int64_t>> ReadDedupKeys(StoredSource::Id source_id)
       VALID_CONTEXT_REQUIRED(sequence_checker_);
 
-  // When storing an event source, deletes active event
-  // sources in order by |impression_time| until there are sufficiently few
-  // unique conversion destinations for the same |impression_site|. Returns
-  // false on failure.
-  [[nodiscard]] bool EnsureCapacityForPendingDestinationLimit(
+  [[nodiscard]] bool HasCapacityForUniqueDestinationLimitForPendingSource(
       const StorableSource& source) VALID_CONTEXT_REQUIRED(sequence_checker_);
 
-  [[nodiscard]] bool StoreReport(const AttributionReport& report)
+  [[nodiscard]] bool StoreReport(StoredSource::Id source_id,
+                                 uint64_t trigger_data,
+                                 base::Time trigger_time,
+                                 base::Time report_time,
+                                 int64_t priority,
+                                 const base::GUID& external_report_id)
       VALID_CONTEXT_REQUIRED(sequence_checker_);
 
   // Initializes the database if necessary, and returns whether the database is

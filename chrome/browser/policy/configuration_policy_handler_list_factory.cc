@@ -65,7 +65,6 @@
 #include "components/content_settings/core/browser/insecure_private_network_policy_handler.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/custom_handlers/pref_names.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/embedder_support/pref_names.h"
 #include "components/enterprise/browser/reporting/cloud_profile_reporting_policy_handler.h"
 #include "components/enterprise/browser/reporting/cloud_reporting_policy_handler.h"
@@ -84,6 +83,7 @@
 #include "components/policy/core/browser/configuration_policy_handler_list.h"
 #include "components/policy/core/browser/configuration_policy_handler_parameters.h"
 #include "components/policy/core/browser/url_blocklist_policy_handler.h"
+#include "components/policy/core/browser/url_scheme_list_policy_handler.h"
 #include "components/policy/core/common/policy_details.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_pref_names.h"
@@ -673,9 +673,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kUserFeedbackAllowed,
     prefs::kUserFeedbackAllowed,
     base::Value::Type::BOOLEAN },
-  { key::kAllowSyncXHRInPageDismissal,
-    prefs::kAllowSyncXHRInPageDismissal,
-    base::Value::Type::BOOLEAN },
   { key::kExternalProtocolDialogShowAlwaysOpenCheckbox,
     prefs::kExternalProtocolDialogShowAlwaysOpenCheckbox,
     base::Value::Type::BOOLEAN },
@@ -717,9 +714,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     base::Value::Type::LIST },
 
 #if BUILDFLAG(IS_ANDROID)
-  { key::kDataCompressionProxyEnabled,
-    data_reduction_proxy::prefs::kDataSaverEnabled,
-    base::Value::Type::BOOLEAN },
   { key::kAuthAndroidNegotiateAccountType,
     prefs::kAuthAndroidNegotiateAccountType,
     base::Value::Type::STRING },
@@ -1598,6 +1592,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kForceMajorVersionToMinorPositionInUserAgent,
     prefs::kForceMajorVersionToMinorPositionInUserAgent,
     base::Value::Type::INTEGER},
+  { key::kWindowPlacementAlwaysAllowed,
+    policy_prefs::kWindowPlacementAlwaysAllowed,
+    base::Value::Type::BOOLEAN },
 };
 // clang-format on
 
@@ -1722,15 +1719,15 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   handlers->AddHandler(
       std::make_unique<safe_browsing::SafeBrowsingPolicyHandler>());
   handlers->AddHandler(std::make_unique<SimpleDeprecatingPolicyHandler>(
-      std::make_unique<SimplePolicyHandler>(key::kAuthServerWhitelist,
-                                            prefs::kAuthServerAllowlist,
-                                            base::Value::Type::STRING),
+      std::make_unique<SimplePolicyHandler>(
+          key::kAuthServerWhitelist,  // nocheck
+          prefs::kAuthServerAllowlist, base::Value::Type::STRING),
       std::make_unique<SimplePolicyHandler>(key::kAuthServerAllowlist,
                                             prefs::kAuthServerAllowlist,
                                             base::Value::Type::STRING)));
   handlers->AddHandler(std::make_unique<SimpleDeprecatingPolicyHandler>(
       std::make_unique<SimplePolicyHandler>(
-          key::kAuthNegotiateDelegateWhitelist,
+          key::kAuthNegotiateDelegateWhitelist,  // nocheck
           prefs::kAuthNegotiateDelegateAllowlist, base::Value::Type::STRING),
       std::make_unique<SimplePolicyHandler>(
           key::kAuthNegotiateDelegateAllowlist,
@@ -2280,6 +2277,10 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
       SimpleSchemaValidatingPolicyHandler::RECOMMENDED_PROHIBITED,
       SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
 #endif  // !BUILDFLAG(IS_ANDROID)
+
+  handlers->AddHandler(std::make_unique<URLSchemeListPolicyHandler>(
+      key::kAllHttpAuthSchemesAllowedForOrigins,
+      prefs::kAllHttpAuthSchemesAllowedForOrigins));
 
   return handlers;
 }

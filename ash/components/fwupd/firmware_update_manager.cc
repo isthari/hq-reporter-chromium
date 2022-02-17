@@ -96,6 +96,10 @@ base::ScopedFD OpenFileAndGetFileDescriptor(base::FilePath download_path) {
                        base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!dest_file.IsValid() || !base::PathExists(download_path)) {
     LOG(ERROR) << "Invalid destination file at path: " << download_path;
+    firmware_update::metrics::EmitInstallResult(
+        firmware_update::metrics::FirmwareUpdateInstallResult::
+            kInvalidDestinationFile);
+
     return base::ScopedFD();
   }
 
@@ -245,6 +249,21 @@ void FirmwareUpdateManager::RecordDeviceMetrics(int num_devices) {
   firmware_update::metrics::EmitDeviceCount(num_devices, is_first_response_);
 }
 
+void FirmwareUpdateManager::RecordUpdateMetrics() {
+  firmware_update::metrics::EmitUpdateCount(
+      updates_.size(), GetNumCriticalUpdates(), is_first_response_);
+}
+
+int FirmwareUpdateManager::GetNumCriticalUpdates() {
+  int critical_update_count = 0;
+  for (const auto& update : updates_) {
+    if (update->priority == firmware_update::mojom::UpdatePriority::kCritical) {
+      critical_update_count++;
+    }
+  }
+  return critical_update_count;
+}
+
 void FirmwareUpdateManager::NotifyUpdateListObservers() {
   for (auto& observer : update_list_observers_) {
     observer->OnUpdateListChanged(mojo::Clone(updates_));
@@ -329,6 +348,9 @@ void FirmwareUpdateManager::StartInstall(const std::string& device_id,
             if (!CreateDirIfNotExists(path)) {
               LOG(ERROR) << "Cannot create firmware update directory, "
                          << "may be created already.";
+              firmware_update::metrics::EmitInstallResult(
+                  firmware_update::metrics::FirmwareUpdateInstallResult::
+                      kFailedToCreateUpdateDirectory);
             }
           },
           cache_path),
@@ -403,6 +425,9 @@ void FirmwareUpdateManager::OnUrlDownloadedToFile(
     LOG(ERROR) << "Downloading to file failed with error code: "
                << GetResponseCode(simple_loader.get()) << " with network error "
                << simple_loader->NetError();
+    firmware_update::metrics::EmitInstallResult(
+        firmware_update::metrics::FirmwareUpdateInstallResult::
+            kFailedToDownloadToFile);
     std::move(callback).Run();
     return;
   }
@@ -430,6 +455,9 @@ void FirmwareUpdateManager::InstallUpdate(
     base::ScopedFD file_descriptor) {
   if (!file_descriptor.is_valid()) {
     LOG(ERROR) << "Invalid file descriptor.";
+    firmware_update::metrics::EmitInstallResult(
+        firmware_update::metrics::FirmwareUpdateInstallResult::
+            kInvalidFileDescriptor);
     std::move(callback).Run();
     return;
   }
@@ -500,6 +528,8 @@ void FirmwareUpdateManager::OnUpdateListResponse(
     return;
   }
 
+  RecordUpdateMetrics();
+
   // We only want to show the notification once, at startup.
   if (is_first_response_) {
     ShowNotificationIfRequired();
@@ -514,6 +544,12 @@ void FirmwareUpdateManager::OnUpdateListResponse(
 void FirmwareUpdateManager::OnInstallResponse(bool success) {
   auto state = success ? firmware_update::mojom::UpdateState::kSuccess
                        : firmware_update::mojom::UpdateState::kFailed;
+  const auto result =
+      success ? firmware_update::metrics::FirmwareUpdateInstallResult::kSuccess
+              : firmware_update::metrics::FirmwareUpdateInstallResult::
+                    kInstallFailed;
+  firmware_update::metrics::EmitInstallResult(result);
+
   // Success or Fail states are both considered 100% done.
   auto update = ash::firmware_update::mojom::InstallationProgress::New(
       /**percentage=*/100, state);
@@ -528,6 +564,8 @@ void FirmwareUpdateManager::OnInstallResponse(bool success) {
 
   devices_already_notified_.erase(inflight_update_->device_id);
   inflight_update_.reset();
+  // Request all updates to refresh the update list after an install.
+  RequestAllUpdates();
 }
 
 void FirmwareUpdateManager::BindInterface(

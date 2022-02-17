@@ -6192,7 +6192,7 @@ TEST_F(NetworkContextTest, CertificateTransparencyConfig) {
     log_info->public_key = std::string(4, 0x41 + static_cast<char>(i));
     log_info->name = std::string(4, 0x41 + static_cast<char>(i));
     log_info->operated_by_google = false;
-    log_info->disqualified_at = base::Seconds(i);
+    log_info->disqualified_at = base::Time::FromTimeT(i);
     log_info->current_operator = "Not Google Either";
 
     log_list_mojo.push_back(std::move(log_info));
@@ -6229,12 +6229,14 @@ TEST_F(NetworkContextTest, CertificateTransparencyConfig) {
       ::testing::UnorderedElementsAreArray({crypto::SHA256HashString("1111"),
                                             crypto::SHA256HashString("3333"),
                                             crypto::SHA256HashString("5555")}));
-  EXPECT_THAT(
-      policy_enforcer->disqualified_logs_for_testing(),
-      ::testing::UnorderedElementsAre(
-          ::testing::Pair(crypto::SHA256HashString("AAAA"), base::Seconds(0)),
-          ::testing::Pair(crypto::SHA256HashString("BBBB"), base::Seconds(1)),
-          ::testing::Pair(crypto::SHA256HashString("CCCC"), base::Seconds(2))));
+  EXPECT_THAT(policy_enforcer->disqualified_logs_for_testing(),
+              ::testing::UnorderedElementsAre(
+                  ::testing::Pair(crypto::SHA256HashString("AAAA"),
+                                  base::Time::FromTimeT(0)),
+                  ::testing::Pair(crypto::SHA256HashString("BBBB"),
+                                  base::Time::FromTimeT(1)),
+                  ::testing::Pair(crypto::SHA256HashString("CCCC"),
+                                  base::Time::FromTimeT(2))));
 
   std::map<std::string, certificate_transparency::OperatorHistoryEntry>
       operator_history = policy_enforcer->operator_history_for_testing();
@@ -6275,7 +6277,7 @@ TEST_F(NetworkContextTest, CertificateTransparencyConfigWithOperatorSwitches) {
     network::mojom::PreviousOperatorEntryPtr previous_operator =
         network::mojom::PreviousOperatorEntry::New();
     previous_operator->name = "Operator " + base::NumberToString(i);
-    previous_operator->end_time = base::Seconds(i);
+    previous_operator->end_time = base::Time::FromTimeT(i);
     log_info->previous_operators.push_back(std::move(previous_operator));
   }
   log_list_mojo.push_back(std::move(log_info));
@@ -6314,9 +6316,10 @@ TEST_F(NetworkContextTest, CertificateTransparencyConfigWithOperatorSwitches) {
       "Changed Operator");
   EXPECT_THAT(
       operator_history[crypto::SHA256HashString("AAAA")].previous_operators_,
-      ::testing::ElementsAre(::testing::Pair("Operator 0", base::Seconds(0)),
-                             ::testing::Pair("Operator 1", base::Seconds(1)),
-                             ::testing::Pair("Operator 2", base::Seconds(2))));
+      ::testing::ElementsAre(
+          ::testing::Pair("Operator 0", base::Time::FromTimeT(0)),
+          ::testing::Pair("Operator 1", base::Time::FromTimeT(1)),
+          ::testing::Pair("Operator 2", base::Time::FromTimeT(2))));
 }
 #endif
 
@@ -7374,6 +7377,61 @@ TEST_F(NetworkContextTest, DeleteStoredTrustTokensReentrant) {
   EXPECT_THAT(
       delete_status_bar,
       Optional(mojom::DeleteStoredTrustTokensStatus::kSuccessTokensDeleted));
+}
+
+TEST_F(NetworkContextTest, HttpAuthUrlFilter) {
+  std::unique_ptr<NetworkContext> network_context =
+      CreateContextWithParams(CreateNetworkContextParamsForTesting());
+  const GURL kGoogle("https://www.google.com");
+  const GURL kGoogleSubdomain("https://subdomain.google.com");
+  const GURL kBlocked("https://www.blocked.com");
+  auto is_url_allowed_to_use_auth_schemes =
+      [&network_context](const GURL& url) {
+        return network_context->GetHttpAuthPreferences()
+            ->IsAllowedToUseAllHttpAuthSchemes(url::SchemeHostPort(url));
+      };
+
+  network::mojom::HttpAuthDynamicParamsPtr auth_dynamic_params =
+      network::mojom::HttpAuthDynamicParams::New();
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kBlocked));
+
+  auth_dynamic_params->patterns_allowed_to_use_all_schemes =
+      std::vector<std::string>{"subdomain.google.com"};
+  network_context->OnHttpAuthDynamicParamsChanged(auth_dynamic_params.get());
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(
+      GURL("https://subdomain.blocked.com")));
+
+  auth_dynamic_params->patterns_allowed_to_use_all_schemes =
+      std::vector<std::string>{};
+  network_context->OnHttpAuthDynamicParamsChanged(auth_dynamic_params.get());
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kBlocked));
+
+  auth_dynamic_params->patterns_allowed_to_use_all_schemes =
+      std::vector<std::string>{"google.com"};
+  network_context->OnHttpAuthDynamicParamsChanged(auth_dynamic_params.get());
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kBlocked));
+
+  auth_dynamic_params->patterns_allowed_to_use_all_schemes =
+      std::vector<std::string>{"https://google.com/path"};
+  network_context->OnHttpAuthDynamicParamsChanged(auth_dynamic_params.get());
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_FALSE(is_url_allowed_to_use_auth_schemes(kBlocked));
+
+  auth_dynamic_params->patterns_allowed_to_use_all_schemes =
+      std::vector<std::string>{"*"};
+  network_context->OnHttpAuthDynamicParamsChanged(auth_dynamic_params.get());
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogle));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kGoogleSubdomain));
+  EXPECT_TRUE(is_url_allowed_to_use_auth_schemes(kBlocked));
 }
 
 }  // namespace

@@ -92,6 +92,17 @@ bool IsUsEnglishEngine(const std::string& engine_id) {
           engine_id == "xkb:us:workman:eng");
 }
 
+bool IsTransliterationEngine(const std::string& engine_id) {
+  return engine_id == "ar-t-i0-und" || engine_id == "el-t-i0-und" ||
+         engine_id == "gu-t-i0-und" || engine_id == "he-t-i0-und" ||
+         engine_id == "hi-t-i0-und" || engine_id == "kn-t-i0-und" ||
+         engine_id == "ml-t-i0-und" || engine_id == "mr-t-i0-und" ||
+         engine_id == "ne-t-i0-und" || engine_id == "or-t-i0-und" ||
+         engine_id == "fa-t-i0-und" || engine_id == "pa-t-i0-und" ||
+         engine_id == "sa-t-i0-und" || engine_id == "ta-t-i0-und" ||
+         engine_id == "te-t-i0-und" || engine_id == "ur-t-i0-und";
+}
+
 bool CanRouteToNativeMojoEngine(const std::string& engine_id) {
   // To avoid handling tricky cases where the user types with both the virtual
   // and the physical keyboard, only run the native code path if the virtual
@@ -105,9 +116,10 @@ bool CanRouteToNativeMojoEngine(const std::string& engine_id) {
           IsChineseEngine(engine_id)) ||
          (features::IsSystemJapanesePhysicalTypingEnabled() &&
           IsJapaneseEngine(engine_id)) ||
-         (features::IsSystemKoreanPhysicalTypingEnabled() &&
-          IsKoreanEngine(engine_id)) ||
-         IsFstEngine(engine_id);
+         (base::FeatureList::IsEnabled(
+              features::kSystemTransliterationPhysicalTyping) &&
+          IsTransliterationEngine(engine_id)) ||
+         IsKoreanEngine(engine_id) || IsFstEngine(engine_id);
 }
 
 bool IsPhysicalKeyboardAutocorrectEnabled(PrefService* prefs,
@@ -738,13 +750,14 @@ void NativeInputMethodEngine::ImeObserver::OnFocus(
       OverrideXkbLayoutIfNeeded(InputMethodManager::Get()->GetImeKeyboard(),
                                 settings);
 
-      input_method_->OnFocus(mojom::InputFieldInfo::New(
-                                 TextInputTypeToMojoType(context.type),
-                                 AutocorrectFlagsToMojoType(context.flags),
-                                 context.should_do_learning
-                                     ? mojom::PersonalizationMode::kEnabled
-                                     : mojom::PersonalizationMode::kDisabled),
-                             prefs_ ? std::move(settings) : nullptr);
+      input_method_->OnFocusDeprecated(
+          mojom::InputFieldInfo::New(
+              TextInputTypeToMojoType(context.type),
+              AutocorrectFlagsToMojoType(context.flags),
+              context.should_do_learning
+                  ? mojom::PersonalizationMode::kEnabled
+                  : mojom::PersonalizationMode::kDisabled),
+          prefs_ ? std::move(settings) : nullptr);
 
       // TODO(b/202224495): Send the surrounding text as part of InputFieldInfo.
       SendSurroundingTextToNativeMojoEngine(last_surrounding_text_);

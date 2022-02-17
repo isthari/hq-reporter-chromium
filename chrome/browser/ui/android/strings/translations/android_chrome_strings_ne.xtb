@@ -290,7 +290,6 @@
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# अडियो फाइल}other{# अडियो फाइलहरू}}</translation>
 <translation id="265156376773362237">पेज प्रिलोड गर्ने डिफल्ट मोड</translation>
 <translation id="2656405586795711023">वेब एपहरू</translation>
-<translation id="2689830683995595741">Chrome प्रयोग गरेर तपाईं <ph name="BEGIN_LINK1" />Google का सेवाका सर्तहरू<ph name="END_LINK1" /> र <ph name="BEGIN_LINK2" />Google Chrome र Chrome OS का सेवाका अतिरिक्त सर्तहरू<ph name="END_LINK2" />मा सहमति जनाउनुहुन्छ। <ph name="BEGIN_LINK3" />Family Link मार्फत व्यवस्थापन गरिएका Google खाताहरूको गोपनीयता सूचना<ph name="END_LINK3" /> पनि लागू हुन्छ।</translation>
 <translation id="2702516483241149200">नयाँ: स्क्रोल गरी यो पाठसम्म लैजाने लिंक सेयर गर्नुहोस्</translation>
 <translation id="2704606927547763573">प्रतिलिपि गरियो</translation>
 <translation id="2707726405694321444">पृष्ठ ताजा गर्नुहोस्</translation>
@@ -404,7 +403,6 @@
 <translation id="3264259168916048410">तपाईंको कम्प्युटर कुनै साइटमा साइन इन गर्ने प्रयोजनका लागि यो डिभाइस प्रयोग गर्न चाहन्छ</translation>
 <translation id="3265534588625245297">आफूले फलो गर्ने साइटहरू व्यवस्थापन गर्नुहोस्</translation>
 <translation id="3269093882174072735">छवि लोड गर्नुहोस्</translation>
-<translation id="3269956123044984603">तपाईंका अन्य यन्त्रहरूबाट आफ्ना ट्याबहरू प्राप्त गर्न, Android खाताको सेटिङहरूमा गई "डेटालाई स्वतः सिंक गर्नुहोस्" लाई सक्रिय गर्नुहोस्।</translation>
 <translation id="3280562213547448728">भ्वाइस सर्च</translation>
 <translation id="3282568296779691940">Chrome मा साइन इन गर्नुहोस्</translation>
 <translation id="3284510035090979597">क्रियाशील मद्दत</translation>
@@ -473,6 +471,7 @@
 <translation id="3716182511346448902">यस पृष्ठले अत्यधिक मेमोरी प्रयोग गर्ने भएकाले Chromium ले यसलाई पज गर्‍यो।</translation>
 <translation id="3721119614952978349">तपाईं र Google</translation>
 <translation id="3737319253362202215">अनुवादसम्बन्धी सेटिङहरू</translation>
+<translation id="3737402728074743863">तपाईं यो डिभाइसलाई सुरक्षा साँचोका रूपमा प्रयोग गर्न चाहनुहुन्छ भने स्क्रिन लक सेटअप गर्नुहोस्</translation>
 <translation id="3738139272394829648">खोज गर्न छुनुहोस्</translation>
 <translation id="3739899004075612870"><ph name="PRODUCT_NAME" /> मा पुस्तक चिन्ह लगाइयो</translation>
 <translation id="3740525748616366977">यो डिभाइसमा भ्वाइस सर्च उपलब्ध छैन</translation>
@@ -625,7 +624,6 @@
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 र <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> थप}other{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 र <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> थप}}</translation>
 <translation id="4696983787092045100">आफ्ना यन्त्रहरूमा टेक्स्ट म्यासेज पठाउनुहोस्</translation>
 <translation id="4699172675775169585">क्यास गरिएका फोटो र फाइलहरू</translation>
-<translation id="471759387343966120">तपाईंले जारी राख्नुभयो भने तपाईं <ph name="BEGIN_TOS_LINK" />सेवाका सर्तहरू<ph name="END_TOS_LINK" /> र <ph name="BEGIN_PRIVACY_LINK" />गोपनीयता\u00A0नीति<ph name="END_PRIVACY_LINK" />मा सहमत हुनुहुन्छ भन्ने अर्थ लाग्छ।\nChrome ले Google लाई यो एपको गुणस्तर सुधार्न सघाउने प्रयोजनका लागि यो एपको प्रयोगसम्बन्धी डेटा र क्र्यास रिपोर्ट पठाउँछ। <ph name="BEGIN_UMA_LINK" />व्यवस्थापन गर्नुहोस्<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">अनुवादको गर्न प्रस्ताव गर्नुहोस्</translation>
 <translation id="4720023427747327413"><ph name="PRODUCT_NAME" />मा खोल्नुहोस्</translation>
 <translation id="4720982865791209136">Chrome लाई सुधार्न मद्दत गर्नुहोस्। <ph name="BEGIN_LINK" />सर्वेक्षणमा भाग लिनुहोस्।<ph name="END_LINK" /></translation>
@@ -908,14 +906,12 @@
 <translation id="6277522088822131679">पृष्ठ प्रिन्टिङ गर्नमा एक समस्या थियो। कृपया पुन: प्रयास गर्नुहोस्।</translation>
 <translation id="6277722725779679269">ट्रयाक गरिएको मूल्य बदल्न सकिएन</translation>
 <translation id="6278428485366576908">विषयवस्तु</translation>
-<translation id="6292420053234093573">Chrome प्रयोग गरेर तपाईं <ph name="BEGIN_LINK1" />Google का सेवाका सर्तहरू<ph name="END_LINK1" /> र <ph name="BEGIN_LINK2" />Google Chrome र Chrome OS का सेवाका अतिरिक्त सर्तहरू<ph name="END_LINK2" />मा सहमति जनाउनुहुन्छ।</translation>
 <translation id="6294610283659775533">तपाईं उही Google खातामार्फत साइन इन गरिएका एउटा डिभाइसबाट अर्को डिभाइसमा ट्याबहरू पठाउन सक्नुहुन्छ</translation>
 <translation id="6297765934698848803">तपाईंको डिभाइसको व्यवस्थापन गर्ने सङ्गठनले तपाईंको डिभाइसको क्यामेरा निष्क्रिय पारेको छ।</translation>
 <translation id="6301525844455696527">आफ्नो अध्ययन सूची हेर्न नभुल्नुहोस्</translation>
 <translation id="6303969859164067831">साइन आउट गरी सिंक प्रक्रिया निष्क्रिय पार्नुहोस्</translation>
 <translation id="6312687380483398334">वेब एपहरू (मौन)</translation>
 <translation id="6316139424528454185">Android को संस्करण समर्थित छैन</translation>
-<translation id="6324034347079777476">Android प्रणालीको सिंकलाई असक्षम गरियो</translation>
 <translation id="6324916366299863871">सर्टकट सम्पादन गर्नुहोस्</translation>
 <translation id="6324977638108296054">हाइलाइट गरिएको पाठको लिंक सिर्जना गर्न सकिएन</translation>
 <translation id="6324997754869598316">(त्रुटि <ph name="ERROR_CODE" />)</translation>
@@ -1043,7 +1039,6 @@
 <translation id="6900532703269623216">उन्नत सुरक्षा</translation>
 <translation id="6903907808598579934">सिंकलाई सक्रिय गर्नुहोस्</translation>
 <translation id="6909589135458168665">पेजहरू प्रिलोड गरियोस्</translation>
-<translation id="6929699136511445623">Android सिस्टम सिंक गर्ने सुविधा सक्षम पार्नुहोस्</translation>
 <translation id="6942665639005891494">सेटिङहरू नामक मेनुको विकल्प प्रयोग गरी डिफल्ट डाउनलोड स्थान जुनसुकै बेला परिवर्तन गर्नुहोस्</translation>
 <translation id="694267552845942083">तपाईं हाल सिंकसम्बन्धी तपाईंका सेटिङ आफ्नो आवश्यकता अनुकूल पार्दै हुनुहुन्छ। सिंक गर्ने सुविधा अन गर्ने प्रक्रिया पूरा गर्न स्क्रिनको फेदको छेवैमा रहेको 'पुष्टि गर्नुहोस्' नामक बटनमा ट्याप गर्नुहोस्। माथि जानुहोस्</translation>
 <translation id="6945221475159498467">चयन गर्नुहोस्</translation>
@@ -1159,7 +1154,6 @@
 <translation id="7581273696622423628">सर्वेक्षणमा भाग लिनुहोस्</translation>
 <translation id="7583262514280211622">तपाईंको अध्ययन सूची यहाँ देखिने छ</translation>
 <translation id="7588219262685291874">तपाईंको डिभाइसमा ब्याट्री सेभर मोड सक्रिय हुँदा अँध्यारो थिम सक्रिय गर्नुहोस्</translation>
-<translation id="7593557518625677601">Chrome सिंकलाई सुरु गर्न Android का सेटिङहरू खोल्नुहोस् र Android को प्रणालीसम्बन्धी सिंकलाई पुन:सक्षम पार्नुहोस्</translation>
 <translation id="7594687499944811403"><ph name="EMBEDDED_ORIGIN" /> लाई <ph name="TOP_ORIGIN" /> का सम्बन्धमा कोड पेस गर्ने व्यक्ति तपाईं नै हो भन्ने कुरा पुष्टि गर्न दिनुहोस्</translation>
 <translation id="7596558890252710462">अपरेटिङ सिस्टम</translation>
 <translation id="7605594153474022051">सिंकले काम गरिरहेको छैन</translation>
@@ -1176,6 +1170,7 @@
 <translation id="7663313374500954251"><ph name="PARENT_NAME" /> यो ब्राउजर व्यवस्थापन गर्नुहुन्छ।</translation>
 <translation id="7665369617277396874">खाता थप्नुहोस्</translation>
 <translation id="766587987807204883">लेखहरू यहाँ देखिन्छन् र तपाईं ती लेखहरू अफलाइन भएका बेलामा पनि पढ्न सक्नुहुन्छ</translation>
+<translation id="768232549260819724">GIF कपी गरियो</translation>
 <translation id="7682724950699840886">निम्न सुझावहरूअनुसार गरी हेर्नुहोस्: कृपया आफ्नो यन्त्रमा पर्याप्त खाली ठाउँ रहेको कुरा सुनिश्चित गरेर पुनः निर्यात गर्ने प्रयास गर्नुहोस्।</translation>
 <translation id="768618399695552958">तपाईंले खोलेका केही पेजहरू प्रिलोड गरेर राखिन्छ। Google का सर्भर र Google साइट लिंक गरेपछि पेजहरू ती सर्भरमार्फत प्रिलोड गरेर राखिन सक्छ।</translation>
 <translation id="7698359219371678927"><ph name="APP_NAME" /> मा इमेल सिर्जना गर्नुहोस्</translation>
@@ -1354,6 +1349,7 @@
 <translation id="8570677896027847510">यो फाइल सुरक्षित रूपमा डाउनलोड गर्न सकिँदैन</translation>
 <translation id="8571213806525832805">पछिल्ला ४ हप्ता</translation>
 <translation id="8572344201470131220">फोटो कपी गरियो</translation>
+<translation id="8580884231102452214">GIF कपी गर्नुहोस्</translation>
 <translation id="8583805026567836021">खाता लगत खालि गर्दै</translation>
 <translation id="859046281437143747">"थप विकल्पहरू" बटनमा क्लिक गरी मूल्य ट्रयाक गर्नुहोस्</translation>
 <translation id="860043288473659153">कार्डवालाको नाम</translation>

@@ -12,7 +12,6 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/rand_util.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/threading/sequence_bound.h"
 #include "base/time/time.h"
@@ -21,10 +20,10 @@
 #include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage_delegate_impl.h"
 #include "content/browser/attribution_reporting/attribution_storage_sql.h"
+#include "content/browser/attribution_reporting/attribution_trigger.h"
 #include "content/browser/attribution_reporting/attribution_utils.h"
 #include "content/browser/attribution_reporting/send_result.h"
 #include "content/browser/attribution_reporting/storable_source.h"
-#include "content/browser/attribution_reporting/storable_trigger.h"
 #include "content/browser/attribution_reporting/stored_source.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -146,22 +145,22 @@ AttributionManagerImpl::AttributionManagerImpl(
           storage_partition,
           user_data_directory,
           std::move(special_storage_policy),
+          std::make_unique<AttributionStorageDelegateImpl>(
+              base::CommandLine::ForCurrentProcess()->HasSwitch(
+                  switches::kConversionsDebugMode)),
           std::make_unique<AttributionNetworkSenderImpl>(storage_partition)) {}
 
 AttributionManagerImpl::AttributionManagerImpl(
     StoragePartitionImpl* storage_partition,
     const base::FilePath& user_data_directory,
     scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy,
+    std::unique_ptr<AttributionStorage::Delegate> storage_delegate,
     std::unique_ptr<NetworkSender> network_sender)
     : storage_partition_(storage_partition),
       attribution_storage_(base::SequenceBound<AttributionStorageSql>(
           g_storage_task_runner.Get(),
           user_data_directory,
-          std::make_unique<AttributionStorageDelegateImpl>(
-              base::CommandLine::ForCurrentProcess()->HasSwitch(
-                  switches::kConversionsDebugMode)))),
-      attribution_policy_(base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kConversionsDebugMode)),
+          std::move(storage_delegate))),
       special_storage_policy_(std::move(special_storage_policy)),
       network_sender_(std::move(network_sender)),
       weak_factory_(this) {
@@ -217,27 +216,31 @@ void AttributionManagerImpl::HandleSourceInternal(StorableSource source) {
       .WithArgs(std::move(source), deactivated_source_return_limit)
       .Then(base::BindOnce(
           [](base::WeakPtr<AttributionManagerImpl> manager,
-             std::vector<AttributionStorage::DeactivatedSource>
-                 deactivated_sources) {
+             AttributionStorage::StoreSourceResult result) {
+            // TODO(apaseltiner): Consider logging UMA based on `result` to help
+            // understand how often this fails due to privacy limits, etc.
+            //
+            // TODO(apaseltiner): Show rejected sources in internals UI.
+
             if (!manager)
               return;
 
             manager->NotifySourcesChanged();
 
-            for (const auto& source : deactivated_sources) {
+            for (const auto& source : result.deactivated_sources) {
               manager->NotifySourceDeactivated(source);
             }
           },
           weak_factory_.GetWeakPtr()));
 }
 
-void AttributionManagerImpl::HandleTrigger(StorableTrigger trigger) {
+void AttributionManagerImpl::HandleTrigger(AttributionTrigger trigger) {
   GetContentClient()->browser()->FlushBackgroundAttributions(
       base::BindOnce(&AttributionManagerImpl::HandleTriggerInternal,
                      weak_factory_.GetWeakPtr(), std::move(trigger)));
 }
 
-void AttributionManagerImpl::HandleTriggerInternal(StorableTrigger trigger) {
+void AttributionManagerImpl::HandleTriggerInternal(AttributionTrigger trigger) {
   attribution_storage_.AsyncCall(&AttributionStorage::MaybeCreateAndStoreReport)
       .WithArgs(std::move(trigger))
       .Then(base::BindOnce(&AttributionManagerImpl::OnReportStored,
@@ -387,13 +390,6 @@ void AttributionManagerImpl::OnGetReportsToSend(
     std::vector<AttributionReport> reports) {
   if (reports.empty() || IsOffline())
     return;
-
-  // Shuffle new reports to provide plausible deniability on the ordering of
-  // reports that share the same |report_time|. This is important because
-  // multiple conversions for the same impression share the same report time if
-  // they are within the same reporting window, and we do not want to allow
-  // ordering on their conversion metadata bits.
-  base::RandomShuffle(reports.begin(), reports.end());
 
   SendReports(std::move(reports), /*log_metrics=*/true, base::DoNothing());
   StartGetReportsToSendTimer();

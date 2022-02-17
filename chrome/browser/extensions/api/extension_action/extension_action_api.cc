@@ -297,7 +297,8 @@ void ExtensionActionAPI::DispatchEventToExtension(
     return;
 
   auto event = std::make_unique<Event>(
-      histogram_value, event_name, std::move(*event_args).TakeList(), context);
+      histogram_value, event_name, std::move(*event_args).TakeListDeprecated(),
+      context);
   event->user_gesture = EventRouter::USER_GESTURE_ENABLED;
   EventRouter::Get(context)
       ->DispatchEventToExtension(extension_id, std::move(event));
@@ -483,12 +484,6 @@ ExtensionActionSetIconFunction::RunExtensionAction() {
     const bool is_visible = image_util::IsIconSufficientlyVisible(bitmap);
     UMA_HISTOGRAM_BOOLEAN("Extensions.DynamicExtensionActionIconWasVisible",
                           is_visible);
-    const bool is_visible_rendered =
-        extensions::ui_util::IsRenderedIconSufficientlyVisibleForBrowserContext(
-            bitmap, browser_context());
-    UMA_HISTOGRAM_BOOLEAN(
-        "Extensions.DynamicExtensionActionIconWasVisibleRendered",
-        is_visible_rendered);
 
     if (!is_visible && g_report_error_for_invisible_icon)
       return RespondNow(Error("Icon not sufficiently visible."));

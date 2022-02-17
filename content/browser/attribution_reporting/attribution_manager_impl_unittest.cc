@@ -28,10 +28,10 @@
 #include "content/browser/attribution_reporting/attribution_storage.h"
 #include "content/browser/attribution_reporting/attribution_storage_delegate_impl.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
+#include "content/browser/attribution_reporting/attribution_trigger.h"
 #include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/send_result.h"
 #include "content/browser/attribution_reporting/storable_source.h"
-#include "content/browser/attribution_reporting/storable_trigger.h"
 #include "content/browser/attribution_reporting/stored_source.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -101,6 +101,17 @@ constexpr base::TimeDelta kFirstReportingWindow = base::Days(2);
 // Give impressions a sufficiently long expiry.
 constexpr base::TimeDelta kImpressionExpiry = base::Days(30);
 
+// Uses the behavior of the real delegate other than disabling randomized
+// responses, in order to prevent test flakiness.
+class NoRandomizedResponseStorageDelegate
+    : public AttributionStorageDelegateImpl {
+ public:
+  RandomizedResponse GetRandomizedResponse(
+      const CommonSourceInfo& source) const override {
+    return absl::nullopt;
+  }
+};
+
 class MockNetworkSender : public AttributionManagerImpl::NetworkSender {
  public:
   // AttributionManagerImpl::NetworkSender:
@@ -167,6 +178,7 @@ class AttributionManagerImplTest : public testing::Test {
         static_cast<StoragePartitionImpl*>(
             browser_context_->GetDefaultStoragePartition()),
         dir_.GetPath(), mock_storage_policy_,
+        std::make_unique<NoRandomizedResponseStorageDelegate>(),
         absl::WrapUnique(network_sender_.get())));
   }
 

@@ -39,6 +39,13 @@ chromium-metrics-reviews@google.com.
 Also used in tools/metrics/histograms/metadata/page/histograms.xml.
 -->
 
+  <variant name="">
+    <obsolete>
+      Base histogram. Use suffixes of this histogram instead. Non-suffix name
+      was removed in Feb 2022.
+    </obsolete>
+  </variant>
+  <variant name=".Embedder_DefaultSearchEngine"/>
   <variant name=".Embedder_DirectURLInput"/>
   <variant name=".SpeculationRule"/>
 </variants>
@@ -1058,7 +1065,7 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
 </histogram>
 
 <histogram name="Navigation.ThrottleDeferTime.{Event}" units="ms"
-    expires_after="2022-03-11">
+    expires_after="2022-09-11">
   <owner>cduvall@chromium.org</owner>
   <owner>jam@chromium.org</owner>
   <summary>
@@ -1069,7 +1076,7 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
 </histogram>
 
 <histogram name="Navigation.ThrottleExecutionTime.{Event}" units="ms"
-    expires_after="2022-03-11">
+    expires_after="2022-09-11">
   <owner>cduvall@chromium.org</owner>
   <owner>jam@chromium.org</owner>
   <summary>
@@ -1079,8 +1086,8 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
   <token key="Event" variants="NavigationThrottleEvents"/>
 </histogram>
 
-<histogram name="Navigation.TimeToActivatePrerender{TriggerType}" units="ms"
-    expires_after="2022-07-01">
+<histogram name="Navigation.TimeToActivatePrerender{PrerenderTriggerType}"
+    units="ms" expires_after="2022-07-01">
   <owner>sreejakshetty@chromium.org</owner>
   <owner>altimin@chromium.org</owner>
   <owner>asamidoi@chromium.org</owner>
@@ -1091,10 +1098,7 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
 
     This metric is logged everytime prerender activation navigation commits.
   </summary>
-  <token key="TriggerType">
-    <variant name=".Embedder_DirectURLInput"/>
-    <variant name=".SpeculationRule"/>
-  </token>
+  <token key="PrerenderTriggerType" variants="PrerenderTriggerType"/>
 </histogram>
 
 <histogram name="Navigation.TimeToReadyToCommit2" units="ms"
@@ -1197,6 +1201,54 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
   </summary>
 </histogram>
 
+<histogram
+    name="NavigationSuggestion.GetDomainInfoDelayBeforeAllowingNavigation"
+    units="ms" expires_after="2022-07-03">
+  <owner>meacer@chromium.org</owner>
+  <owner>blundell@chromium.org</owner>
+  <owner>security-enamel@chromium.org</owner>
+  <summary>
+    Records the time duration that PerformChecks() spent in calls to
+    GetDomainInfo() before the navigation was ultimately allowed to proceed.
+    Recorded only for navigations that
+    LookalikeUrlNavigationThrottle::PerfomChecks() directly allows to proceed
+    (i.e., not those that result in showing interstitials and/or digital asset
+    manifest checks).
+  </summary>
+</histogram>
+
+<histogram
+    name="NavigationSuggestion.IsLookalikeUrlDelayBeforeAllowingNavigation"
+    units="ms" expires_after="2022-07-03">
+  <owner>meacer@chromium.org</owner>
+  <owner>blundell@chromium.org</owner>
+  <owner>security-enamel@chromium.org</owner>
+  <summary>
+    Records the time duration that PerformChecks() spent in calls to
+    IsLookalikeUrl() before the navigation was ultimately allowed to proceed.
+    Recorded only for navigations that
+    LookalikeUrlNavigationThrottle::PerfomChecks() directly allows to proceed
+    (i.e., not those that result in showing interstitials and/or digital asset
+    manifest checks).
+  </summary>
+</histogram>
+
+<histogram
+    name="NavigationSuggestion.PerformChecksDelayBeforeAllowingNavigation"
+    units="ms" expires_after="2022-07-03">
+  <owner>meacer@chromium.org</owner>
+  <owner>blundell@chromium.org</owner>
+  <owner>security-enamel@chromium.org</owner>
+  <summary>
+    Records the time duration the navigation was deferred while PerformChecks()
+    was executing before the navigation was ultimately allowed to proceed.
+    Recorded only for navigations that
+    LookalikeUrlNavigationThrottle::PerfomChecks() directly allows to proceed
+    (i.e., not those that result in showing interstitials and/or digital asset
+    manifest checks).
+  </summary>
+</histogram>
+
 <histogram name="NavigationSuggestion.UpdateEngagedSitesDeferTime" units="ms"
     expires_after="2022-07-03">
   <owner>meacer@chromium.org</owner>
@@ -1244,7 +1296,8 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
   <token key="PrerenderTriggerType" variants="PrerenderTriggerType"/>
 </histogram>
 
-<histogram name="Prerender.Experimental.PrerenderCancelledInterface"
+<histogram
+    name="Prerender.Experimental.PrerenderCancelledInterface{PrerenderTriggerType}"
     enum="PrerenderCancelledInterface" expires_after="2022-06-05">
   <owner>nhiroki@chromium.org</owner>
   <owner>toyoshim@chromium.org</owner>
@@ -1254,9 +1307,11 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
     MojoBinderPolicyApplier in the browser process once it receives the binding
     request of a kCancel Mojo interface.
   </summary>
+  <token key="PrerenderTriggerType" variants="PrerenderTriggerType"/>
 </histogram>
 
-<histogram name="Prerender.Experimental.PrerenderCancelledUnknownInterface"
+<histogram
+    name="Prerender.Experimental.PrerenderCancelledUnknownInterface{PrerenderTriggerType}"
     enum="PrerenderCancelledUnknownInterface" expires_after="2022-06-05">
   <owner>nhiroki@chromium.org</owner>
   <owner>toyoshim@chromium.org</owner>
@@ -1280,6 +1335,7 @@ Also used in tools/metrics/histograms/metadata/page/histograms.xml.
     receives the binding request of a kCancel Mojo interface and cannot find an
     accurate enum type for this interface.
   </summary>
+  <token key="PrerenderTriggerType" variants="PrerenderTriggerType"/>
 </histogram>
 
 <histogram

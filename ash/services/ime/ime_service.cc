@@ -120,6 +120,19 @@ void ImeService::ConnectToInputMethod(
   std::move(callback).Run(bound);
 }
 
+void ImeService::InitializeConnectionFactory(
+    mojo::PendingReceiver<mojom::ConnectionFactory> connection_factory,
+    InitializeConnectionFactoryCallback callback) {
+  decoder_engine_.reset();
+
+  auto system_engine = std::make_unique<SystemEngine>(this);
+  bool bound =
+      system_engine->BindConnectionFactory(std::move(connection_factory));
+
+  input_engine_ = std::move(system_engine);
+  std::move(callback).Run(bound);
+}
+
 const char* ImeService::GetImeBundleDir() {
   return kBundledInputMethodsDirPath;
 }
@@ -162,11 +175,12 @@ bool ImeService::IsFeatureEnabled(const char* feature_name) {
   if (strcmp(feature_name, "SystemJapanesePhysicalTyping") == 0) {
     return features::IsSystemJapanesePhysicalTypingEnabled();
   }
-  if (strcmp(feature_name, "SystemKoreanPhysicalTyping") == 0) {
-    return features::IsSystemKoreanPhysicalTypingEnabled();
-  }
   if (strcmp(feature_name, "SystemLatinPhysicalTyping") == 0) {
     return true;
+  }
+  if (strcmp(feature_name, "SystemTransliterationPhysicalTyping") == 0) {
+    return base::FeatureList::IsEnabled(
+        chromeos::features::kSystemTransliterationPhysicalTyping);
   }
   return false;
 }

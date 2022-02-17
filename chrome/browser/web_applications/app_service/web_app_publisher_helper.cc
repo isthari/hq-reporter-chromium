@@ -25,7 +25,6 @@
 #include "chrome/browser/ui/web_applications/web_app_dialog_manager.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_manager.h"
 #include "chrome/browser/ui/web_applications/web_app_ui_manager_impl.h"
-#include "chrome/browser/web_applications/app_service/link_capturing_migration_manager.h"
 #include "chrome/browser/web_applications/policy/web_app_policy_manager.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
@@ -194,6 +193,10 @@ apps::mojom::InstallSource GetInstallSource(PrefService* prefs,
     case webapps::WebappInstallSource::COUNT:
       return apps::mojom::InstallSource::kUnknown;
   }
+}
+
+bool IsNoteTakingWebApp(const web_app::WebApp& web_app) {
+  return web_app.note_taking_new_note_url().is_valid();
 }
 
 }  // namespace
@@ -591,7 +594,11 @@ apps::mojom::AppPtr WebAppPublisherHelper::ConvertWebApp(
   // Add the intent filters for PWAs.
   base::Extend(app->intent_filters,
                apps_util::CreateWebAppIntentFilters(
-                   *web_app, registrar().GetAppScope(web_app->app_id())));
+                   web_app->app_id(), IsNoteTakingWebApp(*web_app),
+                   registrar().GetAppScope(web_app->app_id()),
+                   registrar().GetAppShareTarget(web_app->app_id()),
+                   provider_->os_integration_manager().GetEnabledFileHandlers(
+                       web_app->app_id())));
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (web_app->app_id() == crostini::kCrostiniTerminalSystemAppId) {
@@ -1144,6 +1151,14 @@ bool WebAppPublisherHelper::IsShuttingDown() const {
   return is_shutting_down_;
 }
 
+void WebAppPublisherHelper::OnWebAppFileHandlerApprovalStateChanged(
+    const AppId& app_id) {
+  const WebApp* web_app = GetWebApp(app_id);
+  if (web_app && Accepts(app_id)) {
+    delegate_->PublishWebApp(ConvertWebApp(web_app));
+  }
+}
+
 void WebAppPublisherHelper::OnWebAppInstalled(const AppId& app_id) {
   const WebApp* web_app = GetWebApp(app_id);
   if (web_app && Accepts(app_id)) {
@@ -1415,9 +1430,6 @@ void WebAppPublisherHelper::Init(bool observe_media_requests) {
   if (observe_media_requests) {
     media_dispatcher_.Observe(MediaCaptureDevicesDispatcher::GetInstance());
   }
-
-  link_capturing_migration_manager_ =
-      std::make_unique<LinkCapturingMigrationManager>(*profile());
 #endif
 }
 

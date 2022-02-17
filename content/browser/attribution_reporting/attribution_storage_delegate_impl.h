@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_STORAGE_DELEGATE_IMPL_H_
 #define CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_STORAGE_DELEGATE_IMPL_H_
 
+#include <vector>
+
 #include "base/sequence_checker.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
 #include "content/browser/attribution_reporting/common_source_info.h"
@@ -16,6 +18,8 @@ class Time;
 }  // namespace base
 
 namespace content {
+
+class AttributionReport;
 
 // Implementation of the storage delegate. This class handles assigning
 // report times to newly created reports. It
@@ -43,7 +47,7 @@ class CONTENT_EXPORT AttributionStorageDelegateImpl
       CommonSourceInfo::SourceType source_type) const override;
   int GetMaxSourcesPerOrigin() const override;
   int GetMaxAttributionsPerOrigin() const override;
-  int GetMaxAttributionDestinationsPerEventSource() const override;
+  int GetMaxDestinationsPerSourceSiteReportingOrigin() const override;
   RateLimitConfig GetRateLimits(
       AttributionStorage::AttributionType attribution_type) const override;
   base::TimeDelta GetDeleteExpiredSourcesFrequency() const override;
@@ -51,6 +55,30 @@ class CONTENT_EXPORT AttributionStorageDelegateImpl
   base::GUID NewReportID() const override;
   absl::optional<OfflineReportDelayConfig> GetOfflineReportDelayConfig()
       const override;
+  void ShuffleReports(std::vector<AttributionReport>& reports) const override;
+  RandomizedResponse GetRandomizedResponse(
+      const CommonSourceInfo& source) const override;
+
+  // Generates fake reports using a random "stars and bars" sequence index of a
+  // possible output of the API.
+  //
+  // Exposed for testing.
+  std::vector<FakeReport> GetRandomFakeReports(
+      const CommonSourceInfo& source) const;
+
+  // Generates fake reports from the "stars and bars" sequence index of a
+  // possible output of the API. This output is determined by the following
+  // algorithm:
+  // 1. Find all stars before the first bar. These stars represent suppressed
+  //    reports.
+  // 2. For all other stars, count the number of bars that precede them. Each
+  //    star represents a report where the reporting window and trigger data is
+  //    uniquely determined by that number.
+  //
+  // Exposed for testing.
+  std::vector<FakeReport> GetFakeReportsForSequenceIndex(
+      const CommonSourceInfo& source,
+      int random_stars_and_bars_sequence_index) const;
 
  private:
   // Whether the API is running in debug mode, meaning that there should be

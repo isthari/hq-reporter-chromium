@@ -61,12 +61,6 @@ const char kAllowInsecureLocalhostDescription[] =
     "Allows requests to localhost over HTTPS even when an invalid certificate "
     "is presented.";
 
-const char kAllowSyncXHRInPageDismissalName[] =
-    "Allows synchronous XHR requests in page dismissal";
-const char kAllowSyncXHRInPageDismissalDescription[] =
-    "Allows synchronous XHR requests during page dismissal when the page is "
-    "being navigated away or closed by the user.";
-
 const char kWindowsFollowCursorName[] =
     "Windows open on the display with the cursor";
 const char kWindowsFollowCursorDescription[] =
@@ -372,6 +366,15 @@ const char kAutofillEnableVirtualCardDescription[] =
     "When enabled, if all requirements are met, Autofill will offer to use "
     "virtual credit cards in form filling.";
 
+const char kAutofillEnableVirtualCardManagementInDesktopSettingsPageName[] =
+    "Enable virtual card enrollment management in desktop payments settings "
+    "page";
+const char
+    kAutofillEnableVirtualCardManagementInDesktopSettingsPageDescription[] =
+        "When enabled, chrome://settings/payments will offer the option to "
+        "enroll in virtual card if the card is eligible and to unenroll if the "
+        "card has been enrolled.";
+
 const char kAutofillEnableVirtualCardsRiskBasedAuthenticationName[] =
     "Enable risk based authentication for Autofill Virtual Card Numbers";
 const char kAutofillEnableVirtualCardsRiskBasedAuthenticationDescription[] =
@@ -498,6 +501,24 @@ const char kBypassAppBannerEngagementChecksDescription[] =
     "hasn't been shown recently. This allows developers to test that other "
     "eligibility requirements for showing app banners, such as having a "
     "manifest, are met.";
+
+const char kCertificateTransparency2022PolicyName[] =
+    "Certificate Transparency 2022 Policy";
+const char kCertificateTransparency2022PolicyDescription[] =
+    "Enables the 2022 policy for Certificate Transparency requirements for "
+    "certificates issued after February 1, 2022. This policy increases the "
+    "number of SCTs required for certificates with a lifetime over 180 days, "
+    "and replaces the one Google log requirement with log operator diversity "
+    "requirements.";
+
+const char kCertificateTransparency2022PolicyAllCertsName[] =
+    "Certificate Transparency 2022 Policy All Certificates";
+const char kCertificateTransparency2022PolicyAllCertsDescription[] =
+    "Enables the 2022 policy for Certificate Transparency requirements for "
+    "all certificates regardless of issuance date. This policy increases the "
+    "number of SCTs required for certificates with a lifetime over 180 days, "
+    "and replaces the one Google log requirement with log operator diversity "
+    "requirements.";
 
 const char kCheckOfflineCapabilityName[] = "Check offline capability for PWAs";
 const char kCheckOfflineCapabilityDescription[] =
@@ -742,11 +763,6 @@ const char kEnableExperimentalCookieFeaturesDescription[] =
     "Enable new features that affect setting, sending, and managing cookies. "
     "The enabled features are subject to change at any time.";
 
-const char kEnableSaveDataName[] = "Enables save data feature";
-const char kEnableSaveDataDescription[] =
-    "Enables save data feature. May cause user's traffic to be proxied via "
-    "Google's data reduction proxy.";
-
 const char kEnableNavigationPredictorName[] = "Enables navigation predictor";
 const char kEnableNavigationPredictorDescription[] =
     "Enables navigation predictor feature that predicts the next likely "
@@ -760,6 +776,10 @@ const char kEnablePreconnectToSearchDescription[] =
 const char kEnableRawDrawName[] = "Enable raw draw";
 const char kEnableRawDrawDescription[] =
     "When enabled, web content will be rastered on output surface directly.";
+
+const char kEnableDelegatedCompositingName[] = "Enable delegated compositing";
+const char kEnableDelegatedCompositingDescription[] =
+    "When enabled and applicable, the act of compositing is delegated to Ash.";
 
 const char kEnableRemovingAllThirdPartyCookiesName[] =
     "Enable removing SameSite=None cookies";
@@ -1236,10 +1256,11 @@ const char kEnableUseZoomForDsfChoiceDefault[] = "Default";
 const char kEnableUseZoomForDsfChoiceEnabled[] = "Enabled";
 const char kEnableUseZoomForDsfChoiceDisabled[] = "Disabled";
 
-const char kEnableWebAuthenticationCableV2SupportName[] =
-    "Web Authentication caBLE v2 QR codes";
-const char kEnableWebAuthenticationCableV2SupportDescription[] =
-    "Enable display of QR codes for using Android phones as security keys.";
+const char kEnableWebAuthenticationCableDiscoCredsName[] =
+    "Discoverable credentials over caBLEv2";
+const char kEnableWebAuthenticationCableDiscoCredsDescription[] =
+    "Enable the creation and use of Web Authentication discoverable "
+    "credentials over the caBLEv2 transport";
 
 const char kEnableWebAuthenticationChromeOSAuthenticatorName[] =
     "ChromeOS platform Web Authentication support";
@@ -2615,6 +2636,10 @@ const char kWallpaperPerDeskName[] =
 const char kWallpaperPerDeskDescription[] =
     "Allow users to set different wallpapers on each of their active desks";
 
+const char kWebBluetoothName[] = "Web Bluetooth";
+const char kWebBluetoothDescription[] =
+    "Enables the Web Bluetooth API on platforms without official support";
+
 const char kWebBluetoothNewPermissionsBackendName[] =
     "Use the new permissions backend for Web Bluetooth";
 const char kWebBluetoothNewPermissionsBackendDescription[] =
@@ -3125,6 +3150,11 @@ const char kExploreSitesDescription[] =
 const char kFeatureNotificationGuideName[] = "Feature notification guide";
 const char kFeatureNotificationGuideDescription[] =
     "Enables notifications about chrome features.";
+
+const char kFeatureNotificationGuideSkipCheckForLowEngagedUsersName[] =
+    "Feature notification guide - Skip check for low engaged users";
+const char kFeatureNotificationGuideSkipCheckForLowEngagedUsersDescription[] =
+    "Skips check for low engaged users.";
 
 const char kFeedBackToTopName[] = "Back to top of the feeds";
 const char kFeedBackToTopDescription[] =
@@ -3785,6 +3815,11 @@ const char kReadLaterName[] = "Reading List";
 const char kReadLaterDescription[] =
     "Click on the Bookmark icon or right click on a tab to add tabs to a "
     "reading list.";
+
+const char kScreenAIName[] = "Screen AI";
+const char kScreenAIDescription[] =
+    "Enables Screen AI local machine intelligence library to use the screen "
+    "snapshots to add metadata for accessibility tools.";
 
 const char kSCTAuditingName[] = "SCT auditing";
 const char kSCTAuditingDescription[] =
@@ -4525,6 +4560,15 @@ const char kEnableLauncherSearchNormalizationDescription[] =
     "Enable normalization of scores from different providers to the "
     "launcher.";
 
+const char kEnableNeuralPalmAdaptiveHoldName[] = "Palm Rejection Adaptive Hold";
+const char kEnableNeuralPalmAdaptiveHoldDescription[] =
+    "Enable adaptive hold in palm rejection.  Not compatible with all devices.";
+
+const char kEnableNeuralPalmRejectionModelV2Name[] = "Palm Rejection Model V2";
+const char kEnableNeuralPalmRejectionModelV2Description[] =
+    "Uses an updated model for palm rejection.  Not compatible with all "
+    "devices.";
+
 const char kEnableNeuralStylusPalmRejectionName[] =
     "Enable Neural Palm Detection";
 const char kEnableNeuralStylusPalmRejectionDescription[] =
@@ -4873,6 +4917,11 @@ const char kLacrosAvailabilityIgnoreDescription[] =
     "Makes the lacros-availability policy have no effect. Instead Lacros "
     "availability will be controlled by experiment and/or user flags.";
 
+const char kLacrosOnlyName[] = "Lacros is the only browser";
+const char kLacrosOnlyDescription[] =
+    "Use Lacros-chrome as the only web browser on Chrome OS. "
+    "This flag is ignored if Lacros support or primary is disabled.";
+
 const char kLacrosPrimaryName[] = "Lacros as the primary browser";
 const char kLacrosPrimaryDescription[] =
     "Use Lacros-chrome as the primary web browser on Chrome OS. "
@@ -4966,12 +5015,6 @@ const char kMicrophoneMuteSwitchDeviceDescription[] =
 const char kMultilingualTypingName[] = "Multilingual typing on CrOS";
 const char kMultilingualTypingDescription[] =
     "Enables support for multilingual assistive typing on Chrome OS.";
-
-const char kNearbyKeepAliveFixName[] = "Nearby Keep Alive Fix";
-const char kNearbyKeepAliveFixDescription[] =
-    "Enables custom KeepAlive interval and timeout for Nearby Connections and "
-    "makes Nearby Connections WebRTC KeepAlive less chatty to help with "
-    "battery life.";
 
 const char kNearbySharingArcName[] = "ARC Nearby Sharing";
 const char kNearbySharingArcDescription[] =
@@ -5146,11 +5189,11 @@ const char kSystemJapanesePhysicalTypingDescription[] =
     "Use the system input engine instead of the Chrome extension for physical "
     "typing in Japanese.";
 
-const char kSystemKoreanPhysicalTypingName[] =
-    "Use system IME for Korean typing";
-const char kSystemKoreanPhysicalTypingDescription[] =
+const char kSystemTransliterationPhysicalTypingName[] =
+    "Use system IME for Transliteration typing";
+const char kSystemTransliterationPhysicalTypingDescription[] =
     "Use the system input engine instead of the Chrome extension for physical "
-    "typing in Korean.";
+    "typing in transliteration input methods.";
 
 const char kQuickSettingsNetworkRevampName[] =
     "Enables the Quick Settings Network revamp.";
@@ -5432,7 +5475,21 @@ const char kCleanUndecryptablePasswordsLinuxName[] =
 const char kCleanUndecryptablePasswordsLinuxDescription[] =
     "Deletes the undecryptable passwords from the local database to enable "
     "syncing all passwords during the initial sync.";
+const char kForcePasswordInitialSyncWhenDecryptionFailsName[] =
+    "Force initial sync to clean local undecryptable passwords during startup";
+const char kForcePasswordInitialSyncWhenDecryptionFailsDescription[] =
+    "During startup checks if there are undecryptable passwords in the local "
+    "storage and requests initial sync.";
 #endif  // BUILDFLAG(IS_LINUX)
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+const char kSkipUndecryptablePasswordsName[] =
+    "Skip undecryptable passwords to use the available decryptable "
+    "passwords.";
+const char kSkipUndecryptablePasswordsDescription[] =
+    "Makes the decryptable passwords available in the password manager when "
+    "there are undecryptable ones.";
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
 
 // Feature flags --------------------------------------------------------------
 

@@ -81,6 +81,7 @@
 #include "cc/tiles/eviction_tile_priority_queue.h"
 #include "cc/tiles/frame_viewer_instrumentation.h"
 #include "cc/tiles/gpu_image_decode_cache.h"
+#include "cc/tiles/occluded_tile_iterator.h"
 #include "cc/tiles/picture_layer_tiling.h"
 #include "cc/tiles/raster_tile_priority_queue.h"
 #include "cc/tiles/software_image_decode_cache.h"
@@ -445,7 +446,7 @@ LayerTreeHostImpl::LayerTreeHostImpl(
   active_tree_ = std::make_unique<LayerTreeImpl>(
       this, new SyncedScale, new SyncedBrowserControls,
       new SyncedBrowserControls, new SyncedElasticOverscroll);
-  active_tree_->property_trees()->is_active = true;
+  active_tree_->property_trees()->set_is_active(true);
 
   viewport_ = Viewport::Create(this);
 
@@ -1219,7 +1220,7 @@ bool LayerTreeHostImpl::HasDamage() const {
                             active_tree->hud_layer()->IsAnimatingHUDContents();
 
   return root_surface_has_visible_damage ||
-         active_tree_->property_trees()->effect_tree.HasCopyRequests() ||
+         active_tree_->property_trees()->effect_tree().HasCopyRequests() ||
          hud_wants_to_draw_ || active_tree_->HasDocumentTransitionRequests();
 }
 
@@ -1264,7 +1265,7 @@ DrawResult LayerTreeHostImpl::CalculateRenderPasses(FrameData* frame) {
         (*frame->render_surface_list)[surface_index];
 
     const bool is_root_surface =
-        render_surface->EffectTreeIndex() == EffectTree::kContentsRootNodeId;
+        render_surface->EffectTreeIndex() == kContentsRootPropertyNodeId;
     const bool should_draw_into_render_pass =
         is_root_surface || render_surface->contributes_to_drawn_surface() ||
         render_surface->CopyOfOutputRequired();
@@ -1313,7 +1314,7 @@ DrawResult LayerTreeHostImpl::CalculateRenderPasses(FrameData* frame) {
   int64_t checkerboarded_needs_raster_content_area = 0;
   int64_t total_visible_area = 0;
   bool have_copy_request =
-      active_tree()->property_trees()->effect_tree.HasCopyRequests();
+      active_tree()->property_trees()->effect_tree().HasCopyRequests();
   bool have_missing_animated_tiles = false;
   int num_of_layers_with_videos = 0;
 
@@ -1335,7 +1336,8 @@ DrawResult LayerTreeHostImpl::CalculateRenderPasses(FrameData* frame) {
       if (render_surface->HasCopyRequest()) {
         active_tree()
             ->property_trees()
-            ->effect_tree.TakeCopyRequestsAndTransformToSurface(
+            ->effect_tree_mutable()
+            .TakeCopyRequestsAndTransformToSurface(
                 render_surface->EffectTreeIndex(),
                 &target_render_pass->copy_requests);
       }
@@ -1482,7 +1484,7 @@ DrawResult LayerTreeHostImpl::CalculateRenderPasses(FrameData* frame) {
   if (have_copy_request) {
     // Any copy requests left in the tree are not going to get serviced, and
     // should be aborted.
-    active_tree()->property_trees()->effect_tree.ClearCopyRequests();
+    active_tree()->property_trees()->effect_tree_mutable().ClearCopyRequests();
 
     // Draw properties depend on copy requests.
     active_tree()->set_needs_update_draw_properties();
@@ -1772,7 +1774,7 @@ void LayerTreeHostImpl::ResetTreesForTesting() {
       active_tree()->top_controls_shown_ratio(),
       active_tree()->bottom_controls_shown_ratio(),
       active_tree()->elastic_overscroll());
-  active_tree_->property_trees()->is_active = true;
+  active_tree_->property_trees()->set_is_active(true);
   active_tree_->property_trees()->clear();
   if (pending_tree_)
     pending_tree_->DetachLayers();
@@ -1878,6 +1880,13 @@ LayerTreeHostImpl::BuildEvictionQueue(TreePriority tree_priority) {
                              : std::vector<PictureLayerImpl*>(),
                tree_priority);
   return queue;
+}
+
+std::unique_ptr<OccludedTileIterator>
+LayerTreeHostImpl::CreateOccludedTileIterator() {
+  return std::make_unique<OccludedTileIterator>(
+      pending_tree_ ? pending_tree_->picture_layers()
+                    : active_tree_->picture_layers());
 }
 
 void LayerTreeHostImpl::SetIsLikelyToRequireADraw(
@@ -2811,11 +2820,11 @@ int LayerTreeHostImpl::RequestedMSAASampleCount() const {
 void LayerTreeHostImpl::GetGpuRasterizationCapabilities(
     bool* gpu_rasterization_enabled,
     bool* gpu_rasterization_supported,
-    int* max_msaa_samples,
+    bool* can_use_msaa,
     bool* supports_disable_msaa) {
   *gpu_rasterization_enabled = false;
   *gpu_rasterization_supported = false;
-  *max_msaa_samples = 0;
+  *can_use_msaa = false;
   *supports_disable_msaa = false;
 
   if (settings_.gpu_rasterization_disabled)
@@ -2836,42 +2845,10 @@ void LayerTreeHostImpl::GetGpuRasterizationCapabilities(
   if (!*gpu_rasterization_enabled)
     return;
 
-  bool use_msaa = !caps.msaa_is_slow && !caps.avoid_stencil_buffers;
-
-  if (can_use_oop_rasterization_) {
-    *gpu_rasterization_supported = true;
-    *supports_disable_msaa = caps.multisample_compatibility;
-    // For OOP raster, the gpu service side will disable msaa if the
-    // requested samples are not enough.  GPU raster does this same
-    // logic below client side.
-    if (use_msaa)
-      *max_msaa_samples = RequestedMSAASampleCount();
-    return;
-  }
-
-  if (!context_provider->ContextSupport()->HasGrContextSupport())
-    return;
-
-  // Do not check GrContext above. It is lazy-created, and we only want to
-  // create it if it might be used.
-  GrDirectContext* gr_context = context_provider->GrContext();
-  *gpu_rasterization_supported = !!gr_context;
-  if (!*gpu_rasterization_supported)
-    return;
-
+  DCHECK(caps.supports_oop_raster);
+  *gpu_rasterization_supported = true;
+  *can_use_msaa = !caps.msaa_is_slow && !caps.avoid_stencil_buffers;
   *supports_disable_msaa = caps.multisample_compatibility;
-  if (use_msaa) {
-    // Skia may block MSAA independently of Chrome. Query Skia for its max
-    // supported sample count. Assume gpu compositing + gpu raster for this, as
-    // that is what we are hoping to use.
-    viz::ResourceFormat tile_format = TileRasterBufferFormat(
-        settings_, layer_tree_frame_sink_->context_provider(),
-        /*use_gpu_rasterization=*/true);
-    SkColorType color_type = ResourceFormatToClosestSkColorType(
-        /*gpu_compositing=*/true, tile_format);
-    *max_msaa_samples =
-        gr_context->maxSurfaceSampleCountForColorType(color_type);
-  }
 }
 
 bool LayerTreeHostImpl::UpdateGpuRasterizationStatus() {
@@ -2886,18 +2863,15 @@ bool LayerTreeHostImpl::UpdateGpuRasterizationStatus() {
   if (!layer_tree_frame_sink_)
     return false;
 
-  int requested_msaa_samples = RequestedMSAASampleCount();
-  int max_msaa_samples = 0;
   bool gpu_rasterization_enabled = false;
   bool gpu_rasterization_supported = false;
+  bool can_use_msaa = false;
   bool supports_disable_msaa = false;
   GetGpuRasterizationCapabilities(&gpu_rasterization_enabled,
-                                  &gpu_rasterization_supported,
-                                  &max_msaa_samples, &supports_disable_msaa);
+                                  &gpu_rasterization_supported, &can_use_msaa,
+                                  &supports_disable_msaa);
 
   bool use_gpu = false;
-  bool can_use_msaa =
-      requested_msaa_samples > 0 && max_msaa_samples >= requested_msaa_samples;
 
   if (!gpu_rasterization_enabled) {
     if (gpu_rasterization_supported)
@@ -3181,15 +3155,16 @@ absl::optional<viz::HitTestRegionList> LayerTreeHostImpl::BuildHitTestData() {
       bool layer_hit_test_region_is_masked =
           active_tree()
               ->property_trees()
-              ->effect_tree.HitTestMayBeAffectedByMask(
-                  surface_layer->effect_tree_index());
+              ->effect_tree()
+              .HitTestMayBeAffectedByMask(surface_layer->effect_tree_index());
       if (surface_layer->is_clipped() || layer_hit_test_region_is_masked) {
         bool layer_hit_test_region_is_rectangle =
             !layer_hit_test_region_is_masked &&
             surface_layer->ScreenSpaceTransform().Preserves2dAxisAlignment() &&
             active_tree()
                 ->property_trees()
-                ->effect_tree.ClippedHitTestRegionIsRectangle(
+                ->effect_tree()
+                .ClippedHitTestRegionIsRectangle(
                     surface_layer->effect_tree_index());
         content_rect =
             gfx::ScaleToEnclosingRect(surface_layer->visible_layer_rect(),
@@ -3314,20 +3289,23 @@ void LayerTreeHostImpl::PushScrollbarOpacitiesFromActiveToPending() {
       if (const EffectNode* source_effect_node =
               active_tree()
                   ->property_trees()
-                  ->effect_tree.FindNodeFromElementId(
-                      scrollbar->element_id())) {
+                  ->effect_tree()
+                  .FindNodeFromElementId(scrollbar->element_id())) {
         if (EffectNode* target_effect_node =
                 pending_tree()
                     ->property_trees()
-                    ->effect_tree.FindNodeFromElementId(
-                        scrollbar->element_id())) {
+                    ->effect_tree_mutable()
+                    .FindNodeFromElementId(scrollbar->element_id())) {
           DCHECK(target_effect_node);
           float source_opacity = source_effect_node->opacity;
           float target_opacity = target_effect_node->opacity;
           if (source_opacity == target_opacity)
             continue;
           target_effect_node->opacity = source_opacity;
-          pending_tree()->property_trees()->effect_tree.set_needs_update(true);
+          pending_tree()
+              ->property_trees()
+              ->effect_tree_mutable()
+              .set_needs_update(true);
         }
       }
     }
@@ -3408,12 +3386,16 @@ void LayerTreeHostImpl::ActivateSyncTree() {
   active_tree_->UpdateViewportContainerSizes();
 
   if (InnerViewportScrollNode()) {
-    active_tree_->property_trees()->scroll_tree.ClampScrollToMaxScrollOffset(
-        *InnerViewportScrollNode(), active_tree_.get());
+    active_tree_->property_trees()
+        ->scroll_tree_mutable()
+        .ClampScrollToMaxScrollOffset(*InnerViewportScrollNode(),
+                                      active_tree_.get());
 
     DCHECK(OuterViewportScrollNode());
-    active_tree_->property_trees()->scroll_tree.ClampScrollToMaxScrollOffset(
-        *OuterViewportScrollNode(), active_tree_.get());
+    active_tree_->property_trees()
+        ->scroll_tree_mutable()
+        .ClampScrollToMaxScrollOffset(*OuterViewportScrollNode(),
+                                      active_tree_.get());
   }
 
   active_tree_->DidBecomeActive();
@@ -3481,7 +3463,7 @@ void LayerTreeHostImpl::OnMemoryPressure(
     // TODO(crbug.com/1189208): Unlocking decoded-image-tracker images causes
     // flickering in visible trees if Out-Of-Process rasterization is enabled.
 #if BUILDFLAG(IS_FUCHSIA)
-  if (use_oop_rasterization() && visible())
+  if (use_gpu_rasterization() && visible())
     return;
 #endif  // BUILDFLAG(IS_FUCHSIA)
 
@@ -3606,15 +3588,14 @@ void LayerTreeHostImpl::CreateTileManagerResources() {
   if (use_gpu_rasterization_) {
     image_decode_cache_ = std::make_unique<GpuImageDecodeCache>(
         layer_tree_frame_sink_->worker_context_provider(),
-        can_use_oop_rasterization_,
+        /*use_transfer_cache=*/true,
         viz::ResourceFormatToClosestSkColorType(/*gpu_compositing=*/true,
                                                 tile_format),
         settings_.decoded_image_working_set_budget_bytes, max_texture_size_,
         paint_image_generator_client_id_, dark_mode_filter_);
 
     pending_raster_queries_ = std::make_unique<RasterQueryQueue>(
-        layer_tree_frame_sink_->worker_context_provider(),
-        can_use_oop_rasterization_);
+        layer_tree_frame_sink_->worker_context_provider());
 
   } else {
     bool gpu_compositing = !!layer_tree_frame_sink_->context_provider();
@@ -3638,7 +3619,7 @@ void LayerTreeHostImpl::CreateTileManagerResources() {
 
   tile_manager_.SetResources(resource_pool_.get(), image_decode_cache_.get(),
                              task_graph_runner, raster_buffer_provider_.get(),
-                             use_gpu_rasterization_, use_oop_rasterization(),
+                             use_gpu_rasterization_,
                              pending_raster_queries_.get());
   tile_manager_.SetCheckerImagingForceDisabled(
       settings_.only_checker_images_with_gpu_raster && !use_gpu_rasterization_);
@@ -3670,7 +3651,7 @@ LayerTreeHostImpl::CreateRasterBufferProvider() {
         settings_.resource_settings.use_gpu_memory_buffer_resources,
         tile_format, settings_.max_gpu_raster_tile_size,
         settings_.unpremultiply_and_dither_low_bit_depth_tiles,
-        can_use_oop_rasterization_, pending_raster_queries_.get());
+        pending_raster_queries_.get());
   }
 
   bool use_zero_copy = settings_.use_zero_copy;
@@ -3910,15 +3891,6 @@ bool LayerTreeHostImpl::InitializeFrameSink(
       ResourcePool::kDefaultExpirationDelay,
       settings_.disallow_non_exact_resource_reuse);
 
-  auto* context = layer_tree_frame_sink_->worker_context_provider();
-  if (context) {
-    viz::RasterContextProvider::ScopedRasterContextLock hold(context);
-    can_use_oop_rasterization_ =
-        context->ContextCapabilities().supports_oop_raster;
-  } else {
-    can_use_oop_rasterization_ = false;
-  }
-
   // Since the new context may support GPU raster or be capable of MSAA, update
   // status here. We don't need to check the return value since we are
   // recreating all resources already.
@@ -4027,7 +3999,7 @@ void LayerTreeHostImpl::AutoScrollAnimationCreate(
   // input latency tracking architecture from working.
   base::TimeDelta animation_start_offset = CurrentBeginFrameArgs().interval;
 
-  ScrollTree& scroll_tree = active_tree_->property_trees()->scroll_tree;
+  const ScrollTree& scroll_tree = active_tree_->property_trees()->scroll_tree();
   gfx::PointF current_offset =
       scroll_tree.current_scroll_offset(scroll_node.element_id);
 
@@ -4041,7 +4013,8 @@ void LayerTreeHostImpl::AutoScrollAnimationCreate(
 bool LayerTreeHostImpl::ScrollAnimationCreate(const ScrollNode& scroll_node,
                                               const gfx::Vector2dF& delta,
                                               base::TimeDelta delayed_by) {
-  ScrollTree& scroll_tree = active_tree_->property_trees()->scroll_tree;
+  ScrollTree& scroll_tree =
+      active_tree_->property_trees()->scroll_tree_mutable();
 
   const float kEpsilon = 0.1f;
   bool scroll_animated =
@@ -4159,7 +4132,7 @@ void LayerTreeHostImpl::SetMayThrottleIfUndrawnFrames(
 }
 
 ScrollTree& LayerTreeHostImpl::GetScrollTree() const {
-  return active_tree_->property_trees()->scroll_tree;
+  return active_tree_->property_trees()->scroll_tree_mutable();
 }
 
 bool LayerTreeHostImpl::HasAnimatedScrollbars() const {
@@ -4290,8 +4263,8 @@ bool LayerTreeHostImpl::AnimateScrollbars(base::TimeTicks monotonic_time) {
 bool LayerTreeHostImpl::AnimateLayers(base::TimeTicks monotonic_time,
                                       bool is_active_tree) {
   const ScrollTree& scroll_tree =
-      is_active_tree ? active_tree_->property_trees()->scroll_tree
-                     : pending_tree_->property_trees()->scroll_tree;
+      is_active_tree ? active_tree_->property_trees()->scroll_tree()
+                     : pending_tree_->property_trees()->scroll_tree();
   const bool animated = mutator_host_->TickAnimations(
       monotonic_time, scroll_tree, is_active_tree);
 
@@ -4912,12 +4885,12 @@ void LayerTreeHostImpl::SetTreeLayerScrollOffsetMutated(
     return;
 
   PropertyTrees* property_trees = tree->property_trees();
-  DCHECK_EQ(1u,
-            property_trees->element_id_to_scroll_node_index.count(element_id));
-  const int scroll_node_index =
-      property_trees->element_id_to_scroll_node_index[element_id];
-  property_trees->scroll_tree.OnScrollOffsetAnimated(
-      element_id, scroll_node_index, scroll_offset, tree);
+  DCHECK_EQ(1u, property_trees->scroll_tree().element_id_to_node_index().count(
+                    element_id));
+  const ScrollNode* scroll_node =
+      property_trees->scroll_tree().FindNodeFromElementId(element_id);
+  property_trees->scroll_tree_mutable().OnScrollOffsetAnimated(
+      element_id, scroll_node->id, scroll_offset, tree);
 }
 
 void LayerTreeHostImpl::SetNeedUpdateGpuRasterizationStatus() {

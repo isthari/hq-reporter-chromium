@@ -22,8 +22,10 @@ WebCursor::WebCursor(const ui::Cursor& cursor) {
 WebCursor::WebCursor(const WebCursor& other) = default;
 
 bool WebCursor::SetCursor(const ui::Cursor& cursor) {
-  // This value matches kMaximumCursorSize from Blink's EventHandler.
-  static constexpr int kMaximumCursorSize = 128;
+  // This value is just large enough to accommodate:
+  // - kMaximumCursorSize in Blink's EventHandler
+  // - kCursorSize in Chrome's DevToolsEyeDropper
+  static constexpr int kMaximumCursorSize = 150;
   if (cursor.image_scale_factor() < 0.01f ||
       cursor.image_scale_factor() > 100.f ||
       (cursor.type() == ui::mojom::CursorType::kCustom &&

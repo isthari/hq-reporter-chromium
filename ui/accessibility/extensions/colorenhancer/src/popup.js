@@ -9,7 +9,7 @@ class Popup {
     /**
      * Save previous state of setup parameters for use in the event of a
      * canceled setup.
-     * @type {{type: string, severity: number} | undefined}
+     * @type {{type: !CvdType, severity: number} | undefined}
      */
     this.restoreSettings = undefined;
 
@@ -19,8 +19,8 @@ class Popup {
   /**
    * Creates a radio button for selecting the given type of CVD and a series of
    * color swatches for testing color vision.
-   * @param {string} cvdType Type of CVD, either "PROTANOMALY" or
-   *     "DEUTERANOMALY" or "TRITANOMALY".
+   * @param {!CvdType} cvdType Type of CVD, either PROTANOMALY or
+   *     DEUTERANOMALY or TRITANOMALY.
    *  @return {!Element} Row of color swatches with a leading radio button.
    */
   createTestRow(type) {
@@ -56,29 +56,25 @@ class Popup {
 
   /**
    * Gets the CVD type selected through the radio buttons.
-   * @return {?string}
+   * @return {CvdType}
    */
   getCvdTypeSelection() {
-    let active = undefined;
-    Popup.CVD_TYPES.forEach((str) => {
-      if ($('select-' + str).checked) {
-        active = str;
-        return;
+    for (const cvdType of Object.values(CvdType)) {
+      if ($('select-' + cvdType).checked) {
+        return cvdType;
       }
-    });
-    return active;
+    }
   }
 
   /**
    * Sets the radio buttons selection to the given CVD type.
-   * @param {string} cvdType Type of CVD, either "PROTANOMALY" or
-   *     "DEUTERANOMALY" or "TRITANOMALY".
-   * @return {?string}
+   * @param {!CvdType} cvdType Type of CVD, either PROTANOMALY or
+   *     DEUTERANOMALY or TRITANOMALY.
    */
   setCvdTypeSelection(cvdType) {
     const highlight = $('row-highlight');
     highlight.hidden = true;
-    Popup.CVD_TYPES.forEach((str) => {
+    Object.values(CvdType).forEach((str) => {
       const checkbox = $('select-' + str);
       if (cvdType == str) {
         checkbox.checked = true;
@@ -132,7 +128,7 @@ class Popup {
   async update() {
     const type = await storage.getDefaultType();
     let validType = false;
-    Popup.CVD_TYPES.forEach((cvdType) => {
+    Object.values(CvdType).forEach((cvdType) => {
       if (cvdType == type) {
         validType = true;
         return;
@@ -186,9 +182,9 @@ class Popup {
     storage.setDefaultSeverity(value).then(() => {
       this.update();
       // Apply filter to popup swatches.
-      const filter = window.getDefaultCvdCorrectionFilter(
-          this.getCvdTypeSelection(), value);
-      injectColorEnhancementFilter(filter);
+      const filter =
+          cvd.getDefaultCvdCorrectionFilter(this.getCvdTypeSelection(), value);
+      cvd.injectColorEnhancementFilter(filter);
       // Force a refresh.
       window.getComputedStyle(document.documentElement, null);
     });
@@ -266,7 +262,7 @@ class Popup {
       $('enable').checked = false;
       this.setCvdTypeSelection('');
       this.updateControls();
-      clearColorEnhancementFilter();
+      cvd.clearColorEnhancementFilter();
     };
     $('reset').hidden = !IS_DEV_MODE;
 
@@ -292,7 +288,7 @@ class Popup {
     };
 
     const swatches = $('swatches');
-    Popup.CVD_TYPES.forEach((cvdType) => {
+    Object.values(CvdType).forEach((cvdType) => {
       swatches.appendChild(this.createTestRow(cvdType));
     });
 
@@ -311,13 +307,6 @@ class Popup {
     });
   }
 }
-
-/**
- * The strings for CVD Types.
- * TODO(mustaq): Define an enum in cvd.js instead.
- * @const {array{string}}
- */
-Popup.CVD_TYPES = ['PROTANOMALY', 'DEUTERANOMALY', 'TRITANOMALY'];
 
 /**
  * Vertical offset for displaying the row highlight.

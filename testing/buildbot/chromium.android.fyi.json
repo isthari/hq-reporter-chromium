@@ -5017,7 +5017,8 @@
         "args": [
           "--gs-results-bucket=chromium-result-details",
           "--recover-devices",
-          "--avd-config=../../tools/android/avd/proto/generic_android31.textpb"
+          "--avd-config=../../tools/android/avd/proto/generic_android31.textpb",
+          "--gtest_filter=-org.chromium.android_webview.test.devui.HomeFragmentTest.testLongPressCopy*"
         ],
         "merge": {
           "args": [
@@ -5365,7 +5366,7 @@
             ]
           },
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 25
+          "shards": 36
         },
         "test_id_prefix": "ninja://chrome/android:chrome_public_wpt/"
       }
@@ -5701,7 +5702,7 @@
             {
               "cipd_package": "chromium/testing/weblayer-x86",
               "location": "weblayer_instrumentation_test_M99",
-              "revision": "version:99.0.4844.12"
+              "revision": "version:99.0.4844.14"
             },
             {
               "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
@@ -5965,7 +5966,7 @@
             {
               "cipd_package": "chromium/testing/weblayer-x86",
               "location": "weblayer_instrumentation_test_M99",
-              "revision": "version:99.0.4844.12"
+              "revision": "version:99.0.4844.14"
             },
             {
               "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
@@ -6077,7 +6078,7 @@
             ]
           },
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 25
+          "shards": 32
         },
         "test_id_prefix": "ninja://weblayer/shell/android:weblayer_shell_wpt/"
       }

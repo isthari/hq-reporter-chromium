@@ -122,11 +122,11 @@ TEST(WebCursorTest, SetCursor) {
 
   // SetCursor should return false when the image width is too large.
   cursor.set_image_scale_factor(1.f);
-  cursor.set_custom_bitmap(CreateTestBitmap(129, 3));
+  cursor.set_custom_bitmap(CreateTestBitmap(151, 3));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
   // SetCursor should return false when the image height is too large.
-  cursor.set_custom_bitmap(CreateTestBitmap(3, 129));
+  cursor.set_custom_bitmap(CreateTestBitmap(3, 151));
   EXPECT_FALSE(webcursor.SetCursor(cursor));
 
   // SetCursor should return false when the scaled image width is too large.

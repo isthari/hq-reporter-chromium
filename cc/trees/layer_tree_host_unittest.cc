@@ -115,7 +115,7 @@ const char kMissingTiles[] = "NumMissingTiles";
 bool LayerSubtreeHasCopyRequest(Layer* layer) {
   const LayerTreeHost* host = layer->layer_tree_host();
   int index = layer->effect_tree_index();
-  const auto* node = host->property_trees()->effect_tree.Node(index);
+  const auto* node = host->property_trees()->effect_tree().Node(index);
   return node->subtree_has_copy_request;
 }
 
@@ -889,8 +889,9 @@ class LayerTreeHostTestPushPropertiesTo : public LayerTreeHostTest {
   }
 
   void VerifyAfterValues(LayerImpl* layer) {
-    EffectTree& tree = layer->layer_tree_impl()->property_trees()->effect_tree;
-    EffectNode* node = tree.Node(layer->effect_tree_index());
+    const EffectTree& tree =
+        layer->layer_tree_impl()->property_trees()->effect_tree();
+    const EffectNode* node = tree.Node(layer->effect_tree_index());
     switch (static_cast<Properties>(index_)) {
       case STARTUP:
       case DONE:
@@ -1070,21 +1071,21 @@ class LayerTreeHostTestPushNodeOwnerToNodeIdMap : public LayerTreeHostTest {
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
     PropertyTrees* property_trees = impl->sync_tree()->property_trees();
     const TransformNode* root_transform_node =
-        property_trees->transform_tree.Node(root_transform_index_);
+        property_trees->transform_tree().Node(root_transform_index_);
     const TransformNode* child_transform_node =
-        property_trees->transform_tree.Node(child_transform_index_);
+        property_trees->transform_tree().Node(child_transform_index_);
     const EffectNode* root_effect_node =
-        property_trees->effect_tree.Node(root_effect_index_);
+        property_trees->effect_tree().Node(root_effect_index_);
     const EffectNode* child_effect_node =
-        property_trees->effect_tree.Node(child_effect_index_);
+        property_trees->effect_tree().Node(child_effect_index_);
     const ClipNode* root_clip_node =
-        property_trees->clip_tree.Node(root_clip_index_);
+        property_trees->clip_tree().Node(root_clip_index_);
     const ClipNode* child_clip_node =
-        property_trees->clip_tree.Node(child_clip_index_);
+        property_trees->clip_tree().Node(child_clip_index_);
     const ScrollNode* root_scroll_node =
-        property_trees->scroll_tree.Node(root_scroll_index_);
+        property_trees->scroll_tree().Node(root_scroll_index_);
     const ScrollNode* child_scroll_node =
-        property_trees->scroll_tree.Node(child_scroll_index_);
+        property_trees->scroll_tree().Node(child_scroll_index_);
     switch (impl->sync_tree()->source_frame_number()) {
       case 0:
         // root_ should create transform, scroll and effect tree nodes but not
@@ -1130,14 +1131,14 @@ class LayerTreeHostTestPushNodeOwnerToNodeIdMap : public LayerTreeHostTest {
  private:
   scoped_refptr<Layer> root_;
   scoped_refptr<Layer> child_;
-  int root_transform_index_ = TransformTree::kInvalidNodeId;
-  int child_transform_index_ = TransformTree::kInvalidNodeId;
-  int root_effect_index_ = EffectTree::kInvalidNodeId;
-  int child_effect_index_ = EffectTree::kInvalidNodeId;
-  int root_clip_index_ = ClipTree::kInvalidNodeId;
-  int child_clip_index_ = ClipTree::kInvalidNodeId;
-  int root_scroll_index_ = ScrollTree::kInvalidNodeId;
-  int child_scroll_index_ = ScrollTree::kInvalidNodeId;
+  int root_transform_index_ = kInvalidPropertyNodeId;
+  int child_transform_index_ = kInvalidPropertyNodeId;
+  int root_effect_index_ = kInvalidPropertyNodeId;
+  int child_effect_index_ = kInvalidPropertyNodeId;
+  int root_clip_index_ = kInvalidPropertyNodeId;
+  int child_clip_index_ = kInvalidPropertyNodeId;
+  int root_scroll_index_ = kInvalidPropertyNodeId;
+  int child_scroll_index_ = kInvalidPropertyNodeId;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestPushNodeOwnerToNodeIdMap);
@@ -1180,59 +1181,67 @@ class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
       case 0:
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->transform_tree.size());
+                          ->transform_tree()
+                          .size());
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->effect_tree.size());
+                          ->effect_tree()
+                          .size());
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->scroll_tree.size());
-        EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_transform_node_index.end());
-        EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_effect_node_index.end());
-        EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_scroll_node_index.end());
+                          ->scroll_tree()
+                          .size());
+        EXPECT_EQ(property_trees->scroll_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
+        EXPECT_EQ(property_trees->effect_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
+        EXPECT_EQ(property_trees->scroll_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
         break;
       case 1:
         EXPECT_EQ(3U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->transform_tree.size());
+                          ->transform_tree()
+                          .size());
         EXPECT_EQ(3U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->effect_tree.size());
+                          ->effect_tree()
+                          .size());
         EXPECT_EQ(3U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->scroll_tree.size());
-        EXPECT_EQ(2,
-                  property_trees
-                      ->element_id_to_transform_node_index[child_element_id_]);
-        EXPECT_EQ(
-            2,
-            property_trees->element_id_to_effect_node_index[child_element_id_]);
-        EXPECT_EQ(
-            2,
-            property_trees->element_id_to_scroll_node_index[child_element_id_]);
+                          ->scroll_tree()
+                          .size());
+        EXPECT_EQ(2, property_trees->transform_tree()
+                         .FindNodeFromElementId(child_element_id_)
+                         ->id);
+        EXPECT_EQ(2, property_trees->effect_tree()
+                         .FindNodeFromElementId(child_element_id_)
+                         ->id);
+        EXPECT_EQ(2, property_trees->scroll_tree()
+                         .FindNodeFromElementId(child_element_id_)
+                         ->id);
         break;
       case 2:
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->transform_tree.size());
+                          ->transform_tree()
+                          .size());
         EXPECT_EQ(2U, child_impl_->layer_tree_impl()
                           ->property_trees()
-                          ->effect_tree.size());
-        EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_transform_node_index.end());
-        EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_effect_node_index.end());
-        EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
-                        child_element_id_) ==
-                    property_trees->element_id_to_scroll_node_index.end());
+                          ->effect_tree()
+                          .size());
+        EXPECT_EQ(property_trees->transform_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
+        EXPECT_EQ(property_trees->effect_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
+        EXPECT_EQ(property_trees->scroll_tree().FindNodeFromElementId(
+                      child_element_id_),
+                  nullptr);
         break;
     }
     EndTest();
@@ -1832,10 +1841,10 @@ class LayerTreeHostTestPropertyTreesChangedSync : public LayerTreeHostTest {
       case 2:
         // We rebuild property trees for this case to test the code path of
         // damage status synchronization when property trees are different.
-        layer_tree_host()->property_trees()->needs_rebuild = true;
+        layer_tree_host()->property_trees()->set_needs_rebuild(true);
         break;
       default:
-        EXPECT_FALSE(layer_tree_host()->property_trees()->needs_rebuild);
+        EXPECT_FALSE(layer_tree_host()->property_trees()->needs_rebuild());
     }
   }
 
@@ -1925,7 +1934,8 @@ class LayerTreeHostTestAnimationOpacityMutatedUsingLayerLists
     Layer* root = layer_tree_host()->root_layer();
     EXPECT_EQ(1.0f, layer_tree_host()
                         ->property_trees()
-                        ->effect_tree.FindNodeFromElementId(root->element_id())
+                        ->effect_tree()
+                        .FindNodeFromElementId(root->element_id())
                         ->opacity);
 
     layer_tree_host()->SetElementOpacityMutated(root->element_id(),
@@ -1934,7 +1944,8 @@ class LayerTreeHostTestAnimationOpacityMutatedUsingLayerLists
     // The opacity should have been set directly on the effect node instead.
     EXPECT_EQ(0.3f, layer_tree_host()
                         ->property_trees()
-                        ->effect_tree.FindNodeFromElementId(root->element_id())
+                        ->effect_tree()
+                        .FindNodeFromElementId(root->element_id())
                         ->opacity);
     EndTest();
   }
@@ -1982,11 +1993,11 @@ class LayerTreeHostTestAnimationTransformMutatedUsingLayerLists
  protected:
   void BeginTest() override {
     Layer* root = layer_tree_host()->root_layer();
-    EXPECT_EQ(gfx::Transform(),
-              layer_tree_host()
-                  ->property_trees()
-                  ->transform_tree.FindNodeFromElementId(root->element_id())
-                  ->local);
+    EXPECT_EQ(gfx::Transform(), layer_tree_host()
+                                    ->property_trees()
+                                    ->transform_tree()
+                                    .FindNodeFromElementId(root->element_id())
+                                    ->local);
 
     gfx::Transform expected_transform;
     expected_transform.Translate(42, 42);
@@ -1995,11 +2006,11 @@ class LayerTreeHostTestAnimationTransformMutatedUsingLayerLists
 
     // The transform should have been set directly on the transform node
     // instead.
-    EXPECT_EQ(expected_transform,
-              layer_tree_host()
-                  ->property_trees()
-                  ->transform_tree.FindNodeFromElementId(root->element_id())
-                  ->local);
+    EXPECT_EQ(expected_transform, layer_tree_host()
+                                      ->property_trees()
+                                      ->transform_tree()
+                                      .FindNodeFromElementId(root->element_id())
+                                      ->local);
     EndTest();
   }
 };
@@ -2035,11 +2046,11 @@ class LayerTreeHostTestAnimationFilterMutatedUsingLayerLists
  protected:
   void BeginTest() override {
     Layer* root = layer_tree_host()->root_layer();
-    EXPECT_EQ(FilterOperations(),
-              layer_tree_host()
-                  ->property_trees()
-                  ->effect_tree.FindNodeFromElementId(root->element_id())
-                  ->filters);
+    EXPECT_EQ(FilterOperations(), layer_tree_host()
+                                      ->property_trees()
+                                      ->effect_tree()
+                                      .FindNodeFromElementId(root->element_id())
+                                      ->filters);
 
     FilterOperations filters;
     filters.Append(FilterOperation::CreateOpacityFilter(0.5f));
@@ -2047,11 +2058,11 @@ class LayerTreeHostTestAnimationFilterMutatedUsingLayerLists
         root->element_id(), ElementListType::ACTIVE, filters);
 
     // The filter should have been set directly on the effect node instead.
-    EXPECT_EQ(filters,
-              layer_tree_host()
-                  ->property_trees()
-                  ->effect_tree.FindNodeFromElementId(root->element_id())
-                  ->filters);
+    EXPECT_EQ(filters, layer_tree_host()
+                           ->property_trees()
+                           ->effect_tree()
+                           .FindNodeFromElementId(root->element_id())
+                           ->filters);
     EndTest();
   }
 };
@@ -2079,7 +2090,8 @@ class LayerTreeHostTestEffectTreeSync : public LayerTreeHostTest {
   }
 
   void DidCommit() override {
-    EffectTree& effect_tree = layer_tree_host()->property_trees()->effect_tree;
+    EffectTree& effect_tree =
+        layer_tree_host()->property_trees()->effect_tree_mutable();
     EffectNode* node = effect_tree.Node(root_effect_tree_index_);
     switch (layer_tree_host()->SourceFrameNumber()) {
       case 1:
@@ -2114,7 +2126,8 @@ class LayerTreeHostTestEffectTreeSync : public LayerTreeHostTest {
   }
 
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
-    EffectTree& effect_tree = impl->sync_tree()->property_trees()->effect_tree;
+    EffectTree& effect_tree =
+        impl->sync_tree()->property_trees()->effect_tree_mutable();
     LayerImpl* root = impl->sync_tree()->root_layer();
     EffectNode* node = effect_tree.Node(root_effect_tree_index_);
     switch (impl->sync_tree()->source_frame_number()) {
@@ -2164,7 +2177,7 @@ class LayerTreeHostTestEffectTreeSync : public LayerTreeHostTest {
 
  private:
   scoped_refptr<Layer> root_;
-  int root_effect_tree_index_ = EffectTree::kInvalidNodeId;
+  int root_effect_tree_index_ = kInvalidPropertyNodeId;
   FilterOperations blur_filter_;
   FilterOperations brightness_filter_;
   FilterOperations sepia_filter_;
@@ -2194,7 +2207,7 @@ class LayerTreeHostTestTransformTreeSync : public LayerTreeHostTest {
 
   void DidCommit() override {
     TransformTree& transform_tree =
-        layer_tree_host()->property_trees()->transform_tree;
+        layer_tree_host()->property_trees()->transform_tree_mutable();
     TransformNode* node = transform_tree.Node(transform_tree_index_);
     gfx::Transform rotate10;
     rotate10.Rotate(10.f);
@@ -2218,7 +2231,7 @@ class LayerTreeHostTestTransformTreeSync : public LayerTreeHostTest {
 
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
     TransformTree& transform_tree =
-        impl->sync_tree()->property_trees()->transform_tree;
+        impl->sync_tree()->property_trees()->transform_tree_mutable();
     const LayerImpl* layer = impl->sync_tree()->LayerById(layer_->id());
     const TransformNode* node =
         transform_tree.Node(layer->transform_tree_index());
@@ -2252,7 +2265,7 @@ class LayerTreeHostTestTransformTreeSync : public LayerTreeHostTest {
 
  private:
   scoped_refptr<Layer> layer_;
-  int transform_tree_index_ = TransformTree::kInvalidNodeId;
+  int transform_tree_index_ = kInvalidPropertyNodeId;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestTransformTreeSync);
@@ -2695,8 +2708,9 @@ class LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(
-    LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate);
+// TODO(crbug.com/1292184): Flaky failures.
+//SINGLE_AND_MULTI_THREAD_TEST_F(
+//    LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate);
 
 class LayerTreeHostTestDeviceScaleFactorChange : public LayerTreeHostTest {
  public:
@@ -3626,8 +3640,10 @@ class ViewportDeltasAppliedDuringPinch : public LayerTreeHostTest,
     Layer* root = layer_tree_host()->root_layer();
     SetupViewport(root, gfx::Size(500, 500), gfx::Size(500, 500));
     layer_tree_host()->SetPageScaleFactorAndLimits(1.f, 1.f, 4.f);
-    layer_tree_host()->property_trees()->scroll_tree.SetScrollCallbacks(
-        weak_ptr_factory_.GetWeakPtr());
+    layer_tree_host()
+        ->property_trees()
+        ->scroll_tree_mutable()
+        .SetScrollCallbacks(weak_ptr_factory_.GetWeakPtr());
   }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
@@ -10161,6 +10177,193 @@ class LayerTreeHostTestClearCaches : public LayerTreeHostTest {
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestClearCaches);
+
+class LayerTreeHostTestWithHelper : public LayerTreeHostTest {
+ public:
+  scoped_refptr<FakePictureLayer> CreateAndAddFakePictureLayer(
+      const gfx::Size& size,
+      Layer* parent = nullptr) {
+    if (!parent)
+      parent = layer_tree_host()->root_layer();
+    std::unique_ptr<FakeRecordingSource> recording_source =
+        FakeRecordingSource::CreateFilledRecordingSource(size);
+    recording_source->set_fill_with_nonsolid_color(true);
+    recording_source->set_has_draw_text_op();
+    recording_source->Rerecord();
+    scoped_refptr<FakePictureLayer> picture_layer =
+        FakePictureLayer::CreateWithRecordingSource(
+            &client_, std::move(recording_source));
+    picture_layer->SetBounds(size);
+    picture_layer->SetIsDrawable(true);
+    parent->AddChild(picture_layer);
+    client_.set_bounds(size);
+    return picture_layer;
+  }
+
+ protected:
+  FakeContentLayerClient client_;
+};
+
+class LayerTreeHostTestHideLayerAndSubtree
+    : public LayerTreeHostTestWithHelper {
+ public:
+  void InitializeSettings(LayerTreeSettings* settings) override {
+    settings->release_tile_resources_for_hidden_layers = true;
+  }
+
+  void BeginTest() override {
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(10, 10), 1.f,
+                                               viz::LocalSurfaceId());
+    layer_tree_host()->root_layer()->SetBounds(gfx::Size(10, 10));
+
+    picture_layer_ = CreateAndAddFakePictureLayer(gfx::Size(10, 10));
+
+    PostSetNeedsCommitToMainThread();
+  }
+
+  void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
+    ++num_commits_;
+    FakePictureLayerImpl* picture_layer_impl =
+        static_cast<FakePictureLayerImpl*>(
+            impl->sync_tree()->LayerById(picture_layer_->id()));
+    switch (num_commits_) {
+      case 1:
+        ASSERT_EQ(1u, picture_layer_impl->num_tilings());
+        break;
+      case 2:
+        ASSERT_EQ(0u, picture_layer_impl->num_tilings());
+        EndTest();
+        break;
+      default:
+        NOTREACHED();
+    }
+  }
+
+  void DidCommit() override { picture_layer_->SetHideLayerAndSubtree(true); }
+
+ private:
+  scoped_refptr<FakePictureLayer> picture_layer_;
+  int num_commits_ = 0;
+};
+
+SINGLE_THREAD_TEST_F(LayerTreeHostTestHideLayerAndSubtree);
+
+class LayerTreeHostTestHideLayerAndSubtreeOnParent
+    : public LayerTreeHostTestWithHelper {
+ public:
+  void InitializeSettings(LayerTreeSettings* settings) override {
+    settings->release_tile_resources_for_hidden_layers = true;
+  }
+
+  void BeginTest() override {
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(10, 10), 1.f,
+                                               viz::LocalSurfaceId());
+    layer_tree_host()->root_layer()->SetBounds(gfx::Size(10, 10));
+
+    parent_layer_ = Layer::Create();
+    parent_layer_->SetBounds(gfx::Size(10, 10));
+    parent_layer_->SetPosition(gfx::PointF(0.f, 0.f));
+    parent_layer_->SetIsDrawable(true);
+    layer_tree_host()->root_layer()->AddChild(parent_layer_);
+
+    picture_layer_ =
+        CreateAndAddFakePictureLayer(gfx::Size(10, 10), parent_layer_.get());
+
+    PostSetNeedsCommitToMainThread();
+  }
+
+  void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
+    ++num_commits_;
+    FakePictureLayerImpl* picture_layer_impl =
+        static_cast<FakePictureLayerImpl*>(
+            impl->sync_tree()->LayerById(picture_layer_->id()));
+    switch (num_commits_) {
+      case 1:
+        ASSERT_EQ(1u, picture_layer_impl->num_tilings());
+        break;
+      case 2:
+        ASSERT_EQ(0u, picture_layer_impl->num_tilings());
+        EndTest();
+        break;
+      default:
+        NOTREACHED();
+    }
+  }
+
+  void DidCommit() override { parent_layer_->SetHideLayerAndSubtree(true); }
+
+ private:
+  scoped_refptr<FakePictureLayer> picture_layer_;
+  scoped_refptr<Layer> parent_layer_;
+  int num_commits_ = 0;
+};
+
+SINGLE_THREAD_TEST_F(LayerTreeHostTestHideLayerAndSubtreeOnParent);
+
+class LayerTreeHostTestOccludedTileReleased
+    : public LayerTreeHostTestWithHelper {
+ public:
+  void InitializeSettings(LayerTreeSettings* settings) override {
+    settings->memory_policy.priority_cutoff_when_visible =
+        gpu::MemoryAllocation::CUTOFF_ALLOW_REQUIRED_ONLY;
+    settings->use_occlusion_for_tile_prioritization = true;
+    settings->minimum_occlusion_tracking_size = gfx::Size(60, 60);
+  }
+
+  void BeginTest() override {
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(100, 100), 1.f,
+                                               viz::LocalSurfaceId());
+    layer_tree_host()->root_layer()->SetBounds(gfx::Size(100, 100));
+
+    picture_layer_ = CreateAndAddFakePictureLayer(gfx::Size(100, 100));
+
+    PostSetNeedsCommitToMainThread();
+  }
+
+  void AfterTest() override {
+    EXPECT_TRUE(got_commit_after_added_obscuring_layer_);
+  }
+
+  void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
+    if (added_obscuring_layer_ && !got_commit_after_added_obscuring_layer_) {
+      got_commit_after_added_obscuring_layer_ = true;
+      FakePictureLayerImpl* picture_layer_impl =
+          static_cast<FakePictureLayerImpl*>(
+              impl->sync_tree()->LayerById(picture_layer_->id()));
+      EXPECT_EQ(0u, picture_layer_impl->GetNumberOfTilesWithResources());
+      EndTest();
+    }
+  }
+
+  void NotifyTileStateChangedOnThread(LayerTreeHostImpl* host_impl,
+                                      const Tile* tile) override {
+    FakePictureLayerImpl* picture_layer_impl =
+        static_cast<FakePictureLayerImpl*>(
+            host_impl->sync_tree()->LayerById(picture_layer_->id()));
+    EXPECT_EQ(1u, picture_layer_impl->GetNumberOfTilesWithResources());
+    MainThreadTaskRunner()->PostTask(
+        FROM_HERE, base::BindOnce(&LayerTreeHostTestOccludedTileReleased::
+                                      AddLayerThatObscuresPictureLayer,
+                                  base::Unretained(this)));
+  }
+
+ protected:
+  void AddLayerThatObscuresPictureLayer() {
+    auto covering_layer = SolidColorLayer::Create();
+    covering_layer->SetBounds(gfx::Size(100, 100));
+    covering_layer->SetBackgroundColor(SK_ColorRED);
+    covering_layer->SetIsDrawable(true);
+    layer_tree_host()->root_layer()->AddChild(covering_layer);
+    added_obscuring_layer_ = true;
+  }
+
+ private:
+  scoped_refptr<FakePictureLayer> picture_layer_;
+  bool added_obscuring_layer_ = false;
+  bool got_commit_after_added_obscuring_layer_ = false;
+};
+
+SINGLE_THREAD_TEST_F(LayerTreeHostTestOccludedTileReleased);
 
 class LayerTreeHostTestNoCommitDeadlock : public LayerTreeHostTest {
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }

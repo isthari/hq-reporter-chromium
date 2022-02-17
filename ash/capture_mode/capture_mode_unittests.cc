@@ -2219,7 +2219,8 @@ TEST_F(CaptureModeTest, MultiDisplayWindowRecording) {
   EXPECT_EQ(shield_layer->bounds(), roots[1]->bounds());
 }
 
-TEST_F(CaptureModeTest, WindowResizing) {
+// Flaky especially on MSan: https://crbug.com/1293188
+TEST_F(CaptureModeTest, DISABLED_WindowResizing) {
   UpdateDisplay("700x600");
   auto window = CreateTestWindow(gfx::Rect(200, 200));
   auto* controller =
@@ -2598,7 +2599,13 @@ class CaptureModeRecordingSizeTest : public CaptureModeTest {
   std::unique_ptr<aura::Window> window_;
 };
 
-TEST_F(CaptureModeRecordingSizeTest, CaptureAtPixelsFullscreen) {
+// TODO(crbug.com/1291073): Flaky on ChromeOS.
+#if BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_CaptureAtPixelsFullscreen DISABLED_CaptureAtPixelsFullscreen
+#else
+#define MAYBE_CaptureAtPixelsFullscreen CaptureAtPixelsFullscreen
+#endif
+TEST_F(CaptureModeRecordingSizeTest, MAYBE_CaptureAtPixelsFullscreen) {
   float dsf = 1.6f;
   SetDeviceScaleFactor(dsf);
   auto* controller = StartVideoRecording(CaptureModeSource::kFullscreen);

@@ -13,6 +13,11 @@
 namespace blink {
 namespace features {
 
+// Apply lazy-loading to ad frames which have embeds likely impacting Core Web
+// Vitals.
+const base::Feature kAutomaticLazyFrameLoadingToAds{
+    "AutomaticLazyFrameLoadingToAds", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Apply lazy-loading to frames which have embeds likely impacting Core Web
 // Vitals.
 const base::Feature kAutomaticLazyFrameLoadingToEmbeds{
@@ -55,16 +60,8 @@ const base::Feature kPaintHolding{"PaintHolding",
                                   base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable defer commits to avoid flash of unstyled content, for all navigation.
-// Disabled on Mobile to allow for a delayed Finch roll-out. Enabled on
-// Desktop platforms.
-const base::Feature kPaintHoldingCrossOrigin {
-  "PaintHoldingCrossOrigin",
-#if BUILDFLAG(IS_ANDROID)
-      base::FEATURE_DISABLED_BY_DEFAULT
-#else
-      base::FEATURE_ENABLED_BY_DEFAULT
-#endif
-};
+const base::Feature kPaintHoldingCrossOrigin{"PaintHoldingCrossOrigin",
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable eagerly setting up a CacheStorage interface pointer and
 // passing it to service workers on startup as an optimization.
@@ -245,7 +242,7 @@ bool IsFencedFramesMPArchBased() {
 }
 
 const base::Feature kInitialNavigationEntry{"InitialNavigationEntry",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool IsInitialNavigationEntryEnabled() {
   return base::FeatureList::IsEnabled(blink::features::kInitialNavigationEntry);
@@ -984,6 +981,11 @@ const base::Feature kAdInterestGroupAPIRestrictedPolicyByDefault{
     "AdInterestGroupAPIRestrictedPolicyByDefault",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
+// See https://github.com/WICG/turtledove/blob/main/FLEDGE.md
+// Feature flag to enable debug reporting APIs.
+const base::Feature kBiddingAndScoringDebugReportingAPI{
+    "BiddingAndScoringDebugReportingAPI", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables URN URLs like those produced by FLEDGE auctions to be displayed by
 // iframes (instead of requiring fenced frames). This is only intended to be
 // enabled as part of the FLEDGE origin trial.
@@ -1205,7 +1207,7 @@ const base::Feature kDefaultStyleSheetsEarlyInit{
 const base::Feature kSystemColorChooser{"SystemColorChooser",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kNoForcedFrameUpdates{"NoForcedFrameUpdates",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kNoForcedFrameUpdatesForWebTests{
+    "NoForcedFrameUpdatesForWebTests", base::FEATURE_DISABLED_BY_DEFAULT};
 }  // namespace features
 }  // namespace blink

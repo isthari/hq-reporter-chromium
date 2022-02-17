@@ -16,6 +16,7 @@
 namespace blink {
 namespace features {
 
+BLINK_COMMON_EXPORT extern const base::Feature kAutomaticLazyFrameLoadingToAds;
 BLINK_COMMON_EXPORT extern const base::Feature
     kAutomaticLazyFrameLoadingToEmbeds;
 BLINK_COMMON_EXPORT extern const base::Feature kBackForwardCacheDedicatedWorker;
@@ -395,7 +396,7 @@ BLINK_COMMON_EXPORT extern const base::Feature
 
 // Main controls for ad serving API features.
 //
-// Backend storage + kill switch for Interest Group API  origin trials.
+// Backend storage + kill switch for Interest Group API origin trials.
 BLINK_COMMON_EXPORT extern const base::Feature kInterestGroupStorage;
 //
 BLINK_COMMON_EXPORT extern const base::FeatureParam<int>
@@ -410,10 +411,13 @@ BLINK_COMMON_EXPORT extern const base::Feature kAdInterestGroupAPI;
 BLINK_COMMON_EXPORT extern const base::Feature kParakeet;
 // FLEDGE ad serving runtime flag/JS API.
 BLINK_COMMON_EXPORT extern const base::Feature kFledge;
-// Changes default Permissions Policy for features join-ad-interest-group and
-// run-ad-auction to a more restricted EnableForSelf.
+// Runtime flag that changes default Permissions Policy for features
+// join-ad-interest-group and run-ad-auction to a more restricted EnableForSelf.
 BLINK_COMMON_EXPORT extern const base::Feature
     kAdInterestGroupAPIRestrictedPolicyByDefault;
+// Debug reporting runtime flag/JS API.
+BLINK_COMMON_EXPORT extern const base::Feature
+    kBiddingAndScoringDebugReportingAPI;
 // Enables URN URLs like those produced by FLEDGE auctions to be displayed by
 // iframes (instead of requiring fenced frames). This is only intended to be
 // enabled as part of the FLEDGE origin trial.
@@ -599,7 +603,7 @@ BLINK_COMMON_EXPORT extern const base::Feature kDefaultStyleSheetsEarlyInit;
 BLINK_COMMON_EXPORT extern const base::Feature kSystemColorChooser;
 
 // Disables forced frame updates for web tests. Used by web test runner only.
-BLINK_COMMON_EXPORT extern const base::Feature kNoForcedFrameUpdates;
+BLINK_COMMON_EXPORT extern const base::Feature kNoForcedFrameUpdatesForWebTests;
 
 }  // namespace features
 }  // namespace blink

@@ -2097,6 +2097,7 @@ void AccessibilityControllerImpl::SwitchAccessDisableDialogClosed(
   // could interact with the dialog.
   DeactivateSwitchAccess();
   if (disable_dialog_accepted) {
+    RemoveAccessibilityNotification();
     NotifyAccessibilityStatusChanged();
     SyncSwitchAccessPrefsToSignInProfile();
   } else {
@@ -2366,7 +2367,6 @@ void AccessibilityControllerImpl::UpdateFeatureFromPref(FeatureType feature) {
       break;
     case FeatureType::kSwitchAccess:
       if (!enabled) {
-        RemoveAccessibilityNotification();
         if (no_switch_access_disable_confirmation_dialog_for_testing_) {
           SwitchAccessDisableDialogClosed(true);
         } else {
@@ -2406,7 +2406,7 @@ void AccessibilityControllerImpl::UpdateDictationBubble(
     bool visible,
     DictationBubbleIconType icon,
     const absl::optional<std::u16string>& text,
-    const absl::optional<std::vector<std::string>>& hints) {
+    const absl::optional<std::vector<DictationBubbleHintType>>& hints) {
   DCHECK(dictation().enabled());
   DCHECK(dictation_bubble_controller_);
 

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "ash/components/fwupd/fake_fwupd_download_client.h"
+#include "ash/components/fwupd/histogram_util.h"
 #include "ash/constants/ash_features.h"
 #include "ash/system/firmware_update/firmware_update_notification_controller.h"
 #include "ash/webui/firmware_update_ui/mojom/firmware_update.mojom-test-utils.h"
@@ -638,15 +639,20 @@ TEST_F(FirmwareUpdateManagerTest, RequestUpdatesMutipleTimes) {
 }
 
 TEST_F(FirmwareUpdateManagerTest, RequestInstall) {
+  base::HistogramTester histogram_tester;
   EXPECT_CALL(*proxy_, DoCallMethodWithErrorResponse(_, _, _))
       .WillRepeatedly(Invoke(this, &FirmwareUpdateManagerTest::OnMethodCalled));
 
   dbus_responses_.push_back(CreateOneDeviceResponse());
   dbus_responses_.push_back(CreateOneUpdateResponse());
   dbus_responses_.push_back(dbus::Response::CreateEmpty());
+  // Add dbus response for RequestAllUpdates() call made after an install
+  // is completed.
+  dbus_responses_.push_back(CreateOneDeviceResponse());
+  dbus_responses_.push_back(CreateOneUpdateResponse());
   FakeUpdateObserver update_observer;
   SetupObserver(&update_observer);
-  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(1, update_observer.num_times_notified());
 
   std::string fake_url = "https://faketesturl/";
   std::unique_ptr<FirmwareUpdateManager> firmware_update_manager_;
@@ -674,6 +680,13 @@ TEST_F(FirmwareUpdateManagerTest, RequestInstall) {
 
   EXPECT_EQ(ash::firmware_update::mojom::UpdateState::kSuccess,
             update_progress_observer.GetLatestUpdate()->state);
+  // Expect RequestAllUpdates() to have been called after an install to refresh
+  // the update list.
+  ASSERT_EQ(2, update_observer.num_times_notified());
+
+  histogram_tester.ExpectUniqueSample(
+      "ChromeOS.FirmwareUpdateUi.InstallResult",
+      firmware_update::metrics::FirmwareUpdateInstallResult::kSuccess, 1);
 }
 
 TEST_F(FirmwareUpdateManagerTest, OnPropertiesChangedResponse) {
@@ -782,4 +795,27 @@ TEST_F(FirmwareUpdateManagerTest, DeviceCountMetric) {
   histogram_tester.ExpectUniqueSample(
       "ChromeOS.FirmwareUpdateUi.OnRefresh.DeviceCount", 1, 1);
 }
+
+TEST_F(FirmwareUpdateManagerTest, UpdateCountMetric) {
+  base::HistogramTester histogram_tester;
+  EXPECT_CALL(*proxy_, DoCallMethodWithErrorResponse(_, _, _))
+      .WillRepeatedly(Invoke(this, &FirmwareUpdateManagerTest::OnMethodCalled));
+  dbus_responses_.push_back(CreateOneDeviceResponse());
+  dbus_responses_.push_back(CreateOneUpdateResponse());
+  dbus_responses_.push_back(CreateOneDeviceResponse());
+  dbus_responses_.push_back(CreateOneUpdateResponse());
+  FakeUpdateObserver update_observer;
+  SetupObserver(&update_observer);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.FirmwareUpdateUi.OnStartup.CriticalUpdateCount", 0, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.FirmwareUpdateUi.OnStartup.UpdateCount", 1, 1);
+
+  RequestDevices();
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.FirmwareUpdateUi.OnRefresh.CriticalUpdateCount", 0, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.FirmwareUpdateUi.OnRefresh.UpdateCount", 1, 1);
+}
+
 }  // namespace ash

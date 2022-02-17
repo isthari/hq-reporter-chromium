@@ -860,6 +860,11 @@ void DocumentLoader::SetHistoryItemStateForCommit(
     history_item_->SetAppHistoryKey(old_item->GetAppHistoryKey());
   }
 
+  // The AppHistory id corresponds to a "session history entry", and so should
+  // be carried over across reloads.
+  if (IsReloadLoadType(load_type))
+    history_item_->SetAppHistoryId(old_item->GetAppHistoryId());
+
   // AppHistory's state is stickier than the legacy History state. It always
   // propagates by default to a same-document navigation.
   if (navigation_type == HistoryNavigationType::kFragment ||
@@ -2533,7 +2538,7 @@ void DocumentLoader::CreateParserPostCommit() {
     if (frame_ && body_loader_ && !loading_main_document_from_mhtml_archive_ &&
         !loading_url_as_empty_document_ && url_.ProtocolIsInHTTPFamily() &&
         !is_static_data_ && frame_->IsMainFrame() &&
-        !document->IsPrefetchOnly()) {
+        !document->IsPrefetchOnly() && MimeType() == "text/html") {
       waiting_for_document_loader_ = true;
       StartLoadingBodyWithCodeCache();
 

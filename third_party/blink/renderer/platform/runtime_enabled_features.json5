@@ -177,10 +177,6 @@
       name: "AllowContentInitiatedDataUrlNavigations",
     },
     {
-      name: "AllowSyncXHRInPageDismissal",
-      origin_trial_feature_name: "AllowSyncXHRInPageDismissal",
-    },
-    {
       name: "AndroidDownloadableFontsMatching",
     },
     {
@@ -228,20 +224,6 @@
     {
       name: "AutofillShadowDOM",
       status: "experimental",
-    },
-    {
-      name: "AutoLazyLoadOnReloads",
-      depends_on: ["LazyFrameLoading"],
-    },
-    {
-      name: "AutomaticLazyFrameLoading",
-      depends_on: ["LazyFrameLoading"],
-      status: "stable",
-    },
-    {
-      name: "AutomaticLazyImageLoading",
-      depends_on: ["LazyImageLoading"],
-      status: "stable",
     },
     {
       name: "AutomationControlled",
@@ -306,6 +288,11 @@
       name: "BeforeMatchEvent",
       origin_trial_feature_name: "BeforeMatchEvent",
       status: "experimental",
+    },
+    {
+      name: "BiddingAndScoringDebugReportingAPI",
+      origin_trial_feature_name: "BiddingAndScoringDebugReportingAPI",
+      implied_by: ["Fledge", "Parakeet"],
     },
     {
       name: "BidiCaretAffinity",
@@ -452,6 +439,13 @@
     {
       name: "CompositeRelativeKeyframes",
       status: "stable"
+    },
+    {
+      // Compositing of video element is no longer necessary after launch of
+      // CompositeAfterPaint. This feature is to keep the old behavior for A/B
+      // testing. Will disable and remove.
+      name: "CompositeVideoElement",
+      status: "stable",
     },
     {
       name: "ComputedAccessibilityInfo",
@@ -1939,16 +1933,6 @@
     {
       // See https://crbug.com/1012063
       name: "RequestVideoFrameCallback",
-      status: "stable",
-    },
-    {
-      name: "RestrictAutomaticLazyFrameLoadingToDataSaver",
-      depends_on: ["AutomaticLazyFrameLoading"],
-      status: "stable",
-    },
-    {
-      name: "RestrictAutomaticLazyImageLoadingToDataSaver",
-      depends_on: ["AutomaticLazyImageLoading"],
       status: "stable",
     },
     {

@@ -15,6 +15,7 @@
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -58,12 +59,14 @@
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chrome/browser/component_updater/cros_component_manager.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
+#include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/common/channel_info.h"
 #include "chromeos/crosapi/cpp/crosapi_constants.h"
 #include "chromeos/crosapi/cpp/lacros_startup_state.h"
 #include "chromeos/startup/startup_switches.h"
+#include "components/crash/core/app/crashpad.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
@@ -145,19 +148,6 @@ BrowserManager* g_instance = nullptr;
 constexpr char kLacrosCannotLaunchNotificationID[] =
     "lacros_cannot_launch_notification_id";
 constexpr char kLacrosLauncherNotifierID[] = "lacros_launcher";
-
-// To be sure the lacros is running with neutral priority
-class ThreadPriorityDelegate : public base::LaunchOptions::PreExecDelegate {
- public:
-  void RunAsyncSafe() override {
-    // TODO(crbug.com/1289736): Currently, this is causing some deadlock issue.
-    // It looks like inside the function, we seem to call async unsafe API.
-    // For the mitigation, disabling this temporarily.
-    // We should revisit here, and see the impact of performance.
-    // base::PlatformThread::SetCurrentThreadPriority(
-    //   base::ThreadPriority::NORMAL);
-  }
-};
 
 base::FilePath LacrosLogPath() {
   return browser_util::GetUserDataDir().Append("lacros.log");
@@ -304,10 +294,14 @@ class LacrosThreadPriorityDelegate
     : public base::LaunchOptions::PreExecDelegate {
  public:
   void RunAsyncSafe() override {
+    // TODO(crbug.com/1289736): Currently, this is causing some deadlock issue.
+    // It looks like inside the function, we seem to call async unsafe API.
+    // For the mitigation, disabling this temporarily.
+    // We should revisit here, and see the impact of performance.
     // SetCurrentThreadPriority() needs file I/O on /proc and /sys.
-    base::ScopedAllowBlocking allow_blocking;
-    base::PlatformThread::SetCurrentThreadPriority(
-        base::ThreadPriority::NORMAL);
+    // base::ScopedAllowBlocking allow_blocking;
+    // base::PlatformThread::SetCurrentThreadPriority(
+    //     base::ThreadPriority::NORMAL);
   }
 };
 
@@ -386,6 +380,12 @@ bool BrowserManager::IsRunningOrWillRun() const {
 
 void BrowserManager::NewWindow(bool incognito,
                                bool should_trigger_session_restore) {
+  if (incognito) {
+    Profile* profile = ProfileManager::GetPrimaryUserProfile();
+    if (!profile || !IncognitoModePrefs::IsIncognitoAllowed(profile))
+      return;
+  }
+
   // If `should_trigger_session_restore` is set to true the new lacros window
   // should be treated like the start of a new session. Ensure this is the case
   // by deferring to the browser startup preferences. Otherwise we open the
@@ -476,6 +476,23 @@ void BrowserManager::NewFullscreenWindow(const GURL& url,
     return;
   }
   browser_service_->service->NewFullscreenWindow(url, std::move(callback));
+}
+
+void BrowserManager::NewGuestWindow() {
+  auto result = MaybeStart(browser_util::InitialBrowserAction(
+      mojom::InitialBrowserAction::kOpenGuestWindow));
+  if (result != MaybeStartResult::kRunning)
+    return;
+
+  if (!browser_service_.has_value()) {
+    LOG(ERROR) << "BrowserService was disconnected";
+    return;
+  }
+
+  if (!NewFullscreenWindowSupported())
+    return;
+
+  browser_service_->service->NewGuestWindow(base::DoNothing());
 }
 
 void BrowserManager::NewTab() {
@@ -862,7 +879,6 @@ void BrowserManager::StartWithLogFile(
                                    "--user-data-dir=" + user_data_dir,
                                    "--enable-gpu-rasterization",
                                    "--lang=" + locale,
-                                   "--enable-crashpad",
                                    "--enable-webgl-image-chromium",
                                    "--breakpad-dump-location=" + crash_dir};
 
@@ -934,6 +950,10 @@ void BrowserManager::StartWithLogFile(
   // Append a fake switch for backward compatibility.
   // TODO(crbug.com/1188020): Remove this after M93 Lacros is spread enough.
   command_line.AppendSwitchASCII(mojo::PlatformChannel::kHandleSwitch, "-1");
+
+  if (crash_reporter::IsCrashpadEnabled()) {
+    command_line.AppendSwitch(switches::kEnableCrashpad);
+  }
 
   // Create the lacros-chrome subprocess.
   base::RecordAction(base::UserMetricsAction("Lacros.Launch"));
@@ -1287,6 +1307,12 @@ void BrowserManager::OpenUrlImpl(
   auto params = OpenUrlParams::New();
   params->disposition = disposition;
   browser_service_->service->OpenUrl(url, std::move(params), base::DoNothing());
+}
+
+bool BrowserManager::IsNewGuestWindowSupported() const {
+  return browser_service_.has_value() &&
+         browser_service_->interface_version >=
+             crosapi::mojom::BrowserService::kNewGuestWindowMinVersion;
 }
 
 }  // namespace crosapi

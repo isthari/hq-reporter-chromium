@@ -142,7 +142,7 @@ config("runtime_library") {
   # to upstream Clang.
   if (target_environment == "catalyst") {
     assert(xcode_version_int == 1300 || xcode_version_int == 1310 ||
-           xcode_version_int == 1320)
+           xcode_version_int == 1320 || xcode_version_int == 1321)
     ldflags += [
       "-lSystem",
       rebase_path("$ios_toolchains_path/usr/lib/clang/13.0.0/" +
@@ -215,6 +215,12 @@ config("ios_dynamic_flags") {
     "$ios_sdk_path/usr/lib/swift",
     _swift_compatibility_libs_dir,
   ]
+
+  # When building for catalyst, some Swift support libraries are in a
+  # different directory which needs to be added to the search path.
+  if (target_environment == "catalyst") {
+    lib_dirs += [ "$ios_sdk_path/System/iOSSupport/usr/lib/swift" ]
+  }
 }
 
 config("ios_shared_library_flags") {

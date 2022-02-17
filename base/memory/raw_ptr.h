@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <cstddef>
+#include <functional>
 #include <type_traits>
 #include <utility>
 
@@ -690,6 +691,21 @@ class TRIVIAL_ABI raw_ptr {
     return *this += -delta_elems;
   }
 
+  // Stop referencing the underlying pointer and free its memory. Compared to
+  // raw delete calls, this avoids the raw_ptr to be temporarily dangling
+  // during the free operation, which will lead to taking the slower path that
+  // involves quarantine.
+  RAW_PTR_FUNC_ATTRIBUTES void ClearAndDelete() noexcept {
+    T* ptr = wrapped_ptr_;
+    operator=(nullptr);
+    delete ptr;
+  }
+  RAW_PTR_FUNC_ATTRIBUTES void ClearAndDeleteArray() noexcept {
+    T* ptr = wrapped_ptr_;
+    operator=(nullptr);
+    delete[] ptr;
+  }
+
   // Comparison operators between raw_ptr and raw_ptr<U>/U*/std::nullptr_t.
   // Strictly speaking, it is not necessary to provide these: the compiler can
   // use the conversion operator implicitly to allow comparisons to fall back to
@@ -711,6 +727,18 @@ class TRIVIAL_ABI raw_ptr {
                                                  const raw_ptr<U, Impl>& rhs) {
     return !(lhs == rhs);
   }
+  template <typename U, typename V, typename I>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<(const raw_ptr<U, I>& lhs,
+                                                const raw_ptr<V, I>& rhs);
+  template <typename U, typename V, typename I>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>(const raw_ptr<U, I>& lhs,
+                                                const raw_ptr<V, I>& rhs);
+  template <typename U, typename V, typename I>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<=(const raw_ptr<U, I>& lhs,
+                                                 const raw_ptr<V, I>& rhs);
+  template <typename U, typename V, typename I>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>=(const raw_ptr<U, I>& lhs,
+                                                 const raw_ptr<V, I>& rhs);
 
   // Comparisons with U*. These operators also handle the case where the RHS is
   // T*.
@@ -729,6 +757,38 @@ class TRIVIAL_ABI raw_ptr {
   template <typename U>
   friend RAW_PTR_FUNC_ATTRIBUTES bool operator!=(U* lhs, const raw_ptr& rhs) {
     return rhs != lhs;  // Reverse order to call the operator above.
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<(const raw_ptr& lhs, U* rhs) {
+    return lhs.GetForComparison() < rhs;
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<=(const raw_ptr& lhs, U* rhs) {
+    return lhs.GetForComparison() <= rhs;
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>(const raw_ptr& lhs, U* rhs) {
+    return lhs.GetForComparison() > rhs;
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>=(const raw_ptr& lhs, U* rhs) {
+    return lhs.GetForComparison() >= rhs;
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<(U* lhs, const raw_ptr& rhs) {
+    return lhs < rhs.GetForComparison();
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator<=(U* lhs, const raw_ptr& rhs) {
+    return lhs <= rhs.GetForComparison();
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>(U* lhs, const raw_ptr& rhs) {
+    return lhs > rhs.GetForComparison();
+  }
+  template <typename U>
+  friend RAW_PTR_FUNC_ATTRIBUTES bool operator>=(U* lhs, const raw_ptr& rhs) {
+    return lhs >= rhs.GetForComparison();
   }
 
   // Comparisons with `std::nullptr_t`.
@@ -787,8 +847,51 @@ RAW_PTR_FUNC_ATTRIBUTES bool operator==(const raw_ptr<U, I>& lhs,
   return lhs.GetForComparison() == rhs.GetForComparison();
 }
 
+template <typename U, typename V, typename I>
+RAW_PTR_FUNC_ATTRIBUTES bool operator<(const raw_ptr<U, I>& lhs,
+                                       const raw_ptr<V, I>& rhs) {
+  return lhs.GetForComparison() < rhs.GetForComparison();
+}
+
+template <typename U, typename V, typename I>
+RAW_PTR_FUNC_ATTRIBUTES bool operator>(const raw_ptr<U, I>& lhs,
+                                       const raw_ptr<V, I>& rhs) {
+  return lhs.GetForComparison() > rhs.GetForComparison();
+}
+
+template <typename U, typename V, typename I>
+RAW_PTR_FUNC_ATTRIBUTES bool operator<=(const raw_ptr<U, I>& lhs,
+                                        const raw_ptr<V, I>& rhs) {
+  return lhs.GetForComparison() <= rhs.GetForComparison();
+}
+
+template <typename U, typename V, typename I>
+RAW_PTR_FUNC_ATTRIBUTES bool operator>=(const raw_ptr<U, I>& lhs,
+                                        const raw_ptr<V, I>& rhs) {
+  return lhs.GetForComparison() >= rhs.GetForComparison();
+}
+
 }  // namespace base
 
 using base::raw_ptr;
+
+namespace std {
+
+// Override so set/map lookups do not create extra raw_ptr. This also allows
+// dangling pointers to be used for lookup.
+template <typename T, typename I>
+struct less<raw_ptr<T, I>> {
+  using is_transparent = void;
+
+  bool operator()(const raw_ptr<T, I>& lhs, const raw_ptr<T, I>& rhs) const {
+    return lhs < rhs;
+  }
+
+  bool operator()(T* lhs, const raw_ptr<T, I>& rhs) const { return lhs < rhs; }
+
+  bool operator()(const raw_ptr<T, I>& lhs, T* rhs) const { return lhs < rhs; }
+};
+
+}  // namespace std
 
 #endif  // BASE_MEMORY_RAW_PTR_H_
