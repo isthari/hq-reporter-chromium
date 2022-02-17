@@ -32,6 +32,9 @@ VideoCard::VideoCard(IDeckLink *deckLink)
       outputVideoMode_(-1),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get())
 {
+    // TODO GC
+    audioDataOut_ = (uint8_t*) malloc (1024*2*2);
+
     framesOutVideo_ = 0;
     // TODO GC
     frameData = (uint8_t*) malloc(1920*1080*4);
@@ -56,6 +59,14 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 
     this->checkIO();
     this->getDisplayModes();
+
+    // crear el resampler
+    // TODO GC
+/*    this->resampler_ = swr_alloc_set_opts(NULL,
+		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 48000,
+		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLTP, 48000,
+		    0, NULL);
+		    */
 }
 
 String VideoCard::identifier() { 
@@ -360,13 +371,31 @@ void VideoCard::putVideoFrame(VideoFrame* frame) {
     deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
 }
 
-void VideoCard::putAudioFrame(AudioData* frame) {
-/*
-    LOG(INFO) << "Audio data info";
-    LOG(WARNING) << "Audio data warning";
-    LOG(ERROR) << "Audio data error";
-    LOG(FATAL) << "Audio data falta";
-    */
+void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR) { 
+//    LOG(ERROR) << "send audio";
+    int index = 0;
+    DOMFloat32Array* aL0 = audioL.Get();
+    DOMFloat32Array* aR0 = audioR.Get();
+    const float* aL1 = (const float*) aL0->buffer()->Data();
+    const float* aR1 = (const float*) aR0->buffer()->Data();
+    uint8_t a1;
+    uint8_t a2;
+    int out;
+    for (int i=0; i<480; i++) {
+	out = aL1[i] * 32768;
+	a1 = (uint8_t) (out >> 8 & 0xff);
+	a2 = (uint8_t) (out & 0xff);
+	audioDataOut_[index++] = a2;
+	audioDataOut_[index++] = a1;
+
+	out = aR1[i] * 32768;
+        a1 = (uint8_t) (out >> 8 & 0xff);
+        a2 = (uint8_t) (out & 0xff);
+	audioDataOut_[index++] = a2;
+	audioDataOut_[index++] = a1;
+    }
+    uint32_t written;    
+    deckLinkOutput_->WriteAudioSamplesSync((void*) audioDataOut_, 480, &written);
 }
 
 } // namespace blink

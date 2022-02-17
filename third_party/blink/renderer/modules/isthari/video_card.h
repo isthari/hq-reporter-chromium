@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 
+//#include "third_party/ffmpeg/libswresample/swresample.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
@@ -56,7 +57,7 @@ public:
     void enableVideoOutput(long mode);
     void disableVideoOutput();
     void putVideoFrame(VideoFrame* frame);        
-    void putAudioFrame(AudioData* frame);
+    void putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR);
 
     // IDeckLinkInputCallback
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
@@ -107,7 +108,8 @@ private:
     
     // Parte de salida SDI
     IDeckLinkMutableVideoFrame *playbackFrame_;
-    long framesOutVideo_;
+    long framesOutVideo_;   
+    uint8_t *audioDataOut_;
 
 private:
     void checkIO();

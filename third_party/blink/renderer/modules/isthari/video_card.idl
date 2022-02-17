@@ -20,6 +20,6 @@
     void enableVideoOutput(long mode);
     void disableVideoOutput();        
     void putVideoFrame(VideoFrame frame);
-    void putAudioFrame(AudioData frame);
-    
+    void putAudioFrame(Float32Array audioL, Float32Array audioR);
+     
 };
