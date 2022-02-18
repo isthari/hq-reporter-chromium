@@ -440,6 +440,10 @@
   "ash/webui/camera_app_ui/resources/strings/camera_strings.grd": {
     "messages": [2940],
   },
+  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/color_internals/resources/ash_color_internals_resources.grd": {
+    "META": {"sizes": {"includes": [20],}},
+    "includes": [2950],
+  },
   "<(SHARED_INTERMEDIATE_DIR)/ash/webui/connectivity_diagnostics/resources/connectivity_diagnostics_resources.grd": {
     "META": {"sizes": {"includes": [50],}},
     "includes": [2960],
@@ -750,6 +754,10 @@
   "<(SHARED_INTERMEDIATE_DIR)/ash/webui/os_feedback_ui/resources/ash_os_feedback_resources.grd": {
     "META": {"sizes": {"includes": [50],}},
     "includes": [3980],
+  },
+  "<(SHARED_INTERMEDIATE_DIR)/ash/webui/os_feedback_ui/untrusted_resources/ash_os_feedback_untrusted_resources.grd": {
+    "META": {"sizes": {"includes": [50],}},
+    "includes": [3982],
   },
   "<(SHARED_INTERMEDIATE_DIR)/ash/webui/firmware_update_ui/resources/ash_firmware_update_app_resources.grd": {
     "META": {"sizes": {"includes": [200],}},

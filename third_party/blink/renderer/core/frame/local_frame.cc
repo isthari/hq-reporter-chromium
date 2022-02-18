@@ -192,7 +192,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/mhtml/serialized_resource.h"
-#include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
@@ -794,6 +793,11 @@ void LocalFrame::Reload(WebFrameLoadType load_type) {
 
 LocalWindowProxy* LocalFrame::WindowProxy(DOMWrapperWorld& world) {
   return To<LocalWindowProxy>(Frame::GetWindowProxy(world));
+}
+
+LocalWindowProxy* LocalFrame::WindowProxyMaybeUninitialized(
+    DOMWrapperWorld& world) {
+  return To<LocalWindowProxy>(Frame::GetWindowProxyMaybeUninitialized(world));
 }
 
 LocalDOMWindow* LocalFrame::DomWindow() {
@@ -1479,7 +1483,6 @@ LocalFrame::LocalFrame(LocalFrameClient* client,
       interface_registry_(interface_registry
                               ? interface_registry
                               : InterfaceRegistry::GetEmptyInterfaceRegistry()),
-      is_save_data_enabled_(GetNetworkStateNotifier().SaveDataEnabled()),
       lifecycle_state_(mojom::FrameLifecycleState::kRunning) {
   auto frame_tracking_result =
       GetLocalFramesMap().insert(FrameToken::Hasher()(GetFrameToken()), this);
@@ -1629,7 +1632,7 @@ static bool CanNavigateHelper(LocalFrame& initiating_frame,
 
     // Sandboxed frames can also navigate popups, if the
     // 'allow-sandbox-escape-via-popup' flag is specified, or if
-    // 'allow-popups' flag is specified, or if the
+    // 'allow-popups' flag is specified and the popup's opener is the frame.
     if (target_frame.IsMainFrame() &&
         target_frame != source_frame.Tree().Top() &&
         source_frame.GetSecurityContext()->IsSandboxed(
@@ -1920,24 +1923,7 @@ LocalFrame::LazyLoadImageSetting LocalFrame::GetLazyLoadImageSetting() const {
     return LocalFrame::LazyLoadImageSetting::kDisabled;
   }
 
-  if (!RuntimeEnabledFeatures::AutomaticLazyImageLoadingEnabled())
-    return LocalFrame::LazyLoadImageSetting::kEnabledExplicit;
-  if (RuntimeEnabledFeatures::
-          RestrictAutomaticLazyImageLoadingToDataSaverEnabled() &&
-      !is_save_data_enabled_) {
-    return LocalFrame::LazyLoadImageSetting::kEnabledExplicit;
-  }
-
-  // Skip automatic lazyload when reloading a page.
-  if (!RuntimeEnabledFeatures::AutoLazyLoadOnReloadsEnabled() &&
-      Loader().GetDocumentLoader() &&
-      IsReloadLoadType(Loader().GetDocumentLoader()->LoadType())) {
-    return LocalFrame::LazyLoadImageSetting::kEnabledExplicit;
-  }
-
-  if (Owner() && !Owner()->ShouldLazyLoadChildren())
-    return LocalFrame::LazyLoadImageSetting::kEnabledExplicit;
-  return LocalFrame::LazyLoadImageSetting::kEnabledAutomatic;
+  return LocalFrame::LazyLoadImageSetting::kEnabledExplicit;
 }
 
 WebURLLoaderFactory* LocalFrame::GetURLLoaderFactory() {

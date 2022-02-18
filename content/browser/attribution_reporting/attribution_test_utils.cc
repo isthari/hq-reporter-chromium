@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/task_runner_util.h"
@@ -27,6 +28,7 @@ using AttributionAllowedStatus =
 using CreateReportStatus =
     ::content::AttributionStorage::CreateReportResult::Status;
 using DeactivatedSource = ::content::AttributionStorage::DeactivatedSource;
+using StoreSourceResult = ::content::AttributionStorage::StoreSourceResult;
 
 const char kDefaultImpressionOrigin[] = "https://impression.test/";
 const char kDefaultTriggerOrigin[] = "https://sub.conversion.test/";
@@ -79,9 +81,9 @@ int ConfigurableStorageDelegate::GetMaxAttributionsPerOrigin() const {
   return max_attributions_per_origin_;
 }
 
-int ConfigurableStorageDelegate::GetMaxAttributionDestinationsPerEventSource()
-    const {
-  return max_attribution_destinations_per_event_source_;
+int ConfigurableStorageDelegate::
+    GetMaxDestinationsPerSourceSiteReportingOrigin() const {
+  return max_destinations_per_source_site_reporting_origin_;
 }
 
 AttributionStorage::Delegate::RateLimitConfig
@@ -107,6 +109,18 @@ base::GUID ConfigurableStorageDelegate::NewReportID() const {
 absl::optional<AttributionStorage::Delegate::OfflineReportDelayConfig>
 ConfigurableStorageDelegate::GetOfflineReportDelayConfig() const {
   return offline_report_delay_config_;
+}
+
+void ConfigurableStorageDelegate::ShuffleReports(
+    std::vector<AttributionReport>& reports) const {
+  if (reverse_reports_on_shuffle_)
+    base::ranges::reverse(reports);
+}
+
+AttributionStorage::Delegate::RandomizedResponse
+ConfigurableStorageDelegate::GetRandomizedResponse(
+    const CommonSourceInfo& source) const {
+  return randomized_response_;
 }
 
 AttributionManager* TestManagerProvider::GetManager(
@@ -206,14 +220,8 @@ SourceBuilder& SourceBuilder::SetPriority(int64_t priority) {
 }
 
 SourceBuilder& SourceBuilder::SetAttributionLogic(
-    CommonSourceInfo::AttributionLogic attribution_logic) {
+    StoredSource::AttributionLogic attribution_logic) {
   attribution_logic_ = attribution_logic;
-  return *this;
-}
-
-SourceBuilder& SourceBuilder::SetFakeTriggerData(
-    absl::optional<uint64_t> fake_trigger_data) {
-  fake_trigger_data_ = fake_trigger_data;
   return *this;
 }
 
@@ -228,24 +236,23 @@ SourceBuilder& SourceBuilder::SetDedupKeys(std::vector<int64_t> dedup_keys) {
 }
 
 CommonSourceInfo SourceBuilder::BuildCommonInfo() const {
-  return CommonSourceInfo(source_event_id_, impression_origin_,
-                          conversion_origin_, reporting_origin_,
-                          impression_time_,
-                          /*expiry_time=*/impression_time_ + expiry_,
-                          source_type_, priority_, attribution_logic_);
+  return CommonSourceInfo(
+      source_event_id_, impression_origin_, conversion_origin_,
+      reporting_origin_, impression_time_,
+      /*expiry_time=*/impression_time_ + expiry_, source_type_, priority_);
 }
 
 StorableSource SourceBuilder::Build() const {
-  return StorableSource(BuildCommonInfo(), fake_trigger_data_);
+  return StorableSource(BuildCommonInfo());
 }
 
 StoredSource SourceBuilder::BuildStored() const {
-  StoredSource source(BuildCommonInfo(), source_id_);
+  StoredSource source(BuildCommonInfo(), attribution_logic_, source_id_);
   source.SetDedupKeys(dedup_keys_);
   return source;
 }
 
-StorableTrigger DefaultTrigger() {
+AttributionTrigger DefaultTrigger() {
   return TriggerBuilder().Build();
 }
 
@@ -289,10 +296,10 @@ TriggerBuilder& TriggerBuilder::SetDedupKey(absl::optional<int64_t> dedup_key) {
   return *this;
 }
 
-StorableTrigger TriggerBuilder::Build() const {
-  return StorableTrigger(trigger_data_, conversion_destination_,
-                         reporting_origin_, event_source_trigger_data_,
-                         priority_, dedup_key_);
+AttributionTrigger TriggerBuilder::Build() const {
+  return AttributionTrigger(trigger_data_, conversion_destination_,
+                            reporting_origin_, event_source_trigger_data_,
+                            priority_, dedup_key_);
 }
 
 ReportBuilder::ReportBuilder(StoredSource source)
@@ -345,14 +352,30 @@ bool operator==(const CommonSourceInfo& a, const CommonSourceInfo& b) {
                            source.conversion_origin(),
                            source.reporting_origin(), source.impression_time(),
                            source.expiry_time(), source.source_type(),
-                           source.priority(), source.attribution_logic());
+                           source.priority());
   };
   return tie(a) == tie(b);
 }
 
+bool operator==(const AttributionStorage::Delegate::FakeReport& a,
+                const AttributionStorage::Delegate::FakeReport& b) {
+  const auto tie = [](const AttributionStorage::Delegate::FakeReport& r) {
+    return std::make_tuple(r.trigger_data, r.report_time);
+  };
+  return tie(a) == tie(b);
+}
+
+bool operator<(const AttributionStorage::Delegate::FakeReport& a,
+               const AttributionStorage::Delegate::FakeReport& b) {
+  const auto tie = [](const AttributionStorage::Delegate::FakeReport& r) {
+    return std::make_tuple(r.trigger_data, r.report_time);
+  };
+  return tie(a) < tie(b);
+}
+
 bool operator==(const StorableSource& a, const StorableSource& b) {
   const auto tie = [](const StorableSource& source) {
-    return std::make_tuple(source.common_info(), source.fake_trigger_data());
+    return std::make_tuple(source.common_info());
   };
   return tie(a) == tie(b);
 }
@@ -361,7 +384,8 @@ bool operator==(const StorableSource& a, const StorableSource& b) {
 // should not be tested.
 bool operator==(const StoredSource& a, const StoredSource& b) {
   const auto tie = [](const StoredSource& source) {
-    return std::make_tuple(source.common_info(), source.dedup_keys());
+    return std::make_tuple(source.common_info(), source.attribution_logic(),
+                           source.dedup_keys());
   };
   return tie(a) == tie(b);
 }
@@ -501,22 +525,23 @@ std::ostream& operator<<(std::ostream& out,
 }
 
 std::ostream& operator<<(std::ostream& out,
-                         CommonSourceInfo::AttributionLogic attribution_logic) {
+                         StoredSource::AttributionLogic attribution_logic) {
   switch (attribution_logic) {
-    case CommonSourceInfo::AttributionLogic::kNever:
+    case StoredSource::AttributionLogic::kNever:
       out << "kNever";
       break;
-    case CommonSourceInfo::AttributionLogic::kTruthfully:
+    case StoredSource::AttributionLogic::kTruthfully:
       out << "kTruthfully";
       break;
-    case CommonSourceInfo::AttributionLogic::kFalsely:
+    case StoredSource::AttributionLogic::kFalsely:
       out << "kFalsely";
       break;
   }
   return out;
 }
 
-std::ostream& operator<<(std::ostream& out, const StorableTrigger& conversion) {
+std::ostream& operator<<(std::ostream& out,
+                         const AttributionTrigger& conversion) {
   return out << "{trigger_data=" << conversion.trigger_data()
              << ",conversion_destination="
              << conversion.conversion_destination().Serialize()
@@ -538,20 +563,22 @@ std::ostream& operator<<(std::ostream& out, const CommonSourceInfo& source) {
              << ",impression_time=" << source.impression_time()
              << ",expiry_time=" << source.expiry_time()
              << ",source_type=" << source.source_type()
-             << ",priority=" << source.priority()
-             << ",attribution_logic=" << source.attribution_logic() << "}";
+             << ",priority=" << source.priority() << "}";
+}
+
+std::ostream& operator<<(std::ostream& out,
+                         const AttributionStorage::Delegate::FakeReport& r) {
+  return out << "{trigger_data=" << r.trigger_data
+             << ",report_time=" << r.report_time << "}";
 }
 
 std::ostream& operator<<(std::ostream& out, const StorableSource& source) {
-  return out << "{common_info=" << source.common_info() << ",fake_trigger_data="
-             << (source.fake_trigger_data()
-                     ? base::NumberToString(*source.fake_trigger_data())
-                     : "null")
-             << "}";
+  return out << "{common_info=" << source.common_info() << "}";
 }
 
 std::ostream& operator<<(std::ostream& out, const StoredSource& source) {
   out << "{common_info=" << source.common_info()
+      << ",attribution_logic=" << source.attribution_logic()
       << ",source_id=" << *source.source_id() << ",dedup_keys=[";
 
   const char* separator = "";
@@ -651,6 +678,19 @@ std::ostream& operator<<(std::ostream& out,
                          const DeactivatedSource& deactivated_source) {
   return out << "{source=" << deactivated_source.source
              << ",reason=" << deactivated_source.reason << "}";
+}
+
+std::ostream& operator<<(std::ostream& out, StoreSourceResult::Status status) {
+  switch (status) {
+    case StoreSourceResult::Status::kSuccess:
+      return out << "kSuccess";
+    case StoreSourceResult::Status::kInternalError:
+      return out << "kInternalError";
+    case StoreSourceResult::Status::kInsufficientSourceCapacity:
+      return out << "kInsufficientSourceCapacity";
+    case StoreSourceResult::Status::kInsufficientUniqueDestinationCapacity:
+      return out << "kInsufficientUniqueDestinationCapacity";
+  }
 }
 
 std::vector<AttributionReport> GetAttributionsToReportForTesting(

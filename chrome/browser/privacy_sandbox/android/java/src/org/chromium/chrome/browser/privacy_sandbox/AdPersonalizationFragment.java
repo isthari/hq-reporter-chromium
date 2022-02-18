@@ -5,22 +5,104 @@
 package org.chromium.chrome.browser.privacy_sandbox;
 
 import android.os.Bundle;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceFragmentCompat;
 
+import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
+import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
+import org.chromium.components.browser_ui.settings.ImageButtonPreference;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
+
+import java.util.List;
 
 /**
  * Settings fragment for privacy sandbox settings.
  */
-public class AdPersonalizationFragment extends PreferenceFragmentCompat {
+public class AdPersonalizationFragment
+        extends PreferenceFragmentCompat implements Preference.OnPreferenceClickListener {
+    private static final String TOPICS_CATEGORY_PREFERENCE = "topic_interests";
+    private static final String EMPTY_TOPICS_PREFERENCE = "empty_topics";
+    private static final String REMOVE_TOPICS_PREFERENCE = "removed_topics";
+
+    private SnackbarManager mSnackbarManager;
+
+    private PreferenceCategory mTopicsCategory;
+    private Preference mEmptyTopicsPreference;
+    private Preference mRemoveTopicsPreference;
+
+    public void setSnackbarManager(SnackbarManager snackbarManager) {
+        mSnackbarManager = snackbarManager;
+    }
+
     /**
      * Initializes all the objects related to the preferences page.
      */
     @Override
     public void onCreatePreferences(Bundle bundle, String s) {
-        // TODO(crbug.com/1286276): Replace string placeholders.
-        getActivity().setTitle("Ad personalization");
+        getActivity().setTitle(R.string.privacy_sandbox_ad_personalization_title);
+
         SettingsUtils.addPreferencesFromResource(this, R.xml.ad_personalization_preference);
+        mTopicsCategory = findPreference(TOPICS_CATEGORY_PREFERENCE);
+        assert mTopicsCategory != null;
+        mEmptyTopicsPreference = findPreference(EMPTY_TOPICS_PREFERENCE);
+        assert mEmptyTopicsPreference != null;
+        mRemoveTopicsPreference = findPreference(REMOVE_TOPICS_PREFERENCE);
+        assert mRemoveTopicsPreference != null;
+    }
+
+    @Override
+    public void onResume() {
+        updatePreferences();
+        super.onResume();
+    }
+
+    @NonNull
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
+        View view = super.onCreateView(inflater, container, savedInstanceState);
+        getListView().setItemAnimator(null);
+        return view;
+    }
+
+    private void updatePreferences() {
+        List<String> currentTopics = PrivacySandboxBridge.getCurrentTopTopics();
+        List<String> blockedTopics = PrivacySandboxBridge.getBlockedTopics();
+        mTopicsCategory.removeAll();
+        for (String interest : currentTopics) {
+            ImageButtonPreference interestPreference = new ImageButtonPreference(getContext());
+            interestPreference.setTitle(interest);
+            interestPreference.setImage(R.drawable.btn_close,
+                    R.string.privacy_sandbox_remove_interest_button_description);
+            interestPreference.setDividerAllowedAbove(false);
+            interestPreference.setOnPreferenceClickListener(this);
+            mTopicsCategory.addPreference(interestPreference);
+        }
+        boolean hasAnyTopics = !currentTopics.isEmpty() || !blockedTopics.isEmpty();
+        mRemoveTopicsPreference.setVisible(hasAnyTopics);
+        mEmptyTopicsPreference.setVisible(!hasAnyTopics);
+    }
+
+    private void blockTopic(String topic) {
+        PrivacySandboxBridge.setTopicAllowed(topic, false);
+    }
+
+    @Override
+    public boolean onPreferenceClick(@NonNull Preference preference) {
+        if (preference instanceof ImageButtonPreference) {
+            blockTopic(preference.getTitle().toString());
+            mTopicsCategory.removePreference(preference);
+            mSnackbarManager.showSnackbar(Snackbar.make(
+                    getResources().getString(R.string.privacy_sandbox_remove_interest_snackbar),
+                    null, Snackbar.TYPE_ACTION, Snackbar.UMA_PRIVACY_SANDBOX_REMOVE_INTEREST));
+        }
+        return true;
     }
 }

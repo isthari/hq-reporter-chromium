@@ -110,11 +110,6 @@
     "expiry_milestone": 100
   },
   {
-    "name": "allow-sync-xhr-in-page-dismissal",
-    "owners": [ "kdillon@chromium.org" ],
-    "expiry_milestone": 93
-  },
-  {
     "name": "allow-touchpad-haptic-click-settings",
     "owners": [ "gavinwill", "cros-peripherals@google.com" ],
     "expiry_milestone": 101
@@ -450,6 +445,11 @@
     "owners": [ "siyua", "jsaul@google.com", "aneeshali@google.com" ],
     "expiry_milestone": 100
   },
+    {
+    "name": "autofill-enable-virtual-card-management-in-desktop-settings-page",
+    "owners": [ "siyua", "jsaul@google.com"],
+    "expiry_milestone": 105
+  },
   {
     "name": "autofill-enable-virtual-cards-risk-based-authentication",
     "owners": [ "siyua", "jsaul@google.com" ],
@@ -700,6 +700,16 @@
     "expiry_milestone": -1
   },
   {
+    "name": "certificate-transparency-2022-policy",
+    "owners": [ "carlosil", "asymmetric", "trusty-transport@chromium.org" ],
+    "expiry_milestone": 102
+  },
+  {
+    "name": "certificate-transparency-2022-policy-all-certs",
+    "owners": [ "carlosil", "asymmetric", "trusty-transport@chromium.org" ],
+    "expiry_milestone": 102
+  },
+  {
     "name": "check-offline-capability",
     "owners": [ "asamidoi", "//content/browser/service_worker/OWNERS" ],
     "expiry_milestone": 93
@@ -753,7 +763,7 @@
   {
     "name": "clean-undecryptable-passwords",
     "owners": [ "derinel@google.com", "mamir" ],
-    "expiry_milestone": 99
+    "expiry_milestone": 102
   },
   {
     "name": "clear-cross-site-cross-browsing-context-group-window-name",
@@ -1723,6 +1733,11 @@
     "expiry_milestone": 97
   },
   {
+    "name": "enable-cros-system-transliteration-physical-typing",
+    "owners": [ "shend", "essential-inputs-team@google.com" ],
+    "expiry_milestone": 102
+  },
+  {
     "name": "enable-cros-virtual-keyboard-api",
     "owners": [ "keithlee", "essential-inputs-team@google.com" ],
     "expiry_milestone": 97
@@ -1784,6 +1799,11 @@
     "name": "enable-default-calculator-web-app",
     "owners": [ "zafzal@google.com", "calculator-eng@google.com" ],
     "expiry_milestone": 99
+  },
+  {
+    "name": "enable-delegated-compositing",
+    "owners": [ "petermcneeley" ],
+    "expiry_milestone": 110
   },
   {
     "name": "enable-desks-templates",
@@ -2341,6 +2361,16 @@
     "expiry_milestone": 98
   },
   {
+    "name": "enable-neural-palm-adaptive-hold",
+    "owners": [ "robsc", "napper", "alanlxl" ],
+    "expiry_milestone": 130
+  },
+  {
+    "name": "enable-neural-palm-rejection-model-v2",
+    "owners": [ "robsc", "napper", "alanlxl" ],
+    "expiry_milestone": 130
+  },
+  {
     "name": "enable-neural-stylus-palm-rejection",
     "owners": [ "robsc", "napper", "adlr" ],
     // We add a neural net to change how fingers are handled. We set a milestone
@@ -2878,14 +2908,19 @@
     "expiry_milestone": 100
   },
   {
-    "name": "enable-web-authentication-cable-v2-support",
+    "name": "enable-web-authentication-cable-disco-creds",
     "owners": [ "webauthn-team@google.com" ],
-    "expiry_milestone": 103
+    "expiry_milestone": 112
   },
   {
     "name": "enable-web-authentication-chromeos-authenticator",
     "owners": [ "yichengli", "martinkr" ],
     "expiry_milestone": 92
+  },
+  {
+    "name": "enable-web-bluetooth",
+    "owners": [ "web-bluetooth@google.com" ],
+    "expiry_milestone": 110
   },
   {
     "name": "enable-web-bluetooth-new-permissions-backend",
@@ -3153,6 +3188,11 @@
     "expiry_milestone": 110
   },
   {
+    "name": "feature-notification-guide-skip-check-for-low-engaged-users",
+    "owners": [ "shaktisahu"],
+    "expiry_milestone": 110
+  },
+  {
     "name": "fedcm",
     "owners": [ "goto", "webid-core@google.com"],
     "expiry_milestone": 110
@@ -3295,6 +3335,11 @@
     "expiry_milestone": 100
   },
   {
+    "name": "force-password-initial-sync-when-decryption-fails",
+    "owners": [ "derinel@google.com", "mamir" ],
+    "expiry_milestone": 102
+  },
+  {
     "name": "force-show-continue-section",
     "owners":["anasalazar@chromium.org", "gzadina@google.com"],
     "expiry_milestone": 101
@@ -3354,6 +3399,11 @@
     "name": "frame-throttle-fps",
     "owners":[ "yjliu", "chromeos-perf@google.com"],
     "expiry_milestone": 95
+  },
+  {
+    "name": "fre-mobile-identity-consistency",
+    "owners": [ "jlebel", "chrome-signin-team" ],
+    "expiry_milestone": 106
   },
   {
     "name": "full-restore-for-lacros",
@@ -3699,6 +3749,14 @@
     "expiry_milestone": 130
   },
   {
+    "name": "lacros-only",
+    "owners": [ "hidehiko", "erikchen", "lacros-team@google.com" ],
+    // Once Lacros is launched, this flag can be removed. Until then, this
+    // absolutely must not expire. We do not yet have a launch milestone.
+    // TODO(https://crbug.com/1148474).
+    "expiry_milestone": 130
+  },
+  {
     "name": "lacros-primary",
     "owners": [ "hidehiko", "erikchen", "lacros-team@google.com" ],
     // Once Lacros is launched, this flag can be removed. Until then, this
@@ -4011,11 +4069,6 @@
     "name": "mute-notification-snooze-action",
     "owners": [ "knollr@chromium.org", "peter@chromium.org" ],
     "expiry_milestone": 96
-  },
-  {
-    "name": "nearby-keep-alive-fix",
-    "owners": [ "danlee@google.com", "chromeos-cross-device-eng@google.com" ],
-    "expiry_milestone": 98
   },
   {
     "name": "nearby-sharing-arc",
@@ -4483,7 +4536,7 @@
   {
     "name": "page-info-about-this-site",
     "owners": [ "eokoyomon", "dullweber", "olesiamarukhno@google.com" ],
-    "expiry_milestone": 99
+    "expiry_milestone": 102
   },
   {
     "name": "page-info-history",
@@ -4984,6 +5037,11 @@
     "expiry_milestone": -1
   },
   {
+    "name": "screen-ai",
+    "owners": [ "rhalavati", "dtseng" ],
+    "expiry_milestone": 110
+  },
+  {
     "name": "screen-capture-android",
     "owners": [ "alcooper", "guidou" ],
     "expiry_milestone": 96
@@ -5262,6 +5320,11 @@
     "name": "site-isolation-trial-opt-out",
     "owners": [ "site-isolation-dev", "alexmos", "creis", "lukasza" ],
     "expiry_milestone": 100
+  },
+  {
+    "name": "skip-undecryptable-passwords",
+    "owners": [ "derinel@google.com", "mamir" ],
+    "expiry_milestone": 102
   },
   {
     "name": "smart-lock-ui-revamp",
@@ -5806,7 +5869,7 @@
   {
     "name": "web-feed",
     "owners": [ "//chrome/android/feed/OWNERS", "feed@chromium.org" ],
-    "expiry_milestone": 99
+    "expiry_milestone": 110
   },
   {
     "name": "web-feed-ios",
@@ -5816,7 +5879,7 @@
   {
     "name": "web-feed-sort",
     "owners": ["//chrome/android/feed/OWNERS", "feed@chromium.org" ],
-    "expiry_milestone": 100
+    "expiry_milestone": 110
   },
   {
     "name": "web-midi",

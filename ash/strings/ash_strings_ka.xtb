@@ -82,6 +82,7 @@
 <translation id="1346748346194534595">მარჯვნივ</translation>
 <translation id="1351937230027495976">მენიუს ჩაკეცვა</translation>
 <translation id="1364382257761975320">თქვენი Chromebook-ის განსაბლოკად გამოიყენეთ თქვენი თითის ანაბეჭდი</translation>
+<translation id="1364618750746929654">ტრანსკრიპტის შექმნა ვერ მოხერხდა</translation>
 <translation id="1383597849754832576">მეტყველების ფაილების ჩამოტვირთვა ვერ მოხერხდა. ცადეთ მოგვიანებით.</translation>
 <translation id="1383876407941801731">ძიება</translation>
 <translation id="1391102559483454063">ჩართვა</translation>
@@ -298,6 +299,7 @@
 <translation id="3000461861112256445">მონო აუდიო</translation>
 <translation id="3009178788565917040">გამოტანა</translation>
 <translation id="3009958530611748826">აირჩიეთ საქაღალდე, რომელშიც უნდა შეინახოს</translation>
+<translation id="301282384882049174">გაზიარებულია ადმინისტრატორის მიერ</translation>
 <translation id="3017687597151988916">არჩევის არე დაყენებულია ფანჯარაზე</translation>
 <translation id="3033545621352269033">ჩართვა</translation>
 <translation id="3036649622769666520">გახსენით ფაილები</translation>
@@ -625,7 +627,6 @@
 <translation id="5075554201838155866">დახურული სუბტიტრების გაშვება</translation>
 <translation id="5078796286268621944">არასწორი პინი</translation>
 <translation id="5083553833479578423">განბლოკეთ ასისტენტის დამატებითი ფუნქციები.</translation>
-<translation id="5090752371472782287">ტრანსლირება <ph name="MANAGER" /> მოწყობილობაზე</translation>
 <translation id="5106223312672646208">პერსონალიზება</translation>
 <translation id="5117590920725113268">შემდეგი თვის ჩვენება</translation>
 <translation id="5136175204352732067">დაკავშირებულია განსხვავებული კლავიატურა</translation>
@@ -679,6 +680,7 @@
 <translation id="54609108002486618">მართული</translation>
 <translation id="5465662442746197494">დახმარება გჭირდებათ?</translation>
 <translation id="547979256943495781">თარო მდებარეობს მარჯვენა ნაწილში</translation>
+<translation id="5491186829646618080">ხელმისაწვდომია ჩაშენებული პროგრამული უზრუნველყოფის განახლებები</translation>
 <translation id="5519195206574732858">LTE</translation>
 <translation id="5520229639206813572">თქვენმა ადმინისტრატორმა წაშალა ყველა eSIM პროფილი. დამატებითი ინფორმაციისთვის დაუკავშირდით თქვენს ადმინისტრატორს.</translation>
 <translation id="5523434445161341166"><ph name="FEATURE_NAME" /> უკავშირდება.</translation>
@@ -925,6 +927,7 @@
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">დრო ძველ გარჩევადობაზე დაბრუნებამდე: <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7180611975245234373">განახლება</translation>
+<translation id="718361511487535372">Google Calendar-ში გახსნა</translation>
 <translation id="7188494361780961876">მენიუ გადატანილია ეკრანის ზედა მარცხენა კუთხეში.</translation>
 <translation id="7189412385142492784">რა მანძილია ვენერამდე</translation>
 <translation id="7246071203293827765"><ph name="UPDATE_TEXT" />. გასაახლებლად ეს Chromebook საჭიროებს გადატვირთვას. ამას შეიძლება 1 წუთამდე დრო დასჭირდეს.</translation>
@@ -1177,6 +1180,7 @@
 <translation id="8876661425082386199">შეამოწმეთ კავშირი</translation>
 <translation id="8877788021141246043">შეხსენების დაყენება</translation>
 <translation id="8878886163241303700">ეკრანის გაშლა</translation>
+<translation id="888982883502837004">თქვენი მოწყობილობისთვის ხელმისაწვდომია ჩაშენებული პროგრამული უზრუნველყოფის განახლებები. დააწკაპუნეთ გადასახედად და გასაახლებლად.</translation>
 <translation id="8896630965521842259">„<ph name="DESK_TEMPLATE_NAME" />“ სამუდამოდ წაიშლება</translation>
 <translation id="890616557918890486">წყაროს შეცვლა</translation>
 <translation id="8909138438987180327">ბატარეის დონე <ph name="PERCENTAGE" /> პროცენტზეა.</translation>

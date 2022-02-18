@@ -581,9 +581,6 @@ void ChromeVirtualKeyboardDelegate::OnHasInputDevices(
   features.Append(GenerateFeatureFlag(
       "systemjapanesephysicaltyping",
       chromeos::features::IsSystemJapanesePhysicalTypingEnabled()));
-  features.Append(GenerateFeatureFlag(
-      "systemkoreanphysicaltyping",
-      chromeos::features::IsSystemKoreanPhysicalTypingEnabled()));
   features.Append(GenerateFeatureFlag("systemlatinphysicaltyping", true));
   features.Append(GenerateFeatureFlag(
       "multilingualtyping",
@@ -610,7 +607,7 @@ void ChromeVirtualKeyboardDelegate::DispatchConfigChangeEvent(
   auto event = std::make_unique<extensions::Event>(
       extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_KEYBOARD_CONFIG_CHANGED,
       keyboard_api::OnKeyboardConfigChanged::kEventName,
-      std::move(*event_args).TakeList(), browser_context_);
+      std::move(*event_args).TakeListDeprecated(), browser_context_);
   router->BroadcastEvent(std::move(event));
 }
 

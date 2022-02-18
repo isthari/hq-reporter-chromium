@@ -290,7 +290,6 @@
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# ഓഡിയോ ഫയൽ}other{# ഓഡിയോ ഫയലുകള്‍}}</translation>
 <translation id="265156376773362237">സാധാരണ മുൻകൂട്ടി ലോഡ് ചെയ്യൽ</translation>
 <translation id="2656405586795711023">വെബ് ആപ്പുകൾ</translation>
-<translation id="2689830683995595741">Chrome ഉപയോഗിക്കുന്നതിലൂടെ, നിങ്ങൾ <ph name="BEGIN_LINK1" />Google സേവന നിബന്ധനകളും<ph name="END_LINK1" /> <ph name="BEGIN_LINK2" />Google Chrome, Chrome OS അധിക സേവന നിബന്ധനകളും<ph name="END_LINK2" /> അംഗീകരിക്കുന്നു. <ph name="BEGIN_LINK3" />Family Link ഉപയോഗിച്ച് മാനേജ് ചെയ്യുന്ന Google അക്കൗണ്ടുകൾക്കുള്ള സ്വകാര്യതാ അറിയിപ്പും<ph name="END_LINK3" /> ബാധകമാണ്.</translation>
 <translation id="2702516483241149200">പുതിയത്: ഈ ടെക്സ്റ്റിലേക്ക് സ്ക്രോൾ ചെയ്യുന്ന ഒരു ലിങ്ക് പങ്കിടുക</translation>
 <translation id="2704606927547763573">പകർത്തി</translation>
 <translation id="2707726405694321444">പേജ് റീഫ്രഷ് ചെയ്യുക</translation>
@@ -404,7 +403,6 @@
 <translation id="3264259168916048410">സൈറ്റിലേക്ക് സൈൻ ഇൻ ചെയ്യാൻ നിങ്ങളുടെ കമ്പ്യൂട്ടറിന് ഈ ഉപകരണം ഉപയോഗിക്കേണ്ടതുണ്ട്</translation>
 <translation id="3265534588625245297">നിങ്ങൾ പിന്തുടരുന്ന സൈറ്റുകൾ മാനേജ് ചെയ്യുക</translation>
 <translation id="3269093882174072735">ചിത്രം ലോഡ് ചെയ്യുക</translation>
-<translation id="3269956123044984603">നിങ്ങളുടെ മറ്റ് ഉപകരണങ്ങളിൽ നിന്നുള്ള ടാബുകൾ ലഭിക്കാൻ, Android അക്കൗണ്ട് ക്രമീകരണത്തിൽ "ഡാറ്റ സ്വയം സമന്വയിപ്പിക്കുക" ഓണാക്കുക.</translation>
 <translation id="3280562213547448728">ശബ്ദ തിരയൽ</translation>
 <translation id="3282568296779691940">Chrome-ലേക്ക് സൈൻ ഇൻ ചെയ്യുക</translation>
 <translation id="3284510035090979597">സമയോചിത സഹായം</translation>
@@ -627,7 +625,6 @@
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 എന്നതും ‌മറ്റ് <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> പേയ്‌മെന്റ് രീതികളും}other{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 എന്നതും ‌മറ്റ് <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> പേയ്‌മെന്റ് രീതികളും}}</translation>
 <translation id="4696983787092045100">ഉപകരണങ്ങളിലേക്ക് അയയ്ക്കൂ</translation>
 <translation id="4699172675775169585">കാഷെ ചെയ്‌ത ചിത്രങ്ങളും ഫയലുകളും</translation>
-<translation id="471759387343966120">തുടരുന്നതിലൂടെ, നിങ്ങൾ <ph name="BEGIN_TOS_LINK" />സേവന നിബന്ധനകളും<ph name="END_TOS_LINK" /> <ph name="BEGIN_PRIVACY_LINK" />സ്വകാര്യതാ നയവും<ph name="END_PRIVACY_LINK" /> അംഗീകരിക്കുന്നു.\nആപ്പ് മെച്ചപ്പെടുത്താൻ സഹായിക്കുന്നതിന്, Google-ന് ഉപയോഗ ഡാറ്റയും ക്രാഷ് ഡാറ്റയും Chrome അയയ്ക്കുന്നു. <ph name="BEGIN_UMA_LINK" />മാനേജ് ചെയ്യുക<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">വിവർത്തനം ചെയ്യാനുള്ള ഓഫർ</translation>
 <translation id="4720023427747327413"><ph name="PRODUCT_NAME" />-ൽ തുറക്കുക</translation>
 <translation id="4720982865791209136">Chrome മെച്ചപ്പെടുത്താൻ സഹായിക്കുക. <ph name="BEGIN_LINK" />സർവേയിൽ പങ്കെടുക്കുക.<ph name="END_LINK" /></translation>
@@ -910,14 +907,12 @@
 <translation id="6277522088822131679">പേജ് പ്രിന്റുചെയ്യുന്നതിൽ ഒരു പ്രശ്‌നമുണ്ടായി. വീണ്ടും ശ്രമിക്കുക.</translation>
 <translation id="6277722725779679269">നിരക്ക് ട്രാക്ക് ചെയ്യൽ അപ്ഡേറ്റ് ചെയ്യാനായില്ല</translation>
 <translation id="6278428485366576908">തീം</translation>
-<translation id="6292420053234093573">Chrome ഉപയോഗിക്കുന്നതിലൂടെ, നിങ്ങൾ <ph name="BEGIN_LINK1" />Google സേവന നിബന്ധനകളും<ph name="END_LINK1" /> <ph name="BEGIN_LINK2" />Google Chrome, Chrome OS അധിക സേവന നിബന്ധനകളും<ph name="END_LINK2" /> അംഗീകരിക്കുന്നു.</translation>
 <translation id="6294610283659775533">ഒരേ Google അക്കൗണ്ടിൽ സൈൻ ഇൻ ചെയ്തിരിക്കുന്ന ഉപകരണങ്ങൾ തമ്മിൽ നിങ്ങൾക്ക് ടാബുകൾ അയയ്ക്കാനാകും</translation>
 <translation id="6297765934698848803">നിങ്ങളുടെ ഉപകരണം മാനേജ് ചെയ്യുന്ന ഓർഗനൈസേഷൻ നിങ്ങളുടെ ക്യാമറ ഓഫാക്കി.</translation>
 <translation id="6301525844455696527">നിങ്ങളുടെ വായനാ ലിസ്‌റ്റ് കാണൂ</translation>
 <translation id="6303969859164067831">സൈൻ ഔട്ട് ചെയ്‌ത് സമന്വയം ഓഫാക്കുക</translation>
 <translation id="6312687380483398334">വെബ്‌ ആപ്പുകൾ (നിശബ്‌ദം)</translation>
 <translation id="6316139424528454185">Android പതിപ്പ് പിന്തുണയ്‌ക്കുന്നതല്ല</translation>
-<translation id="6324034347079777476">Android സിസ്‌റ്റം സമന്വയിപ്പിക്കൽ പ്രവർത്തനരഹിതമാക്കി</translation>
 <translation id="6324916366299863871">കുറുക്കുവഴി എഡിറ്റ് ചെയ്യുക</translation>
 <translation id="6324977638108296054">ഹൈലൈറ്റിലേക്കുള്ള ലിങ്ക് സൃഷ്‌ടിക്കാനാകുന്നില്ല</translation>
 <translation id="6324997754869598316">(പിശക് <ph name="ERROR_CODE" />)</translation>
@@ -1045,7 +1040,6 @@
 <translation id="6900532703269623216">മെച്ചപ്പെടുത്തിയ പരിരക്ഷ</translation>
 <translation id="6903907808598579934">സമന്വയിപ്പിക്കൽ ഓണാക്കുക</translation>
 <translation id="6909589135458168665">പേജുകൾ മുൻകൂട്ടി ലോഡ് ചെയ്യുക</translation>
-<translation id="6929699136511445623">Android സിസ്‌റ്റം സമന്വയിപ്പിക്കൽ പ്രവർത്തനക്ഷമമാക്കുക</translation>
 <translation id="6942665639005891494">ക്രമീകരണ മെനു ഓപ്‌ഷൻ ഉപയോഗിച്ച്, ഏതുസമയത്തും ഡിഫോൾട്ട് ഡൗൺലോഡ് ലൊക്കേഷൻ മാറ്റുക.</translation>
 <translation id="694267552845942083">നിങ്ങൾ നിലവിൽ നിങ്ങളുടെ സമന്വയ ക്രമീകരണം ഇഷ്ടാനുസൃതമാക്കുകയാണ്. സമന്വയിപ്പിക്കൽ ഓണാക്കുന്നത് പൂർത്തിയാക്കാൻ, സ്‌ക്രീനിന്റെ ചുവടുഭാഗത്തിന് സമീപമുള്ള 'സ്ഥിരീകരിക്കുക' ബട്ടൺ ടാപ്പ് ചെയ്യുക. മുകളിലേക്ക് പോകുക</translation>
 <translation id="6945221475159498467">തിരഞ്ഞെടുക്കുക</translation>
@@ -1161,7 +1155,6 @@
 <translation id="7581273696622423628">സർവേയിൽ പങ്കെടുക്കുക</translation>
 <translation id="7583262514280211622">നിങ്ങളുടെ വായനാ ലിസ്‌റ്റ് ഇവിടെ കാണാം</translation>
 <translation id="7588219262685291874">ഉപകരണത്തിന്റെ ബാറ്ററി ലാഭിക്കൽ ഓണായിരിക്കുമ്പോൾ ഡാർക്ക് തീം ഓണാക്കുക</translation>
-<translation id="7593557518625677601">Chrome സമന്വയം ആരംഭിക്കാൻ Android ക്രമീകരണം തുറന്ന് Android സിസ്‌റ്റം സമന്വയിപ്പിക്കൽ വീണ്ടും പ്രവർത്തനക്ഷമമാക്കുക</translation>
 <translation id="7594687499944811403"><ph name="TOP_ORIGIN" /> ഉപയോഗിക്കുന്നതിന് ഇത് നിങ്ങൾ തന്നെയാണെന്ന് പരിശോധിച്ചുറപ്പിക്കാൻ <ph name="EMBEDDED_ORIGIN" /> -നെ അനുവദിക്കുക</translation>
 <translation id="7596558890252710462">ഓപ്പറേറ്റിംഗ് സിസ്റ്റം</translation>
 <translation id="7605594153474022051">സമന്വയിപ്പിക്കൽ പ്രവർത്തിക്കുന്നില്ല</translation>
@@ -1178,6 +1171,7 @@
 <translation id="7663313374500954251">ഈ ബ്രൗസർ മാനേജ് ചെയ്യുന്നത് <ph name="PARENT_NAME" /> ആണ്.</translation>
 <translation id="7665369617277396874">അക്കൗണ്ട് ചേർക്കുക</translation>
 <translation id="766587987807204883">ഇവിടെ ദൃശ്യമാകുന്ന ലേഖനങ്ങൾ നിങ്ങൾ ഓഫ്‌ലൈൻ ആകുന്ന സമയത്ത് പോലും വായിക്കാം</translation>
+<translation id="768232549260819724">GIF പകർത്തി</translation>
 <translation id="7682724950699840886">ഈ നുറുങ്ങുകൾ പരീക്ഷിക്കൂ: നിങ്ങളുടെ ഉപകരണത്തിൽ ആവശ്യമായ ഇടം ഉണ്ടെന്ന് ഉറപ്പാക്കി, വീണ്ടും എക്‌സ്‌പോർട്ട് ചെയ്യാൻ ശ്രമിക്കുക.</translation>
 <translation id="768618399695552958">നിങ്ങൾ സന്ദർശിക്കുന്ന ചില പേജുകൾ മുൻകൂട്ടി ലോഡ് ചെയ്തവയാണ്. ഒരു Google സൈറ്റിൽ നിന്ന് ലിങ്ക് ചെയ്തിരിക്കുമ്പോൾ, Google സെർവറുകൾ മുഖേന പേജുകൾ മുൻകൂട്ടി ലോഡ് ചെയ്തേക്കാം.</translation>
 <translation id="7698359219371678927"><ph name="APP_NAME" /> ആപ്പിൽ ഇമെയിൽ സൃഷ്‌ടിക്കുക</translation>
@@ -1356,6 +1350,7 @@
 <translation id="8570677896027847510">ഫയൽ സുരക്ഷിതമായി ഡൗൺലോഡ് ചെയ്യാനാകുന്നില്ല</translation>
 <translation id="8571213806525832805">കഴിഞ്ഞ 4 ആഴ്ച</translation>
 <translation id="8572344201470131220">ചിത്രം പകർത്തി</translation>
+<translation id="8580884231102452214">GIF പകർത്തുക</translation>
 <translation id="8583805026567836021">അക്കൗണ്ട് ഡാറ്റ മായ്‌ക്കുന്നു</translation>
 <translation id="859046281437143747">കൂടുതൽ ഓപ്ഷനുകൾ ബട്ടണിൽ നിന്ന് നിരക്കുകൾ ട്രാക്ക് ചെയ്യുക</translation>
 <translation id="860043288473659153">കാർഡിന്റെ ഉടമയുടെ പേര്</translation>

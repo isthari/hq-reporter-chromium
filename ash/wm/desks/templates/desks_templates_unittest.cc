@@ -18,6 +18,7 @@
 #include "ash/style/close_button.h"
 #include "ash/style/pill_button.h"
 #include "ash/wm/desks/desk_mini_view.h"
+#include "ash/wm/desks/desk_name_view.h"
 #include "ash/wm/desks/desks_bar_view.h"
 #include "ash/wm/desks/desks_test_util.h"
 #include "ash/wm/desks/expanded_desks_bar_button.h"
@@ -822,6 +823,41 @@ TEST_F(DesksTemplatesTest, LaunchTemplate) {
   EXPECT_EQ(3ul, desks_controller->desks().size());
   EXPECT_EQ(2, desks_controller->GetActiveDeskIndex());
   EXPECT_TRUE(InOverviewSession());
+}
+
+// Tests that launching templates from the templates grid nudges the new desk
+// name view.
+TEST_F(DesksTemplatesTest, LaunchTemplateNudgesNewDeskName) {
+  // Save an entry in the templates grid.
+  AddEntry(base::GUID::GenerateRandomV4(), "template", base::Time::Now());
+
+  DesksController* desks_controller = DesksController::Get();
+  EXPECT_EQ(1ul, desks_controller->desks().size());
+
+  // Click on the "Use template" button to launch the template.
+  OpenOverviewAndShowTemplatesGrid();
+  DesksTemplatesItemView* item_view = GetItemViewFromTemplatesGrid(
+      /*grid_item_index=*/0);
+  ClickOnView(DesksTemplatesItemViewTestApi(item_view).launch_button());
+  WaitForDesksTemplatesUI();
+
+  // Verify that we have created and activated a new desk.
+  EXPECT_EQ(2ul, desks_controller->desks().size());
+  EXPECT_EQ(1, desks_controller->GetActiveDeskIndex());
+
+  // Launching a template creates and activates a new desk without exiting
+  // overview mode, so we check that we're still in overview.
+  EXPECT_TRUE(InOverviewSession());
+
+  OverviewGrid* overview_grid = GetOverviewGridList()[0].get();
+  DeskNameView* desk_name_view =
+      overview_grid->desks_bar_view()->mini_views().back()->desk_name_view();
+
+  // Expect that the new desk name view has focus.
+  EXPECT_TRUE(overview_grid->IsDeskNameBeingModified());
+  EXPECT_TRUE(desk_name_view->HasFocus());
+  EXPECT_TRUE(desk_name_view->HasSelection());
+  EXPECT_EQ(u"template", desk_name_view->GetText());
 }
 
 // Tests that the order of DesksTemplatesItemView is in order.
@@ -2301,6 +2337,41 @@ TEST_F(DesksTemplatesTest, NoAnimationWhenRemovingDesk) {
   EXPECT_EQ(0.f, item_widget_layer->opacity());
   EXPECT_FALSE(test_window->layer()->GetAnimator()->is_animating());
   EXPECT_EQ(0.f, test_window->layer()->opacity());
+}
+
+// Tests that windows have their opacity reset after being hidden and then going
+// to a different desk. Regression test for https://crbug.com/1292174.
+TEST_F(DesksTemplatesTest, WindowOpacityResetAfterViewing) {
+  AddEntry(base::GUID::GenerateRandomV4(), "template", base::Time::Now());
+
+  // Create and a new desk, and create a couple of test windows on the active
+  // desk.
+  DesksController* desks_controller = DesksController::Get();
+  desks_controller->NewDesk(DesksCreationRemovalSource::kKeyboard);
+  auto test_window1 = CreateAppWindow();
+  auto test_window2 = CreateAppWindow();
+  auto test_window3 = CreateAppWindow();
+  ASSERT_EQ(0, desks_controller->GetActiveDeskIndex());
+  ASSERT_TRUE(desks_controller->BelongsToActiveDesk(test_window1.get()));
+  ASSERT_TRUE(desks_controller->BelongsToActiveDesk(test_window2.get()));
+  ASSERT_TRUE(desks_controller->BelongsToActiveDesk(test_window3.get()));
+
+  OpenOverviewAndShowTemplatesGrid();
+
+  // All the windows are hidden to show the templates grid.
+  EXPECT_EQ(0.f, test_window1->layer()->opacity());
+  EXPECT_EQ(0.f, test_window2->layer()->opacity());
+  EXPECT_EQ(0.f, test_window3->layer()->opacity());
+
+  ui::ScopedAnimationDurationScaleMode animation(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Activate the second desk which has no windows. Test that all the windows
+  // have their opacity restored.
+  ActivateDesk(desks_controller->desks()[1].get());
+  EXPECT_EQ(1.f, test_window1->layer()->opacity());
+  EXPECT_EQ(1.f, test_window2->layer()->opacity());
+  EXPECT_EQ(1.f, test_window3->layer()->opacity());
 }
 
 // Tests that the desks templates name view can accept touch events and get

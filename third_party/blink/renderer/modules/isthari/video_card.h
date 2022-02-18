@@ -5,6 +5,8 @@
 #include <list>
 #include <map>
 #include <string>
+
+//#include "third_party/ffmpeg/libswresample/swresample.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
@@ -33,17 +35,30 @@ public:
     void Trace(Visitor*) const override;
 
     // atributos solo lectura
+    // TODO falta duplex
+    // TODO falta un uniqueId en formato string para que sea comun entre todos los tipos de dispositivos
     bool input() { return isInput_; }
     bool output() { return isOutput_; }
     String modelName() { return String(modelName_); }
     int64_t persistentId() { return persistentId_; }
-
-    // funciones
-    void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
-    VideoFrame* getVideoFrame(ExecutionContext*);
-    void disableVideoInput();
+    int64_t subDeviceIndex() { return (long) subDeviceIndex_; }
+    String identifier();
+    
+    // Metadata
     long getModeCount() { return (long) modes_.size(); }
     VideoCardMode* getMode(long index); 
+
+    // Input
+    void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
+    void disableVideoInput();
+    VideoFrame* getVideoFrame(ExecutionContext*);
+
+    // output    
+    void enableVideoOutput(long mode);
+    void disableVideoOutput();
+    void putVideoFrame(VideoFrame* frame);        
+    void putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR);
+    void sendBlackFrame();
 
     // IDeckLinkInputCallback
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
@@ -54,33 +69,51 @@ public:
 
 
 private:
+    // acceso a la tarjeta
     IDeckLink* deckLink_;
+    
     IDeckLinkOutput *deckLinkOutput_;
     IDeckLinkInput *deckLinkInput_;
+    bool isInputEnabled_;
+    bool isOutputEnabled_;
+    long inputVideoMode_;
+    long outputVideoMode_;
 
     std::map<int, IDeckLinkDisplayMode*> displayModes_;
-    std::list<VideoCardMode *>modes_;
+    std::list<VideoCardMode *> modes_;
 
+    // atributos solo lectura
     bool isInput_;
     bool isOutput_;
     std::string modelName_;
     int64_t persistentId_;
+    int64_t subDeviceIndex_;
+    
+    // no se usa de momento
+    BMDTimeValue frameDuration_;
+    BMDTimeScale frameTimescale_;
 
+    // entrada
     Member<ExecutionContext> executionContext_;
     Member<V8VideoCardFrameCallback> frameCallback_;
     Member<V8VideoCardAudioCallback> audioCallback_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
-    Member<DOMArrayBuffer> buffer0;
-    Member<DOMArrayBuffer> buffer1;    
+    
+    // Parte de entrada SDI
     Member<VideoFrame> videoFrame;
-    uint8_t *frameData0;
-    uint8_t *frameData1;
-    int frameCounter_;
-
-    uint8_t** audioData0;
-    uint8_t** audioData1;
-    int audioCounter_;
-    uint64_t audioStart_;
+    uint8_t *frameData;
+    uint8_t** audioData;
+    int frameInCounter_;    
+    uint64_t inputStart_;
+    base::TimeDelta timeIn_;
+    
+    // Parte de salida SDI
+    IDeckLinkMutableVideoFrame *playbackFrame_;
+    long framesOutVideo_;   
+    uint8_t *audioDataOut_;
+    uint8_t *dstY_;
+    uint8_t *dstU_;
+    uint8_t *dstV_;
 
 private:
     void checkIO();

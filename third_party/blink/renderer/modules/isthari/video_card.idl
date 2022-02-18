@@ -5,12 +5,21 @@
     readonly attribute boolean output;
     readonly attribute DOMString modelName;
     readonly attribute long persistentId;
+    readonly attribute long subDeviceIndex;
+    readonly attribute DOMString identifier;
 
     [CallWith=ExecutionContext] void enableVideoInput(long mode,
     	VideoCardFrameCallback callbackVideo, 
     	VideoCardAudioCallback callbackAudio);
     void disableVideoInput();
+    [CallWith=ExecutionContext] VideoFrame getVideoFrame();
+    
     long getModeCount();
     VideoCardMode getMode(long index);
-    [CallWith=ExecutionContext] VideoFrame getVideoFrame();
+    
+    void enableVideoOutput(long mode);
+    void disableVideoOutput();        
+    void putVideoFrame(VideoFrame frame);
+    void putAudioFrame(Float32Array audioL, Float32Array audioR);
+    void sendBlackFrame();     
 };

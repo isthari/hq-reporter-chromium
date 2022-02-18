@@ -167,6 +167,12 @@ const base::Feature
 const base::Feature kIPHFeatureNotificationGuideVoiceSearchHelpBubbleFeature{
     "IPH_FeatureNotificationGuideVoiceSearchHelpBubble",
     base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kIPHFeatureNotificationGuideIncognitoTabUsedFeature{
+    "IPH_FeatureNotificationGuideIncognitoTabUsed",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kIPHFeatureNotificationGuideVoiceSearchUsedFeature{
+    "IPH_FeatureNotificationGuideVoiceSearchUsed",
+    base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kIPHFeedCardMenuFeature{"IPH_FeedCardMenu",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kIPHGenericAlwaysTriggerHelpUiFeature{
@@ -187,9 +193,6 @@ const base::Feature kIPHKeyboardAccessoryPaymentFillingFeature{
     "IPH_KeyboardAccessoryPaymentFilling", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kIPHKeyboardAccessoryPaymentOfferFeature{
     "IPH_KeyboardAccessoryPaymentOffer", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kIPHKeyboardAccessoryPaymentVirtualCardFeature{
-    "IPH_KeyboardAccessoryPaymentVirtualCard",
-    base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kIPHNewTabPageHomeButtonFeature{
     "IPH_NewTabPageHomeButton", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kIPHMicToolbarFeature{"IPH_MicToolbar",
@@ -279,6 +282,8 @@ const base::Feature kIPHDiscoverFeedHeaderFeature{
 
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \
     BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)
+const base::Feature kIPHAutofillVirtualCardSuggestionFeature{
+    "IPH_AutofillVirtualCardSuggestion", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kIPHUpdatedConnectionSecurityIndicatorsFeature{
     "IPH_UpdatedConnectionSecurityIndicators",
     base::FEATURE_DISABLED_BY_DEFAULT};

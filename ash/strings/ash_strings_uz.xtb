@@ -627,7 +627,6 @@ Quyidagi narsalardan boshlashingiz mumkin.</translation>
 <translation id="5075554201838155866">Taglavhalarni chiqarish</translation>
 <translation id="5078796286268621944">Noto‘g‘ri PIN-kod</translation>
 <translation id="5083553833479578423">Assistentning boshqa imkoniyatlarini oching.</translation>
-<translation id="5090752371472782287"><ph name="MANAGER" /> qurilmasiga translatsiya qilish</translation>
 <translation id="5106223312672646208">Moslashtirish</translation>
 <translation id="5117590920725113268">Keyingi oyni ko‘rsatish</translation>
 <translation id="5136175204352732067">Boshqa klaviatura ulandi</translation>
@@ -928,6 +927,7 @@ yangi oʻrnatilgan</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">Avvalgi ekran hajmiga qaytishga <ph name="TIMEOUT_SECONDS" /> qoldi.</translation>
 <translation id="7180611975245234373">Yangilash</translation>
+<translation id="718361511487535372">Google Taqvim orqali ochish</translation>
 <translation id="7188494361780961876">Menyu ekranning yuqori chap burchagiga surildi.</translation>
 <translation id="7189412385142492784">Venera qanchalik uzoq</translation>
 <translation id="7246071203293827765"><ph name="UPDATE_TEXT" />. Yangilanish amalga oshishi uchun Chromebook qayta ishga tushirilishi lozim. Bu 1 daqiqacha vaqt olishi mumkin.</translation>

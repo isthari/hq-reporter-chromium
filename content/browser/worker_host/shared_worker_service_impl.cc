@@ -289,17 +289,13 @@ SharedWorkerHost* SharedWorkerServiceImpl::CreateWorker(
   // account.
   scoped_refptr<SiteInstanceImpl> site_instance = creator.GetSiteInstance();
   if (site_instance->IsCrossOriginIsolated()) {
-    if (partition->is_guest()) {
-      site_instance = SiteInstanceImpl::CreateForGuest(
-          partition->browser_context(), partition->GetConfig());
-    } else {
-      site_instance = SiteInstanceImpl::CreateForUrlInfo(
-          partition->browser_context(),
-          UrlInfo(UrlInfoInit(instance.url())
-                      .WithStoragePartitionConfig(partition->GetConfig())
-                      .WithWebExposedIsolationInfo(
-                          WebExposedIsolationInfo::CreateNonIsolated())));
-    }
+    site_instance = SiteInstanceImpl::CreateForUrlInfo(
+        partition->browser_context(),
+        UrlInfo(UrlInfoInit(instance.url())
+                    .WithStoragePartitionConfig(partition->GetConfig())
+                    .WithWebExposedIsolationInfo(
+                        WebExposedIsolationInfo::CreateNonIsolated())),
+        partition->is_guest());
   }
 
   RenderProcessHost* worker_process_host = site_instance->GetProcess();
@@ -368,7 +364,8 @@ SharedWorkerHost* SharedWorkerServiceImpl::CreateWorker(
           host->instance().storage_key().nonce().has_value()
               ? &host->instance().storage_key().nonce().value()
               : nullptr),
-      credentials_mode, std::move(outside_fetch_client_settings_object),
+      creator.BuildClientSecurityState(), credentials_mode,
+      std::move(outside_fetch_client_settings_object),
       network::mojom::RequestDestination::kSharedWorker,
       service_worker_context_, service_worker_handle_raw,
       std::move(blob_url_loader_factory), url_loader_factory_override_,

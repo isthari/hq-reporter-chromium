@@ -299,6 +299,7 @@
 <translation id="3000461861112256445">Моно аудио</translation>
 <translation id="3009178788565917040">Чыгаруу</translation>
 <translation id="3009958530611748826">Скандалган нерселерди сактоо үчүн папка тандаңыз</translation>
+<translation id="301282384882049174">Администраторуңуз бөлүштү</translation>
 <translation id="3017687597151988916">Терезе тандалды</translation>
 <translation id="3033545621352269033">Күйүк</translation>
 <translation id="3036649622769666520">Файлдарды ачуу</translation>
@@ -626,7 +627,6 @@
 <translation id="5075554201838155866">Коштомо жазууларды баштоо</translation>
 <translation id="5078796286268621944">Туура эмес PIN</translation>
 <translation id="5083553833479578423">Жардамчынын башка функцияларын иштетиңиз.</translation>
-<translation id="5090752371472782287"><ph name="MANAGER" /> түзмөгүнө чыгаруу</translation>
 <translation id="5106223312672646208">Жекелештирүү</translation>
 <translation id="5117590920725113268">Кийинки айды көрсөтүү</translation>
 <translation id="5136175204352732067">Башка баскычтоп туташтырылды</translation>
@@ -927,6 +927,7 @@
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> кийин эски чечилишине кайтарылат</translation>
 <translation id="7180611975245234373">Жаңылоо</translation>
+<translation id="718361511487535372">Google жылнаамада ачуу</translation>
 <translation id="7188494361780961876">Меню экрандын жогорку сол бурчуна жылдырылды.</translation>
 <translation id="7189412385142492784">Венера канчалык алыс жайгашкан?</translation>
 <translation id="7246071203293827765"><ph name="UPDATE_TEXT" />. Жаңыртууну колдонуу үчүн Chromebook'ту өчүрүп күйгүзүү керек. Бул 1 мүнөткө созулушу мүмкүн.</translation>

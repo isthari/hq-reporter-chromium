@@ -40,6 +40,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.Callback;
@@ -77,6 +78,7 @@ import java.util.Collections;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
+@LooperMode(LooperMode.Mode.LEGACY)
 public class AccountSelectionControllerTest {
     private static final GURL TEST_URL = JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL);
     private static final GURL TEST_URL_1 = JUnitTestGURLs.getGURL(JUnitTestGURLs.URL_1);
@@ -487,8 +489,6 @@ public class AccountSelectionControllerTest {
         assertEquals("Incorrect terms of service URL", TEST_URL_TERMS_OF_SERVICE.getSpec(),
                 dataSharingProperties.mTermsOfServiceUrl);
         assertEquals("Incorrect continue type", ItemType.CONTINUE_BUTTON, mSheetItems.get(2).type);
-        assertEquals("incorrect rp url", formatForSecurityDisplay(TEST_URL),
-                dataSharingProperties.mFormattedRpUrl);
         assertEquals("Incorrect provider url", formatForSecurityDisplay(TEST_URL_2),
                 dataSharingProperties.mFormattedIdpUrl);
     }

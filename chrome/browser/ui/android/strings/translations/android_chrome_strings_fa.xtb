@@ -290,7 +290,6 @@
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# فایل صوتی}one{# فایل صوتی}other{# فایل صوتی}}</translation>
 <translation id="265156376773362237">پیش‌بارگیری استاندارد</translation>
 <translation id="2656405586795711023">برنامه‌های وب</translation>
-<translation id="2689830683995595741">‏با استفاده کردن از Chrome، با <ph name="BEGIN_LINK1" />شرایط خدمات Google<ph name="END_LINK1" /> و <ph name="BEGIN_LINK2" />شرایط خدمات تکمیلی Google Chrome و سیستم‌عامل Chrome<ph name="END_LINK2" /> موافقت می‌کنید. <ph name="BEGIN_LINK3" />اعلان حریم‌خصوصی برای «حساب‌های Google» مدیریت‌شده با Family Link<ph name="END_LINK3" /> نیز اعمال می‌شود.</translation>
 <translation id="2702516483241149200">جدید: هم‌رسانی پیوندی که به این نوشتار پیمایش می‌کند</translation>
 <translation id="2704606927547763573">کپی شد</translation>
 <translation id="2707726405694321444">بازخوانی صفحه</translation>
@@ -404,7 +403,6 @@
 <translation id="3264259168916048410">رایانه‌تان می‌خواهد از این دستگاه برای ورود به سیستم سایتی استفاده کند</translation>
 <translation id="3265534588625245297">مدیریت سایت‌هایی که دنبال می‌کنید</translation>
 <translation id="3269093882174072735">بارگیری تصویر</translation>
-<translation id="3269956123044984603">‏برای دسترسی به برگه‌ها از دستگاه‌های دیگرتان، «همگام‌سازی خودکار داده‌ها» را در تنظیمات حساب Android روشن کنید.</translation>
 <translation id="3280562213547448728">جستجوی گفتاری</translation>
 <translation id="3282568296779691940">‏ورود به Chrome</translation>
 <translation id="3284510035090979597">کمک کنش‌گرایانه</translation>
@@ -473,6 +471,7 @@
 <translation id="3716182511346448902">‏این صفحه از حافظه بسیار زیادی استفاده می‌کند، بنابراین Chrome موقتاً آن را متوقف کرد.</translation>
 <translation id="3721119614952978349">‏شما و Google</translation>
 <translation id="3737319253362202215">تنظیمات ترجمه</translation>
+<translation id="3737402728074743863">برای استفاده از این دستگاه به‌عنوان کلید امنیتی، قفل صفحه تنظیم کنید</translation>
 <translation id="3738139272394829648">لمس کردن برای جستجو</translation>
 <translation id="3739899004075612870">در <ph name="PRODUCT_NAME" /> نشانک‌گذاری شد</translation>
 <translation id="3740525748616366977">جستجوی گفتاری در این دستگاه دردسترس نیست</translation>
@@ -626,7 +625,6 @@
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{‏<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 و <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> گزینه دیگر}one{‏<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 و <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> گزینه دیگر}other{‏<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 و <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> گزینه دیگر}}</translation>
 <translation id="4696983787092045100">ارسال نوشتار به دستگاه‌های شما</translation>
 <translation id="4699172675775169585">تصاویر و فایل‌های قرار گرفته در حافظه پنهان</translation>
-<translation id="471759387343966120">‏درصورت ادامه دادن، با <ph name="BEGIN_TOS_LINK" />شرایط خدمات<ph name="END_TOS_LINK" /> و <ph name="BEGIN_PRIVACY_LINK" />خط‌مشی رازداری<ph name="END_PRIVACY_LINK" /> موافقت می‌کنید.\nبرای کمک به بهبود برنامه، Chrome داده‌های استفاده و ازکارافتادگی را به Google ارسال می‌کند. <ph name="BEGIN_UMA_LINK" />مدیریت<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">پیشنهاد برای ترجمه</translation>
 <translation id="4720023427747327413">بازکردن در <ph name="PRODUCT_NAME" /></translation>
 <translation id="4720982865791209136">‏به بهبود Chrome کمک کنید. <ph name="BEGIN_LINK" />در نظرسنجی شرکت کنید<ph name="END_LINK" /></translation>
@@ -909,14 +907,12 @@
 <translation id="6277522088822131679">در چاپ صفحه مشکلی پیش آمد. لطفاً دوباره امتحان کنید.</translation>
 <translation id="6277722725779679269">«پیگیری قیمت» به‌روزرسانی نشد</translation>
 <translation id="6278428485366576908">طرح زمینه</translation>
-<translation id="6292420053234093573">‏با استفاده کردن از Chrome، با <ph name="BEGIN_LINK1" />شرایط خدمات Google<ph name="END_LINK1" /> و <ph name="BEGIN_LINK2" />شرایط خدمات تکمیلی Google Chrome و سیستم‌عامل Chrome<ph name="END_LINK2" /> موافقت می‌کنید.</translation>
 <translation id="6294610283659775533">‏برگه‌ها را می‌توانید بین دستگاه‌هایی که با یک «حساب Google» به سیستم وارد شدند ارسال کنید.</translation>
 <translation id="6297765934698848803">سازمانی که دستگاهتان را مدیریت می‌کند دوربین را خاموش کرده است.</translation>
 <translation id="6301525844455696527">به فهرست خواندن سر بزنید</translation>
 <translation id="6303969859164067831">خروج از سیستم و خاموش کردن همگام‌سازی</translation>
 <translation id="6312687380483398334">برنامه‌های وب (بی‌صدا)</translation>
 <translation id="6316139424528454185">‏نسخه Android پشتیبانی نمی‌شود</translation>
-<translation id="6324034347079777476">‏همگام‌سازی سیستم Android غیرفعال شد</translation>
 <translation id="6324916366299863871">ویرایش میان‌بر</translation>
 <translation id="6324977638108296054">نمی‌توان پیوند به مورد برجسته‌شده ایجاد کرد</translation>
 <translation id="6324997754869598316">(خطای <ph name="ERROR_CODE" />)</translation>
@@ -1044,7 +1040,6 @@
 <translation id="6900532703269623216">محافظت بهبودیافته</translation>
 <translation id="6903907808598579934">روشن کردن همگام‌سازی</translation>
 <translation id="6909589135458168665">پیش‌بارگیری صفحات</translation>
-<translation id="6929699136511445623">‏فعال کردن همگام‌سازی سیستم Android</translation>
 <translation id="6942665639005891494">هرزمان بخواهید می‌توانید با استفاده از منوی «تنظیمات»، محل پیش‌فرض بارگیری را تغییر دهید</translation>
 <translation id="694267552845942083">اکنون درحال سفارشی کردن تنظیمات «همگام‌سازی» هستید. برای تکمیل روشن کردن همگام‌سازی، روی دکمه «تأیید» در پایین صفحه ضربه بزنید. پیمایش به بالا</translation>
 <translation id="6945221475159498467">انتخاب</translation>
@@ -1160,7 +1155,6 @@
 <translation id="7581273696622423628">در نظرسنجی شرکت کنید</translation>
 <translation id="7583262514280211622">فهرست خواندن را اینجا خواهید دید</translation>
 <translation id="7588219262685291874">روشن شدن طرح زمینه تیره وقتی «بهینه‌سازی باتری» دستگاه روشن است</translation>
-<translation id="7593557518625677601">‏برای شروع همگام‌سازی Chrome، تنظیمات Android را باز کنید و همگام‌سازی سیستم Android را دوباره فعال کنید</translation>
 <translation id="7594687499944811403"><ph name="EMBEDDED_ORIGIN" /> مجاز می‌شود هویت شما را برای <ph name="TOP_ORIGIN" /> تأیید کند</translation>
 <translation id="7596558890252710462">سیستم‌عامل</translation>
 <translation id="7605594153474022051">همگام‌سازی کار نمی‌کند</translation>

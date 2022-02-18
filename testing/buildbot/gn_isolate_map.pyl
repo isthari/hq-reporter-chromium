@@ -704,7 +704,6 @@
     "type": "console_test_launcher",
   },
   "content_shell_crash_test": {
-    "python3": False,
     "label": "//content/shell:content_shell_crash_test",
     "script": "//testing/scripts/content_shell_crash_test.py",
     "type": "script",
@@ -902,8 +901,8 @@
     "label": "//chrome/credential_provider/test:gcp_unittests",
     "type": "console_test_launcher",
   },
-  "gen_linux_ash_chromium_cipd_yaml": {
-    "label": "//chrome/test:gen_linux_ash_chromium_cipd_yaml",
+  "test_ash_chrome_cipd_yaml": {
+    "label": "//chrome/test:test_ash_chrome_cipd_yaml",
     "type": "additional_compile_target",
   },
   "gfx_unittests": {

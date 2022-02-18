@@ -290,7 +290,6 @@
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# ໄຟລ໌ສຽງ}other{# ໄຟລ໌ສຽງ}}</translation>
 <translation id="265156376773362237">ການໂຫຼດກ່ອນລ່ວງໜ້າແບບມາດຕະຖານ</translation>
 <translation id="2656405586795711023">ເວັບແອັບ</translation>
-<translation id="2689830683995595741">ໂດຍການໃຊ້ Chrome, ແມ່ນຖືວ່າທ່ານເຫັນດີນຳ <ph name="BEGIN_LINK1" />ຂໍ້ກຳນົດການບໍລິການຂອງ Google<ph name="END_LINK1" /> ແລະ <ph name="BEGIN_LINK2" />ຂໍ້ກຳນົດການບໍລິການເພີ່ມເຕີມຂອງ Google Chrome ແລະ Chrome OS<ph name="END_LINK2" />. ນຳໃຊ້ <ph name="BEGIN_LINK3" />ແຈ້ງການຄວາມເປັນສ່ວນຕົວສຳລັບບັນຊີ Google ທີ່ຈັດການດ້ວຍ Family Link<ph name="END_LINK3" /> ເຊັ່ນກັນ.</translation>
 <translation id="2702516483241149200">ໃໝ່: ແບ່ງປັນລິ້ງທີ່ເລື່ອນຫາຂໍ້ຄວາມນີ້</translation>
 <translation id="2704606927547763573">ອັດ​ສຳ​ເນົາ​ແລ້ວ</translation>
 <translation id="2707726405694321444">ຣີ​ເຟ​ຣ​ຊຫນ້າ</translation>
@@ -404,7 +403,6 @@
 <translation id="3264259168916048410">ຄອມພິວເຕີຂອງທ່ານຕ້ອງການໃຊ້ອຸປະກອນນີ້ເພື່ອເຂົ້າສູ່ລະບົບຫາເວັບໄຊ</translation>
 <translation id="3265534588625245297">ຈັດການເວັບໄຊທີ່ທ່ານຕິດຕາມ</translation>
 <translation id="3269093882174072735">ໂຫຼດ​ຮູບ</translation>
-<translation id="3269956123044984603">ເພື່ອໃຊ້ແຖບຂອງທ່ານຈາກອຸປະກອນອື່ນ, ໃຫ້ເປີດ “ຊິ້ງຂໍ້ມູນອັດຕະໂນມັດ” ໃນການຕັ້ງຄ່າບັນຊີ Android ຂອງທ່ານ.</translation>
 <translation id="3280562213547448728">ຊອກຫາດ້ວຍສຽງ</translation>
 <translation id="3282568296779691940">ລົງຊື່ເຂົ້າ​ໃຊ້ Chrome</translation>
 <translation id="3284510035090979597">ຄວາມຊ່ວຍເຫຼືອແບບບໍ່ຕ້ອງຮ້ອງຂໍ</translation>
@@ -627,7 +625,6 @@
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 ແລະ ອີກ <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> ທາງເລືອກການຈັດສົ່ງ}other{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 ແລະ ອີກ <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> ທາງເລືອກການຈັດສົ່ງ}}</translation>
 <translation id="4696983787092045100">ສົ່ງຂໍ້ຄວາມຫາອຸປະກອນຂອງທ່ານ</translation>
 <translation id="4699172675775169585">ຮູບ ແລະໄຟລ໌ທີ່ແຄຊ໌ແລ້ວ</translation>
-<translation id="471759387343966120">ໂດຍການສືບຕໍ່, ແມ່ນຖືວ່າທ່ານຍອມຮັບ <ph name="BEGIN_TOS_LINK" />ຂໍ້ກຳນົດບໍລິການ<ph name="END_TOS_LINK" /> ແລະ <ph name="BEGIN_PRIVACY_LINK" />ນະໂຍບາຍຄວາມເປັນສ່ວນຕົວ<ph name="END_PRIVACY_LINK" />.\nເພື່ອຊ່ວຍປັບປຸງແອັບ, Chrome ຈະສົ່ງຂໍ້ມູນການນຳໃຊ້ ແລະ ການຫຼົ້ມໄປໃຫ້ Google. <ph name="BEGIN_UMA_LINK" />ຈັດການ<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">ໃຫ້ການແປພາສາ</translation>
 <translation id="4720023427747327413">ເປີດ​ຢູ່​ໃນ <ph name="PRODUCT_NAME" /></translation>
 <translation id="4720982865791209136">ຊ່ວຍປັບປຸງ Chrome. <ph name="BEGIN_LINK" />ເຮັດການສຳຫຼວດ<ph name="END_LINK" /></translation>
@@ -910,14 +907,12 @@
 <translation id="6277522088822131679">ມີບັນຫາການພິມໜ້າ. ກະລຸນາລອງໃໝ່ອີກ.</translation>
 <translation id="6277722725779679269">ບໍ່ສາມາດອັບເດດການຕິດຕາມລາຄາໄດ້</translation>
 <translation id="6278428485366576908">ສີສັນໜ້າຕາ</translation>
-<translation id="6292420053234093573">ໂດຍການໃຊ້ Chrome, ແມ່ນຖືວ່າທ່ານເຫັນດີນຳ <ph name="BEGIN_LINK1" />ຂໍ້ກຳນົດການບໍລິການຂອງ Google<ph name="END_LINK1" /> ແລະ <ph name="BEGIN_LINK2" />ຂໍ້ກຳນົດການບໍລິການເພີ່ມເຕີມຂອງ Google Chrome ແລະ Chrome OS<ph name="END_LINK2" />.</translation>
 <translation id="6294610283659775533">ທ່ານສາມາດສົ່ງແຖບຕ່າງໆລະຫວ່າງອຸປະກອນທີ່ເຂົ້າສູ່ລະບົບດ້ວຍບັນຊີ Google ດຽວກັນໄດ້</translation>
 <translation id="6297765934698848803">ອົງການທີ່ຈັດການອຸປະກອນຂອງທ່ານໄດ້ປິດກ້ອງຂອງທ່ານແລ້ວ.</translation>
 <translation id="6301525844455696527">ຕິດຕາມລາຍການອ່ານຂອງທ່ານ</translation>
 <translation id="6303969859164067831">ອອກຈາກລະບົບ ແລະ ປິດການຊິ້ງຂໍ້ມູນ</translation>
 <translation id="6312687380483398334">ແອັບເວັບ (ມິດງຽບ)</translation>
 <translation id="6316139424528454185">ບໍ່ຮອງຮັບເວີຊັນ Android</translation>
-<translation id="6324034347079777476">ການຊິ້ງຂໍ້ມູນລະບົບ Android ປິດນຳໃຊ້ຢູ່</translation>
 <translation id="6324916366299863871">ແກ້ໄຂທາງລັດ</translation>
 <translation id="6324977638108296054">ບໍ່ສາມາດສ້າງລິ້ງໄປຍັງໄຮໄລ້ໄດ້</translation>
 <translation id="6324997754869598316">(ຜິດພາດ <ph name="ERROR_CODE" />)</translation>
@@ -1045,7 +1040,6 @@
 <translation id="6900532703269623216">ການປົກປ້ອງທີ່ປັບປຸງດີຂຶ້ນ</translation>
 <translation id="6903907808598579934">ເປີດການຊິ້ງຂໍ້ມູນ</translation>
 <translation id="6909589135458168665">ໂຫຼດໜ້າກ່ອນລ່ວງໜ້າ</translation>
-<translation id="6929699136511445623">ເປີດການນຳໃຊ້ການຊິ້ງຂໍ້ມູນລະບົບຂອງ Android</translation>
 <translation id="6942665639005891494">ປ່ຽນບ່ອນຈັດເກັບການດາວໂຫຼດເລີ່ມຕົ້ນໄດ້ທຸກເວລາ ໂດຍໃຊ້ຕົວເລືອກເມນູການຕັ້ງຄ່າ</translation>
 <translation id="694267552845942083">ທ່ານກຳລັງປັບແຕ່ງການຕັ້ງຄ່າການຊິ້ງຂໍ້ມູນຂອງທ່ານໃນຂະນະນີ້. ເພື່ອສຳເລັດການເປີດການຊິ້ງຂໍ້ມູນ, ກະລຸນາແຕະປຸ່ມຢືນຢັນຢູ່ໃກ້ລຸ່ມສຸດຂອງໜ້າຈໍ. ເລື່ອນຂຶ້ນ</translation>
 <translation id="6945221475159498467">ເລືອກ</translation>
@@ -1161,7 +1155,6 @@
 <translation id="7581273696622423628">ເຮັດແບບສຳຫຼວດ</translation>
 <translation id="7583262514280211622">ທ່ານຈະເຫັນລາຍການອື່ນຂອງທ່ານຢູ່ບ່ອນນີ້</translation>
 <translation id="7588219262685291874">ເປີດຮູບແບບສີສັນມືດເມື່ອຕົວປະຢັດແບັດເຕີຣີຂອງອຸປະກອນຂອງທ່ານເປີດຢູ່</translation>
-<translation id="7593557518625677601">ເປີດການຕັ້ງຄ່າ Android ແລະ ເປີດໃຊ້ການຊິ້ງຂໍ້ມູນລະບົບ Android ຄືນໃໝ່ເພື່ອເລີ່ມ Chrome sync</translation>
 <translation id="7594687499944811403">ໃຫ້ <ph name="EMBEDDED_ORIGIN" /> ຢັ້ງຢືນວ່າແມ່ນທ່ານສຳລັບ <ph name="TOP_ORIGIN" /></translation>
 <translation id="7596558890252710462">ລະ​ບົບ​ປະຕິບັດການ</translation>
 <translation id="7605594153474022051">ການຊິ້ງຂໍ້ມູນໃຊ້ບໍ່ໄດ້</translation>

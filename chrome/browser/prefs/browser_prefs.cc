@@ -96,7 +96,6 @@
 #include "components/certificate_transparency/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 #include "components/dom_distiller/core/distilled_page_prefs.h"
 #include "components/dom_distiller/core/dom_distiller_features.h"
 #include "components/dom_distiller/core/pref_names.h"
@@ -352,6 +351,7 @@
 #include "chrome/browser/ash/power/auto_screen_brightness/metrics_reporter.h"
 #include "chrome/browser/ash/power/power_metrics_reporter.h"
 #include "chrome/browser/ash/preferences.h"
+#include "chrome/browser/ash/printing/cups_printers_manager.h"
 #include "chrome/browser/ash/printing/enterprise_printers_provider.h"
 #include "chrome/browser/ash/release_notes/release_notes_storage.h"
 #include "chrome/browser/ash/scanning/chrome_scanning_app_delegate.h"
@@ -361,8 +361,7 @@
 #include "chrome/browser/ash/system/input_device_settings.h"
 #include "chrome/browser/ash/web_applications/help_app/help_app_notification_controller.h"
 #include "chrome/browser/chromeos/extensions/echo_private_api.h"
-#include "chrome/browser/chromeos/extensions/login_screen/login/login_api.h"
-#include "chrome/browser/chromeos/printing/cups_printers_manager.h"
+#include "chrome/browser/chromeos/extensions/login_screen/login/prefs.h"
 #include "chrome/browser/device_identity/chromeos/device_oauth2_token_store_chromeos.h"
 #include "chrome/browser/extensions/extension_assets_manager_chromeos.h"
 #include "chrome/browser/media/protected_media_identifier_permission_context.h"
@@ -465,17 +464,6 @@ const char kFeatureUsageDailySampleESim[] = "feature_usage.daily_sample.ESim";
 const char kFeatureUsageDailySampleFingerprint[] =
     "feature_usage.daily_sample.Fingerprint";
 
-// Deprecated 12/2020
-const char kLocalSearchServiceSyncMetricsDailySample[] =
-    "local_search_service_sync.metrics.daily_sample";
-const char kLocalSearchServiceSyncMetricsCrosSettingsCount[] =
-    "local_search_service_sync.metrics.cros_settings_count";
-const char kLocalSearchServiceSyncMetricsHelpAppCount[] =
-    "local_search_service_sync.metrics.help_app_count";
-
-// Deprecated 12/2020
-const char kFirstRunTrialGroup[] = "help_app_first_run.trial_group";
-
 // Deprecated 10/2021
 const char kHasCameraAppMigratedToSWA[] = "camera.has_migrated_to_swa";
 
@@ -485,19 +473,6 @@ const char kTimesHIDDialogShown[] = "HIDDialog.shown_how_many_times";
 // Deprecated 10/2021
 const char kSplitSettingsSyncTrialGroup[] = "split_settings_sync.trial_group";
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// Deprecated 12/2020
-const char kAssistantPrivacyInfoShownInLauncher[] =
-    "ash.launcher.assistant_privacy_info_shown";
-
-const char kAssistantPrivacyInfoDismissedInLauncher[] =
-    "ash.launcher.assistant_privacy_info_dismissed";
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-// Deprecated 12/2020
-const char kAssistantQuickAnswersEnabled[] =
-    "settings.voice_interaction.quick_answers.enabled";
 
 // Deprecated 01/2021
 const char kGoogleServicesHostedDomain[] = "google.services.hosted_domain";
@@ -742,6 +717,11 @@ const char kThisWeekUserTrafficContentTypeDownstreamKB[] =
     "data_reduction.this_week_user_traffic_contenttype_downstream_kb";
 const char kLastWeekUserTrafficContentTypeDownstreamKB[] =
     "data_reduction.last_week_user_traffic_contenttype_downstream_kb";
+const char kDataSaverEnabled[] = "spdy_proxy.enabled";
+const char kDataReductionProxyWasEnabledBefore[] =
+    "spdy_proxy.was_enabled_before";
+const char kDataReductionProxyLastEnabledTime[] =
+    "data_reduction.last_enabled_time";
 
 // Register local state used only for migration (clearing or moving to a new
 // key).
@@ -749,13 +729,6 @@ void RegisterLocalStatePrefsForMigration(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(kTabStripStackedLayout, false);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  registry->RegisterStringPref(kFirstRunTrialGroup, std::string());
-
-  registry->RegisterInt64Pref(kLocalSearchServiceSyncMetricsDailySample, 0);
-  registry->RegisterIntegerPref(kLocalSearchServiceSyncMetricsHelpAppCount, 0);
-  registry->RegisterIntegerPref(kLocalSearchServiceSyncMetricsCrosSettingsCount,
-                                0);
-
   registry->RegisterInt64Pref(kFeatureUsageDailySampleESim, 0);
   registry->RegisterIntegerPref(kTimesHIDDialogShown, 0);
   registry->RegisterStringPref(kSplitSettingsSyncTrialGroup, std::string());
@@ -801,16 +774,6 @@ void RegisterProfilePrefsForMigration(
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   chrome_browser_net::secure_dns::RegisterProbesSettingBackupPref(registry);
-
-  registry->RegisterBooleanPref(prefs::kWebAppsUserDisplayModeCleanedUp, false);
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  registry->RegisterIntegerPref(kAssistantPrivacyInfoShownInLauncher, 0);
-  registry->RegisterBooleanPref(kAssistantPrivacyInfoDismissedInLauncher,
-                                false);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-  registry->RegisterBooleanPref(kAssistantQuickAnswersEnabled, true);
 
   registry->RegisterStringPref(kGoogleServicesHostedDomain, std::string());
 
@@ -983,6 +946,9 @@ void RegisterProfilePrefsForMigration(
                                    PrefRegistry::LOSSY_PREF);
   registry->RegisterDictionaryPref(kLastWeekUserTrafficContentTypeDownstreamKB,
                                    PrefRegistry::LOSSY_PREF);
+  registry->RegisterBooleanPref(kDataSaverEnabled, false);
+  registry->RegisterBooleanPref(kDataReductionProxyWasEnabledBefore, false);
+  registry->RegisterInt64Pref(kDataReductionProxyLastEnabledTime, 0L);
 }
 
 }  // namespace
@@ -992,7 +958,6 @@ void RegisterLocalState(PrefRegistrySimple* registry) {
   // prefs en masse. See RegisterProfilePrefs for per-profile prefs. Please
   // keep this list alphabetized.
   browser_shutdown::RegisterPrefs(registry);
-  data_reduction_proxy::RegisterPrefs(registry);
   BrowserProcessImpl::RegisterPrefs(registry);
   ChromeContentBrowserClient::RegisterLocalStatePrefs(registry);
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -1573,12 +1538,6 @@ void MigrateObsoleteLocalStatePrefs(PrefService* local_state) {
   // Please don't delete the preceding line. It is used by PRESUBMIT.py.
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Added 12/2020.
-  local_state->ClearPref(kFirstRunTrialGroup);
-  local_state->ClearPref(kLocalSearchServiceSyncMetricsDailySample);
-  local_state->ClearPref(kLocalSearchServiceSyncMetricsCrosSettingsCount);
-  local_state->ClearPref(kLocalSearchServiceSyncMetricsHelpAppCount);
-
   // Added 5/2021
   local_state->ClearPref(kFeatureUsageDailySampleESim);
 
@@ -1622,6 +1581,10 @@ void MigrateObsoleteLocalStatePrefs(PrefService* local_state) {
   local_state->ClearPref(kStabilityIncompleteSessionEndCount);
   local_state->ClearPref(kStabilitySessionEndCompleted);
 
+  // Added 01/2022.
+  invalidation::InvalidatorRegistrarWithMemory::
+      ClearTopicsWithObsoleteOwnerNames(local_state);
+
   // Please don't delete the following line. It is used by PRESUBMIT.py.
   // END_MIGRATE_OBSOLETE_LOCAL_STATE_PREFS
 }
@@ -1648,19 +1611,9 @@ void MigrateObsoleteProfilePrefs(Profile* profile) {
       profile_prefs);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Added 12/2020
-  profile_prefs->ClearPref(kAssistantPrivacyInfoShownInLauncher);
-  profile_prefs->ClearPref(kAssistantPrivacyInfoDismissedInLauncher);
-
   // Added 10/2021
   profile_prefs->ClearPref(kHasCameraAppMigratedToSWA);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-  // Added 12/2020
-  profile_prefs->ClearPref(prefs::kWebAppsUserDisplayModeCleanedUp);
-
-  // Added 12/2020
-  profile_prefs->ClearPref(kAssistantQuickAnswersEnabled);
 
   // Added 01/2021
   profile_prefs->ClearPref(kGoogleServicesHostedDomain);
@@ -1670,6 +1623,9 @@ void MigrateObsoleteProfilePrefs(Profile* profile) {
 #if BUILDFLAG(IS_ANDROID)
   // Added 02/2021
   feed::MigrateObsoleteProfilePrefsFeb_2021(profile_prefs);
+
+  // Added 01/2022.
+  syncer::ClearObsoleteSyncDecoupledFromAndroidMasterSync(profile_prefs);
 #endif  // BUILDFLAG(IS_ANDROID)
   syncer::ClearObsoletePassphrasePromptPrefs(profile_prefs);
 
@@ -1887,6 +1843,13 @@ void MigrateObsoleteProfilePrefs(Profile* profile) {
   profile_prefs->ClearPref(kLastWeekServicesDownstreamForegroundKB);
   profile_prefs->ClearPref(kThisWeekUserTrafficContentTypeDownstreamKB);
   profile_prefs->ClearPref(kLastWeekUserTrafficContentTypeDownstreamKB);
+  profile_prefs->ClearPref(kDataSaverEnabled);
+  profile_prefs->ClearPref(kDataReductionProxyWasEnabledBefore);
+  profile_prefs->ClearPref(kDataReductionProxyLastEnabledTime);
+
+  // Added 01/2022.
+  invalidation::InvalidatorRegistrarWithMemory::
+      ClearTopicsWithObsoleteOwnerNames(profile_prefs);
 
   // Please don't delete the following line. It is used by PRESUBMIT.py.
   // END_MIGRATE_OBSOLETE_PROFILE_PREFS

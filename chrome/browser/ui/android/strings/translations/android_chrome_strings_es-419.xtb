@@ -290,7 +290,6 @@ Para buscar una palabra, mantenla presionada. Si quieres definir mejor la búsqu
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# archivo de audio}other{# archivos de audio}}</translation>
 <translation id="265156376773362237">Precarga estándar</translation>
 <translation id="2656405586795711023">Aplicaciones web</translation>
-<translation id="2689830683995595741">Si usas Chrome, aceptas las <ph name="BEGIN_LINK1" />Condiciones del Servicio de Google<ph name="END_LINK1" /> y las <ph name="BEGIN_LINK2" />Condiciones del Servicio Adicionales de Google Chrome y el Sistema operativo Chrome<ph name="END_LINK2" />. También se aplica el <ph name="BEGIN_LINK3" />Aviso de Privacidad para las Cuentas de Google administradas con Family Link<ph name="END_LINK3" />.</translation>
 <translation id="2702516483241149200">Nuevo: Comparte un vínculo directo a este texto.</translation>
 <translation id="2704606927547763573">Copiado</translation>
 <translation id="2707726405694321444">Actualizar página</translation>
@@ -404,7 +403,6 @@ Para buscar una palabra, mantenla presionada. Si quieres definir mejor la búsqu
 <translation id="3264259168916048410">Tu computadora quiere usar este dispositivo para acceder a un sitio</translation>
 <translation id="3265534588625245297">Administra los sitios que sigues</translation>
 <translation id="3269093882174072735">Cargar imagen</translation>
-<translation id="3269956123044984603">Para obtener las pestañas de tus otros dispositivos, activa la opción "Sincronización automática de datos" en la configuración de la cuenta de Android.</translation>
 <translation id="3280562213547448728">Búsqueda por voz</translation>
 <translation id="3282568296779691940">Acceder a Chrome</translation>
 <translation id="3284510035090979597">Ayuda proactiva</translation>
@@ -473,6 +471,7 @@ Para buscar una palabra, mantenla presionada. Si quieres definir mejor la búsqu
 <translation id="3716182511346448902">Chrome pausó esta página porque usa demasiada memoria.</translation>
 <translation id="3721119614952978349">Tú y Google</translation>
 <translation id="3737319253362202215">Configuración de traducción</translation>
+<translation id="3737402728074743863">Establece un bloqueo de pantalla para usar este dispositivo como llave de seguridad</translation>
 <translation id="3738139272394829648">Tocar para buscar</translation>
 <translation id="3739899004075612870">Agregado a favoritos en <ph name="PRODUCT_NAME" /></translation>
 <translation id="3740525748616366977">La búsqueda por voz no está disponible en este dispositivo.</translation>
@@ -626,7 +625,6 @@ Es posible que tu cuenta de Google tenga otros formularios de historial de naveg
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" /> y <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> más}other{<ph name="SHIPPING_OPTION_PREVIEW" /> y <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> más}}</translation>
 <translation id="4696983787092045100">Enviar texto a tus dispositivos</translation>
 <translation id="4699172675775169585">Imágenes y archivos almacenados en caché</translation>
-<translation id="471759387343966120">Si continúas, aceptas las <ph name="BEGIN_TOS_LINK" />Condiciones del Servicio<ph name="END_TOS_LINK" /> y la <ph name="BEGIN_PRIVACY_LINK" />Política de\u00A0Privacidad<ph name="END_PRIVACY_LINK" />.\nPara ayudarnos a mejorar la app, Chrome envía datos de uso y fallas a Google. <ph name="BEGIN_UMA_LINK" />Administrar<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">Ofrecer la traducción</translation>
 <translation id="4720023427747327413">Abrir en <ph name="PRODUCT_NAME" /></translation>
 <translation id="4720982865791209136">Ayuda a mejorar Chrome. <ph name="BEGIN_LINK" />Realiza la encuesta<ph name="END_LINK" /></translation>
@@ -909,14 +907,12 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mediante anuncio
 <translation id="6277522088822131679">Se produjo un error al imprimir la página. Vuelve a intentarlo.</translation>
 <translation id="6277722725779679269">No se pudo actualizar la función Seguir precio</translation>
 <translation id="6278428485366576908">Tema</translation>
-<translation id="6292420053234093573">Si usas Chrome, aceptas las <ph name="BEGIN_LINK1" />Condiciones del Servicio de Google<ph name="END_LINK1" /> y las <ph name="BEGIN_LINK2" />Condiciones del Servicio Adicionales de Google Chrome y el Sistema operativo Chrome<ph name="END_LINK2" />.</translation>
 <translation id="6294610283659775533">Puedes enviar pestañas entre dispositivos en los que se haya accedido a la misma Cuenta de Google.</translation>
 <translation id="6297765934698848803">La organización que administra tu dispositivo desactivó la cámara.</translation>
 <translation id="6301525844455696527">Ponte al día con tus lecturas</translation>
 <translation id="6303969859164067831">Salir y desactivar la sincronización</translation>
 <translation id="6312687380483398334">Aplicaciones web (discretas)</translation>
 <translation id="6316139424528454185">Versión Android no compatible</translation>
-<translation id="6324034347079777476">Sincronización del sistema Android inhabilitada</translation>
 <translation id="6324916366299863871">Editar acceso directo</translation>
 <translation id="6324977638108296054">No se puede crear el vínculo al texto destacado</translation>
 <translation id="6324997754869598316">(Error <ph name="ERROR_CODE" />)</translation>
@@ -1044,7 +1040,6 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mediante anuncio
 <translation id="6900532703269623216">Protección mejorada</translation>
 <translation id="6903907808598579934">Activar la sincronización</translation>
 <translation id="6909589135458168665">Precargar páginas</translation>
-<translation id="6929699136511445623">Habilitar la sincronización del sistema Android</translation>
 <translation id="6942665639005891494">Cambia la ubicación predeterminada de las descargas en cualquier momento en la opción de menú de Configuración</translation>
 <translation id="694267552845942083">Estás personalizando la configuración de sincronización. Para activar la sincronización, presiona el botón Confirmar que se encuentra cerca de la parte inferior de la pantalla. Subir</translation>
 <translation id="6945221475159498467">Seleccionar</translation>
@@ -1160,7 +1155,6 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mediante anuncio
 <translation id="7581273696622423628">Responder encuesta</translation>
 <translation id="7583262514280211622">Aquí encontrarás tu lista de lectura</translation>
 <translation id="7588219262685291874">Activar el tema oscuro cuando esté activado el Ahorro de batería de tu dispositivo</translation>
-<translation id="7593557518625677601">Para iniciar la Sincronización de Chrome, abre la configuración de Android y vuelve a habilitar la sincronización del sistema Android</translation>
 <translation id="7594687499944811403">Permite que <ph name="EMBEDDED_ORIGIN" /> verifique tu identidad para <ph name="TOP_ORIGIN" />.</translation>
 <translation id="7596558890252710462">Sistema operativo</translation>
 <translation id="7605594153474022051">La sincronización no funciona</translation>

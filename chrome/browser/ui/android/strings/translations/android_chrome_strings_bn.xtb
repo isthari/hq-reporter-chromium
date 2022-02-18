@@ -290,7 +290,6 @@
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{#টি অডিও ফাইল}one{#টি অডিও ফাইল}other{#টি অডিও ফাইল}}</translation>
 <translation id="265156376773362237">স্ট্যান্ডার্ড প্রিলোডিং</translation>
 <translation id="2656405586795711023">ওয়েব অ্যাপ</translation>
-<translation id="2689830683995595741">Chrome ব্যবহার করার মাধ্যমে, আপনি <ph name="BEGIN_LINK1" />Google পরিষেবার শর্তাবলী<ph name="END_LINK1" /> এবং <ph name="BEGIN_LINK2" />Google Chrome ও Chrome OS-এর পরিষেবার অতিরিক্ত শর্তাবলী<ph name="END_LINK2" /> মেনে নিচ্ছেন। তাছাড়া, এর সাথে <ph name="BEGIN_LINK3" />Family Link-এর মাধ্যমে ম্যানেজ করা Google অ্যাকাউন্টের গোপনীয়তা বিজ্ঞপ্তি<ph name="END_LINK3" />ও প্রযোজ্য হবে।</translation>
 <translation id="2702516483241149200">নতুন: এই টেক্সট পর্যন্ত স্ক্রোল করতে পারে এমন লিঙ্ক শেয়ার করুন</translation>
 <translation id="2704606927547763573">প্রতিলিপি করা হয়েছে</translation>
 <translation id="2707726405694321444">পৃষ্ঠা রিফ্রেশ করুন</translation>
@@ -404,7 +403,6 @@
 <translation id="3264259168916048410">কোনও সাইটে সাইন-ইন করার জন্য আপনার কম্পিউটার এই ডিভাইসটি ব্যবহার করতে চায়</translation>
 <translation id="3265534588625245297">আপনার ফলো করা সাইটগুলি ম্যানেজ করুন</translation>
 <translation id="3269093882174072735">ছবি লোড করুন</translation>
-<translation id="3269956123044984603">আপনার অন্য ডিভাইসগুলি থেকে আপনার ট্যাবগুলি পেতে, Android অ্যাকাউন্ট সেটিংসে "ডেটা অটো-সিঙ্ক" চালু করুন।</translation>
 <translation id="3280562213547448728">ভয়েস সার্চ</translation>
 <translation id="3282568296779691940">Chrome-এ সাইন-ইন করুন</translation>
 <translation id="3284510035090979597">আগেভাগে সহায়তা</translation>
@@ -473,6 +471,7 @@
 <translation id="3716182511346448902">এই পৃষ্ঠাটি খুব বেশি মেমরি ব্যবহার করছে তাই Chrome এটি বিরত রেখেছে।</translation>
 <translation id="3721119614952978349">আপনি এবং Google</translation>
 <translation id="3737319253362202215">অনুবাদ সেটিংস</translation>
+<translation id="3737402728074743863">নিরাপত্তা কী হিসেবে এই ডিভাইস ব্যবহার করার জন্য, স্ক্রিন লক সেট করুন</translation>
 <translation id="3738139272394829648">স্পর্শের মাধ্যমে সার্চ</translation>
 <translation id="3739899004075612870"><ph name="PRODUCT_NAME" /> এ বুকমার্ক করা হয়েছে</translation>
 <translation id="3740525748616366977">এই ডিভাইসে ভয়েস সার্চ উপলভ্য নেই</translation>
@@ -628,7 +627,6 @@
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 এবং <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> আরও অনেক}one{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 এবং <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> আরও অনেক}other{<ph name="SHIPPING_OPTION_PREVIEW" />\u2026 এবং <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> আরও অনেক}}</translation>
 <translation id="4696983787092045100">আপনার ডিভাইসে টেক্সট পাঠান</translation>
 <translation id="4699172675775169585">ক্যাশে করা ছবি এবং ফাইলগুলি</translation>
-<translation id="471759387343966120">চালিয়ে যাওয়ার অর্থ আপনি <ph name="BEGIN_TOS_LINK" />পরিষেবার শর্তাবলী<ph name="END_TOS_LINK" /> ও <ph name="BEGIN_PRIVACY_LINK" />গোপনীয়তা\u00A0নীতি<ph name="END_PRIVACY_LINK" />তে সম্মতি জানাচ্ছেন।\nঅ্যাপের উন্নতি করার জন্য Chrome ক্র্যাশ ও ব্যবহারের ডেটা Google-কে পাঠায়। <ph name="BEGIN_UMA_LINK" />ম্যানেজ করুন<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">অনুবাদ করুন</translation>
 <translation id="4720023427747327413"><ph name="PRODUCT_NAME" /> এ খুলুন</translation>
 <translation id="4720982865791209136">Chrome উন্নত করতে সাহায্য করুন। <ph name="BEGIN_LINK" />সমীক্ষায় অংশ নিন।<ph name="END_LINK" /></translation>
@@ -911,14 +909,12 @@
 <translation id="6277522088822131679">পৃষ্ঠাটি প্রিন্ট করার সময় একটি সমস্যা হয়েছিল৷ দয়া করে আবার চেষ্টা করুন৷</translation>
 <translation id="6277722725779679269">দাম ট্র্যাক করার ফিচার আপডেট করা যায়নি</translation>
 <translation id="6278428485366576908">থীম</translation>
-<translation id="6292420053234093573">Chrome ব্যবহার করার মাধ্যমে, আপনি <ph name="BEGIN_LINK1" />Google পরিষেবার শর্তাবলী<ph name="END_LINK1" /> এবং <ph name="BEGIN_LINK2" />Google Chrome ও Chrome OS-এর পরিষেবার অতিরিক্ত শর্তাবলী<ph name="END_LINK2" /> মেনে নিচ্ছেন।</translation>
 <translation id="6294610283659775533">আপনি একই Google অ্যাকাউন্টের মাধ্যমে সাইন-ইন করা ডিভাইসের মধ্যে ট্যাব পাঠাতে পারেন</translation>
 <translation id="6297765934698848803">যে সংস্থাটি আপনার ডিভাইস ম্যানেজ করে সেটি আপনার ক্যামেরা বন্ধ করে দিয়েছে।</translation>
 <translation id="6301525844455696527">আপনি যা পড়তে চান সেগুলি দেখুন</translation>
 <translation id="6303969859164067831">সাইন-আউট করুন এবং সিঙ্ক করা বন্ধ করুন</translation>
 <translation id="6312687380483398334">ওয়েব অ্যাপ (কোনও রকম আওয়াজ ছাড়া)</translation>
 <translation id="6316139424528454185">এই Android ভার্সন সমর্থিত নয়</translation>
-<translation id="6324034347079777476">Android সিস্টেম সিঙ্ক অক্ষম করা হয়েছে</translation>
 <translation id="6324916366299863871">শর্টকার্ট এডিট করুন</translation>
 <translation id="6324977638108296054">হাইলাইট করা টেক্সটের লিঙ্ক কপি করা যাচ্ছে না</translation>
 <translation id="6324997754869598316">(সমস্যা <ph name="ERROR_CODE" />)</translation>
@@ -1046,7 +1042,6 @@
 <translation id="6900532703269623216">উন্নত সুরক্ষা</translation>
 <translation id="6903907808598579934">সিঙ্ক চালু করুন</translation>
 <translation id="6909589135458168665">পৃষ্ঠা প্রিলোড করা</translation>
-<translation id="6929699136511445623">Android সিস্টেম সিঙ্ক চালু করুন</translation>
 <translation id="6942665639005891494">সেটিংস মেনুর বিকল্পে গিয়ে যেকোনও সময় ডাউনলোডের ডিফল্ট লোকেশন পরিবর্তন করুন</translation>
 <translation id="694267552845942083">এখন আপনার সিঙ্ক সেটিংস কাস্টমাইজ করছেন। স্ক্রিনের নিচের দিকে থাকা "কনফার্ম করুন" বোতামে ট্যাপ করে সিঙ্ক চালু করুন। উপরের দিকে নেভিগেট করুন</translation>
 <translation id="6945221475159498467">নির্বাচন</translation>
@@ -1162,7 +1157,6 @@
 <translation id="7581273696622423628">সমীক্ষায় যোগ দিন</translation>
 <translation id="7583262514280211622">আপনি নিজের পড়ার তালিকা এখানে খুঁজে পাবেন</translation>
 <translation id="7588219262685291874">আপনার ডিভাইস ব্যাটারি সেভারে চললে গাঢ় থিম চালু করুন</translation>
-<translation id="7593557518625677601">Android সেটিংস খুলে Chrome সিঙ্ক শুরু করতে Android সিস্টেমকে পুনরায় সক্ষম করুন</translation>
 <translation id="7594687499944811403"><ph name="TOP_ORIGIN" />-এর জন্য <ph name="EMBEDDED_ORIGIN" />-কে আপনার পরিচয় যাচাই করতে দিন</translation>
 <translation id="7596558890252710462">অপারেটিং সিস্টেম</translation>
 <translation id="7605594153474022051">সিঙ্ক কাজ করছে না</translation>

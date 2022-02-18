@@ -235,10 +235,11 @@ class CORE_EXPORT LocalFrame final
 
   void Reload(WebFrameLoadType);
 
-  // Note: these two functions are not virtual but intentionally shadow the
+  // Note: these three functions are not virtual but intentionally shadow the
   // corresponding method in the Frame base class to return the
   // LocalFrame-specific subclass.
   LocalWindowProxy* WindowProxy(DOMWrapperWorld&);
+  LocalWindowProxy* WindowProxyMaybeUninitialized(DOMWrapperWorld&);
   LocalDOMWindow* DomWindow();
   const LocalDOMWindow* DomWindow() const;
   void SetDOMWindow(LocalDOMWindow*);
@@ -430,11 +431,7 @@ class CORE_EXPORT LocalFrame final
   AdTracker* GetAdTracker() { return ad_tracker_; }
   void SetAdTrackerForTesting(AdTracker* ad_tracker);
 
-  enum class LazyLoadImageSetting {
-    kDisabled,
-    kEnabledExplicit,
-    kEnabledAutomatic
-  };
+  enum class LazyLoadImageSetting { kDisabled, kEnabledExplicit };
   // Returns the enabled state of lazyloading of images.
   LazyLoadImageSetting GetLazyLoadImageSetting() const;
 
@@ -879,16 +876,6 @@ class CORE_EXPORT LocalFrame final
   std::unique_ptr<WebURLLoaderFactory> url_loader_factory_;
 
   ClientHintsPreferences client_hints_preferences_;
-
-  // The value of |is_save_data_enabled_| is read once per frame from
-  // NetworkStateNotifier, which is guarded by a mutex lock, and cached locally
-  // here for performance.
-  // TODO(sclittle): This field doesn't really belong here - we should find some
-  // way to make the state of NetworkStateNotifier accessible without needing to
-  // acquire a mutex, such as by adding thread-local objects to hold the network
-  // state that get updated whenever the network state changes. That way, this
-  // field would be no longer necessary.
-  const bool is_save_data_enabled_;
 
   IsCapturingMediaCallback is_capturing_media_callback_;
 

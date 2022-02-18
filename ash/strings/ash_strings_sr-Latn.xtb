@@ -299,6 +299,7 @@ Evo nekoliko stvari koje možete da probate za početak.</translation>
 <translation id="3000461861112256445">Mono zvuk</translation>
 <translation id="3009178788565917040">Izlaz</translation>
 <translation id="3009958530611748826">Izaberite folder za čuvanje</translation>
+<translation id="301282384882049174">Deli administrator</translation>
 <translation id="3017687597151988916">Oblast za izbor je podešena na prozor</translation>
 <translation id="3033545621352269033">Uključeno</translation>
 <translation id="3036649622769666520">Otvaranje datoteka</translation>
@@ -626,7 +627,6 @@ Evo nekoliko stvari koje možete da probate za početak.</translation>
 <translation id="5075554201838155866">Pokreni titl</translation>
 <translation id="5078796286268621944">Netačan PIN</translation>
 <translation id="5083553833479578423">Otključajte još funkcija Pomoćnika.</translation>
-<translation id="5090752371472782287">Prebacujte na uređaj <ph name="MANAGER" /></translation>
 <translation id="5106223312672646208">Personalizujte</translation>
 <translation id="5117590920725113268">Prikaži sledeći mesec</translation>
 <translation id="5136175204352732067">Neka druga tastatura je povezana</translation>
@@ -927,6 +927,7 @@ Novo instaliranje</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">Vraćanje na staru rezoluciju za <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7180611975245234373">Osveži</translation>
+<translation id="718361511487535372">Otvori u Google kalendaru</translation>
 <translation id="7188494361780961876">Meni je premešten u gornji levi ugao ekrana.</translation>
 <translation id="7189412385142492784">Koliko daleko je Venera</translation>
 <translation id="7246071203293827765"><ph name="UPDATE_TEXT" />. Ovaj Chromebook mora da se rastartuje radi primene ažuriranja. Ovo može da potraje najviše 1 minut.</translation>

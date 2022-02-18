@@ -299,6 +299,7 @@
 <translation id="3000461861112256445">মোনো অডিও</translation>
 <translation id="3009178788565917040">আউটপুট</translation>
 <translation id="3009958530611748826">কোন ফোল্ডারে সেভ করতে চান তা বেছে নিন</translation>
+<translation id="301282384882049174">আপনার অ্যাডমিনিস্ট্রেটর শেয়ার করেছেন</translation>
 <translation id="3017687597151988916">উইন্ডোকে সোর্স হিসেবে সেট করা হয়েছে</translation>
 <translation id="3033545621352269033">চালু করা আছে</translation>
 <translation id="3036649622769666520">ফাইল খুলুন</translation>
@@ -626,7 +627,6 @@
 <translation id="5075554201838155866">ক্লোজড ক্যাপশন শুরু করুন</translation>
 <translation id="5078796286268621944">ভুল পিন</translation>
 <translation id="5083553833479578423">অ্যাসিস্ট্যান্ট-এর আরও বৈশিষ্ট্য আনলক করুন।</translation>
-<translation id="5090752371472782287"><ph name="MANAGER" /> ডিভাইসে কাস্ট করুন</translation>
 <translation id="5106223312672646208">পছন্দমতো</translation>
 <translation id="5117590920725113268">পরবর্তী মাস দেখান</translation>
 <translation id="5136175204352732067">বিভিন্ন কীবোর্ড কানেক্ট করা হয়েছে</translation>
@@ -927,6 +927,7 @@
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> -এ পুরনো রেজোলিউশানে ফেরানো হচ্ছে</translation>
 <translation id="7180611975245234373">রিফ্রেশ করুন</translation>
+<translation id="718361511487535372">Google calendar-এ খুলুন</translation>
 <translation id="7188494361780961876">স্ক্রিনের উপরে বাঁদিকের কোণায় মেনু সরে গেছে।</translation>
 <translation id="7189412385142492784">পৃথিবী থেকে শুক্র গ্রহের দুরত্ব কত</translation>
 <translation id="7246071203293827765"><ph name="UPDATE_TEXT" />। একটি আপডেট প্রয়োগ করতে Chromebook রিস্টার্ট করতে হবে। এতে ১ মিনিট পর্যন্ত সময় লাগতে পারে।</translation>

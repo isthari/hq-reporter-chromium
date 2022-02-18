@@ -290,7 +290,6 @@ Vyhledávání spustíte podržením libovolného slova. Vyhledávání můžete
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# zvukový soubor}few{# zvukové soubory}many{# zvukového souboru}other{# zvukových souborů}}</translation>
 <translation id="265156376773362237">Standardní předběžné načítání</translation>
 <translation id="2656405586795711023">Webové aplikace</translation>
-<translation id="2689830683995595741">Používáním Chromu vyjadřujete souhlas se <ph name="BEGIN_LINK1" />smluvními podmínkami společnosti Google<ph name="END_LINK1" /> a <ph name="BEGIN_LINK2" />doplňujícími smluvními podmínkami prohlížeče Chrome a systému Chrome OS<ph name="END_LINK2" />. Platí také <ph name="BEGIN_LINK3" />upozornění ve věci ochrany soukromí pro účty Google spravované prostřednictvím služby Family<ph name="END_LINK3" />.</translation>
 <translation id="2702516483241149200">Nové: Sdílení odkazu, který obsah posune na tento text</translation>
 <translation id="2704606927547763573">Zkopírováno</translation>
 <translation id="2707726405694321444">Obnovit stránku</translation>
@@ -404,7 +403,6 @@ Vyhledávání spustíte podržením libovolného slova. Vyhledávání můžete
 <translation id="3264259168916048410">Váš počítač chce toto zařízení používat k přihlašování na web</translation>
 <translation id="3265534588625245297">Správa sledovaných webů</translation>
 <translation id="3269093882174072735">Načíst obrázek</translation>
-<translation id="3269956123044984603">Chcete-li získat přístup ke kartám ze svých ostatních zařízení, zapněte v nastavení účtu Android možnost Automatická synchronizace dat.</translation>
 <translation id="3280562213547448728">Hlasové vyhledávání</translation>
 <translation id="3282568296779691940">Přihlásit se do Chromu</translation>
 <translation id="3284510035090979597">Proaktivní nápověda</translation>
@@ -473,6 +471,7 @@ Vyhledávání spustíte podržením libovolného slova. Vyhledávání můžete
 <translation id="3716182511346448902">Tato stránka využívá příliš mnoho paměti, proto ji Chrome pozastavil.</translation>
 <translation id="3721119614952978349">Vy a Google</translation>
 <translation id="3737319253362202215">Nastavení překladu</translation>
+<translation id="3737402728074743863">Pokud toto zařízení chcete používat jako bezpečnostní klíč, nastavte zámek obrazovky</translation>
 <translation id="3738139272394829648">Vyhledání klepnutím</translation>
 <translation id="3739899004075612870">Přidáno do záložek (<ph name="PRODUCT_NAME" />)</translation>
 <translation id="3740525748616366977">Hlasové vyhledávání není v tomto zařízení k dispozici</translation>
@@ -626,7 +625,6 @@ Na stránce <ph name="BEGIN_LINK" />history.google.com<ph name="END_LINK" /> moh
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" /> a <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> další}few{<ph name="SHIPPING_OPTION_PREVIEW" /> a <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> další}many{<ph name="SHIPPING_OPTION_PREVIEW" /> a <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> další}other{<ph name="SHIPPING_OPTION_PREVIEW" /> a <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> dalších}}</translation>
 <translation id="4696983787092045100">Odeslat text do vašich zařízení</translation>
 <translation id="4699172675775169585">Obrázky a soubory v mezipaměti</translation>
-<translation id="471759387343966120">Pokračováním vyjadřujete souhlas se <ph name="BEGIN_TOS_LINK" />smluvními podmínkami<ph name="END_TOS_LINK" /> a <ph name="BEGIN_PRIVACY_LINK" />zásadami ochrany soukromí<ph name="END_PRIVACY_LINK" />.\nZa účelem vylepšování aplikace odesílá Chrome do Googlu údaje o využití a selháních. <ph name="BEGIN_UMA_LINK" />Spravovat<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">Nabízet překlad</translation>
 <translation id="4720023427747327413">Otevřít v aplikaci <ph name="PRODUCT_NAME" /></translation>
 <translation id="4720982865791209136">Pomozte Chrome zlepšit. <ph name="BEGIN_LINK" />Zúčastněte se průzkumu<ph name="END_LINK" />.</translation>
@@ -909,14 +907,12 @@ Některé weby mohou například na tento požadavek reagovat tak, že vám zobr
 <translation id="6277522088822131679">Při tištění stránky došlo k problému. Zkuste to prosím znovu.</translation>
 <translation id="6277722725779679269">Sledování ceny se nepodařilo aktualizovat</translation>
 <translation id="6278428485366576908">Motiv</translation>
-<translation id="6292420053234093573">Používáním Chromu vyjadřujete souhlas se <ph name="BEGIN_LINK1" />smluvními podmínkami společnosti Google<ph name="END_LINK1" /> a <ph name="BEGIN_LINK2" />doplňujícími smluvními podmínkami prohlížeče Chrome a systému Chrome OS<ph name="END_LINK2" />.</translation>
 <translation id="6294610283659775533">Mezi zařízeními přihlášenými ke stejnému účtu Google lze posílat karty</translation>
 <translation id="6297765934698848803">Organizace, která spravuje vaše zařízení, kameru vypnula.</translation>
 <translation id="6301525844455696527">Sledujte svůj seznam k přečtení</translation>
 <translation id="6303969859164067831">Odhlásit a vypnout synchronizaci</translation>
 <translation id="6312687380483398334">Webové aplikace (tiché)</translation>
 <translation id="6316139424528454185">Nepodporovaná verze Androidu</translation>
-<translation id="6324034347079777476">Synchronizace systému Android je vypnuta.</translation>
 <translation id="6324916366299863871">Upravit zkratku</translation>
 <translation id="6324977638108296054">Odkaz na zvýraznění nelze vytvořit</translation>
 <translation id="6324997754869598316">(Chyba <ph name="ERROR_CODE" />)</translation>
@@ -1044,7 +1040,6 @@ Některé weby mohou například na tento požadavek reagovat tak, že vám zobr
 <translation id="6900532703269623216">Vylepšená ochrana</translation>
 <translation id="6903907808598579934">Zapnout synchronizaci</translation>
 <translation id="6909589135458168665">Předběžně načítat stránky</translation>
-<translation id="6929699136511445623">Zapnout synchronizaci systému Android</translation>
 <translation id="6942665639005891494">Výchozí umístění pro stažené soubory můžete kdykoliv změnit pomocí možnosti v nabídce Nastavení.</translation>
 <translation id="694267552845942083">Momentálně upravujete nastavení synchronizace. Zapnutí synchronizace dokončíte klepnutím na tlačítko Potvrdit, které se nachází u dolního okraje obrazovky. Přejít nahoru</translation>
 <translation id="6945221475159498467">Vybrat</translation>
@@ -1160,7 +1155,6 @@ Některé weby mohou například na tento požadavek reagovat tak, že vám zobr
 <translation id="7581273696622423628">Zúčastnit se průzkumu</translation>
 <translation id="7583262514280211622">Zde najdete svůj seznam četby</translation>
 <translation id="7588219262685291874">Když je na zařízení zapnutý spořič baterie, zapnout tmavý motiv</translation>
-<translation id="7593557518625677601">Chcete-li spustit synchronizaci Chromu, povolte synchronizaci systému Android.</translation>
 <translation id="7594687499944811403">Umožněte doméně <ph name="EMBEDDED_ORIGIN" /> ověřit vaši totožnost pro doménu <ph name="TOP_ORIGIN" /></translation>
 <translation id="7596558890252710462">Operační systém</translation>
 <translation id="7605594153474022051">Synchronizace nefunguje</translation>

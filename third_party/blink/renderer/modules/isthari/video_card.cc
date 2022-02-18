@@ -1,6 +1,7 @@
 #include "video_card.h"
 #include <chrono>
 #include <string>
+#include <sstream>
 
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
@@ -19,24 +20,28 @@
 #endif
 #include "third_party/libyuv/include/libyuv.h"
 
+#include <utility>
+
 namespace blink {
 
 VideoCard::VideoCard(IDeckLink *deckLink)
     : deckLink_(deckLink),
+      isInputEnabled_(false),
+      isOutputEnabled_(false),
+      inputVideoMode_(-1),
+      outputVideoMode_(-1),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get())
-{
-    frameData0 = (uint8_t*) malloc(1920*1080*4);
-    frameData1 = (uint8_t*) malloc(1920*1080*4);
-    buffer0 = DOMArrayBuffer::Create((const void*)frameData0, 1920*1080*4);
-    buffer1 = DOMArrayBuffer::Create((const void*)frameData0, 1920*1080*4);    
-    frameCounter_ = 0;
+{  
+    // TODO GC
+    audioDataOut_ = (uint8_t*) malloc (1024*2*2);
 
-    audioData0 = (uint8_t **) malloc(sizeof (uint8_t *) );
-    audioData1 = (uint8_t **) malloc(sizeof (uint8_t *) );    
-    audioData0[0] = (uint8_t*) malloc(48000 * 2 * 2);  // equivalente a 1 segundo de audio    audi
-    audioData1[0] = (uint8_t*) malloc(48000 * 2 * 2);  // equivalente a 1 segundo de audio    audi    
-    audioCounter_ = 0;
-    audioStart_ = 0;
+    framesOutVideo_ = 0;
+    // TODO GC
+    frameData = (uint8_t*) malloc(1920*1080*4);
+    audioData = (uint8_t **) malloc(sizeof (uint8_t *) );
+    audioData[0] = (uint8_t*) malloc(48000 * 2 * 2);  // equivalente a 1 segundo de audio 
+    frameInCounter_ = 0;
+    inputStart_ = 0;
 
     dlstring_t deviceNameString;
     deckLink_->GetModelName(&deviceNameString);
@@ -46,20 +51,35 @@ VideoCard::VideoCard(IDeckLink *deckLink)
     
     VLOG(0) << "GetAttributes";
     IDeckLinkProfileAttributes *deckLinkAttributes = NULL;
-    deckLink->QueryInterface(IID_IDeckLinkProfileAttributes,
-			(void**) &deckLinkAttributes);
+    deckLink->QueryInterface(IID_IDeckLinkProfileAttributes, (void**) &deckLinkAttributes);
 
     deckLinkAttributes->GetInt(BMDDeckLinkPersistentID, &persistentId_);
+    deckLinkAttributes->GetInt(BMDDeckLinkSubDeviceIndex, &subDeviceIndex_);
     deckLinkAttributes->Release();
 
     this->checkIO();
     this->getDisplayModes();
+
+    // crear el resampler
+    // TODO GC
+/*    this->resampler_ = swr_alloc_set_opts(NULL,
+		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 48000,
+		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLTP, 48000,
+		    0, NULL);
+		    */
+}
+
+String VideoCard::identifier() { 
+    std::stringstream ss;
+    ss << std::hex << persistentId_;
+    return String(ss.str()); 
 }	
 
 /**
  * Comprueba si soporta entrada / salida
  */
 void VideoCard::checkIO() {
+    // TODO añadir duplex
     // check output support
     HRESULT oResult = this->deckLink_->QueryInterface(IID_IDeckLinkOutput, (void**) &this->deckLinkOutput_);
     if (oResult != S_OK) {
@@ -108,7 +128,6 @@ void VideoCard::getDisplayModes() {
 			    displayMode->GetHeight(),
 			    0.0);
             modes_.push_back(mode);	    
-	    // TODO crear un campo en la clase para guardar el modo seleccionado
 	}
     }
 }
@@ -120,25 +139,99 @@ VideoCardMode* VideoCard::getMode(long index)
 	return *l_front;
 }
 
+void VideoCard::enableVideoOutput(long mode) {
+    if (!isOutput_) {
+        VLOG(0) << "Device does not support video output";
+        return;
+    }
+    
+    if (isOutputEnabled_) {
+        VLOG(0) << "Output already enabled";
+        return;
+    }
+    
+    // TODO verificar si admite full duplex antes de desactivar
+    if (isInputEnabled_ ) {
+        VLOG(0) << "Disable video input";
+        this->disableVideoInput();
+    }
+        
+    isOutputEnabled_ = true;
+    outputVideoMode_ = mode;
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
+    
+    // TODO GC
+    long width = displayMode->GetWidth();
+    long height = displayMode->GetHeight();
+    dstY_ = (uint8_t*) malloc (width*1.5*height);
+    dstU_ = (uint8_t*) malloc (width/4*height);
+    dstV_ = (uint8_t*) malloc (width/4*height);
+    
+    displayMode->GetFrameRate(&frameDuration_, &frameTimescale_);
+    BMDDisplayMode bmdMode = displayMode->GetDisplayMode();            
+    HRESULT video = deckLinkOutput_->EnableVideoOutput(bmdMode, bmdVideoOutputRP188);
+    if (video == S_OK) {
+        VLOG(0) << "enable video output ok";
+    } else {
+        VLOG(0) << "enable video output error";
+    }
+    
+    // TODO GC
+    VLOG(0) << "create video frame " << width << "x" << height;
+    deckLinkOutput_->CreateVideoFrame((int32_t) width,
+		    	(int32_t) height,
+		    	(int32_t) width*2, // asume siempre 8 bit YUV
+		    	bmdFormat8BitYUV,
+		    	bmdFrameFlagDefault,
+		    	&playbackFrame_);
+		    	
+    // TODO añadir soporte para los 16 canales restantes		    	
+    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, 2, bmdAudioOutputStreamContinuous);
+    if (audio == S_OK) {
+        VLOG(0) << "enable audio output ok";        
+    } else {
+        VLOG(0) << "enable audio output error";
+    }
+}
+
 void VideoCard::disableVideoInput() 
 {
-    // TODO guardar si esta activo o no para poder hacer un disable al recargar la web
-    deckLinkInput_->DisableVideoInput();
-    deckLinkInput_->DisableAudioInput();
+    if (isInputEnabled_) {
+        deckLinkInput_->DisableVideoInput();
+        deckLinkInput_->DisableAudioInput();
+    }
+    isInputEnabled_ = false;
+}
+
+void VideoCard::disableVideoOutput() {
+    if (isOutputEnabled_) {
+        deckLinkOutput_->DisableVideoOutput();
+        deckLinkOutput_->DisableAudioOutput();
+    }
+    isOutputEnabled_ = false;
 }
 
 void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
+    if (isInputEnabled_) {
+        VLOG(0) << "Input already enabled";
+        return;
+    }
+    
+    inputVideoMode_ = mode;    
+    // TODO desactivar si esta en modo output y no soporta full duplex
     frameCallback_ = frameCallback;
     audioCallback_ = audioCallback;
     HRESULT result;
+    
+    // Bloque de video
     VLOG(0) << "Enabling Video Input ";
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
-//    IDeckLinkDisplayMode *displayMode = displayModes_[11];
     result = deckLinkInput_->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitYUV, 0);
     if (result != S_OK) {
         VLOG(0) << "  Error enabling Video Input ";
     }
 
+    // bloque de audio
     int channels = 2;
     HRESULT audio = deckLinkInput_->EnableAudioInput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, channels);
     if (audio == S_OK) {
@@ -149,6 +242,9 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, 
     result = deckLinkInput_->StartStreams();
     if (result != S_OK) {
         VLOG(0) << "  Error starting streams ";
+    } else {
+        VLOG(0) << "Input enabled";
+        isInputEnabled_ = true;
     }
 }
 
@@ -160,27 +256,33 @@ HRESULT VideoCard::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDe
 
 HRESULT VideoCard::VideoInputFrameArrived(
 		IDeckLinkVideoInputFrame *videoFrame,
-		IDeckLinkAudioInputPacket *audioFrame) {
-
+		IDeckLinkAudioInputPacket *audioFrame) {       
+    if (inputStart_ == 0){
+        inputStart_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    } 
+    		
+    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    if (now==inputStart_) {
+        now = now + 10000;
+    }
+    timeIn_ = base::Microseconds(now-inputStart_);    		
     if(videoFrame) {
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
 	    // no data
 	} else {
-	    // TODO llevarlo a una funcion solo video
-            // VLOG(0) << "Video input frame arrived";
-            // TODO generar un video_frame y devolverlo a traves del callback
+	    // TODO llevarlo a una funcion solo video                        	    
+	    IDeckLinkDisplayMode *displayMode = displayModes_[(int)inputVideoMode_];
+	    int width = (int) displayMode->GetWidth();
+	    int height = (int) displayMode->GetHeight();
 	    
 	    void *frameBytes;
 	    auto result = videoFrame->GetBytes(&frameBytes);
-	    //VLOG(0) << "pre convert "<<result << " " << videoFrame->GetWidth() << " "<<videoFrame->GetHeight()<< " "<< videoFrame->GetPixelFormat()<< " "<<videoFrame->GetFlags();
 	    if (result == S_OK){
-	        libyuv::UYVYToARGB((const uint8_t*) frameBytes, 1920*2,
-		   	    (frameCounter_%2==0)?frameData0:frameData1,
-			    1920*4,
-			    1920, 1080);
-		//VLOG(0) << "post convert";			    
+	        libyuv::UYVYToARGB((const uint8_t*) frameBytes, width*2,		   	    
+		   	    frameData,
+			    width*4,
+			    width, height);
 		PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnVideoFrameReceived,WrapCrossThreadWeakPersistent(this)));
-		//VLOG(0) << "post input frame arrived";
 	    }            
         }
     }
@@ -189,63 +291,56 @@ HRESULT VideoCard::VideoInputFrameArrived(
 	// TODO llevarlo a una funcion solo audio
 	void *frameBytes;
 	int samples = (int) audioFrame->GetSampleFrameCount();
-	// TODO como saber cuantos canales hay?
-    //    VLOG(0) << "audio frame samples " << samples;
 	int size = (int) (samples * 2 * 2);
 	audioFrame->GetBytes(&frameBytes);
-	memcpy(audioCounter_%2==0?audioData0[0]:audioData1[0], frameBytes, size);	
+	memcpy(audioData[0], frameBytes, size);			
         PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), samples));    
     }
-  
+    frameInCounter_++;
+
     return S_OK;
 }
 
 void VideoCard::OnVideoFrameReceived() {
-    //VLOG(0) << "pre wrap";
-    //VLOG(0) << "pre handle frame";
-    auto qtf = frameCallback_->handleFrame(nullptr, 10);
-    //VLOG(0) << "pre isjust";
+    if(!frameCallback_->IsCallbackObjectCallable()) {
+//        VLOG(0) << "No video callback available";     
+        return;
+    }
+
+    auto qtf = frameCallback_->handleFrame(nullptr, frameInCounter_);
     qtf.IsJust();
-    //VLOG(0) << "post ist just";
 }
 
 VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {    
-    //VLOG(0) << "getVideoFrame call";
-    gfx::Size size(1920, 1080);
-    base::TimeDelta timestamp;
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)inputVideoMode_];
+    int width = (int) displayMode->GetWidth();
+    int height = (int) displayMode->GetHeight();    
+    gfx::Size size(width, height);
+
     auto frame = media::VideoFrame::WrapExternalData(media::PIXEL_FORMAT_ARGB,
 		    size,
 		    gfx::Rect(size),
 		    size,
-		    (frameCounter_%2==0)?frameData0:frameData1, 1920*1080*4,
-		    timestamp);
-    frameCounter_++;	    
-    //VLOG(0) << "pre create "<<frameCounter_;	   
+		    frameData,
+		    width*height*4,
+		    timeIn_);    	
     this->videoFrame = MakeGarbageCollected<VideoFrame>(frame, context);
-
     return this->videoFrame;
 }
 
 void VideoCard::OnAudioFrameReceived(int samples) {
-//    VLOG(0) << "audio frame samples: " << samples;
-   
-    if (audioStart_ == 0){
-        audioStart_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    } 
-    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    if(!audioCallback_->IsCallbackObjectCallable()) {
+//        VLOG(0) << "No audio callback available";
+        return;
+    }
 
-    //base::TimeDelta timestamp = base::Microseconds(0);
     auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
 		    media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
 		    2, // channel count
                     48000, // sample rate
 		    samples, 
-		    (const uint8_t* const*) (audioCounter_%2==0)?audioData0:audioData1,		    
-		    // TODO sumar al timestamp en funcion del sample rate, cambiar int por long long
-		    base::Microseconds(now-audioStart_));
-		//    base::Microseconds(audioCounter_ * 1600.0/48000.0*1000000.0)); 
-    //timestamp);   
-    audioCounter_++;
+		    audioData,
+		    timeIn_);
 		    
     auto *frame2 = MakeGarbageCollected<AudioData>(frame);
     auto qtf = audioCallback_->handleFrame(nullptr, frame2);
@@ -254,12 +349,107 @@ void VideoCard::OnAudioFrameReceived(int samples) {
 
 void VideoCard::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
-    visitor->Trace(buffer0);
-    visitor->Trace(buffer1);
     visitor->Trace(videoFrame);
     visitor->Trace(audioCallback_);
     visitor->Trace(frameCallback_);
     visitor->Trace(executionContext_);
+}
+
+void VideoCard::putVideoFrame(VideoFrame* frame) {
+/*
+    LOG(ERROR) << "format: " << std::__to_underlying(frame->format()->AsEnum())
+	<< " width " << frame->codedWidth()
+	<< " height " << frame->codedHeight();
+	*/
+
+    auto width = frame->codedWidth();
+    auto height = frame->codedHeight();
+    auto mediaFrame = frame->frame();
+
+    uint8_t *deckLinkBuffer = nullptr;
+    
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
+    uint32_t widthOut = (uint32_t) displayMode->GetWidth();
+    uint32_t heightOut = (uint32_t) displayMode->GetHeight();    
+    int dstStrideY = widthOut;
+    int dstStrideU = widthOut/2;
+    int dstStrideV = widthOut/2;
+    
+    playbackFrame_->GetBytes((void**) &deckLinkBuffer);
+    if (width==widthOut && height==heightOut) {
+        // si coinciden los parametros		
+        libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
+			mediaFrame->data(1), mediaFrame->stride(1),
+			mediaFrame->data(2), mediaFrame->stride(2),
+			deckLinkBuffer,
+			width*2, width, height-1);			
+    } else {
+        // scale
+        libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
+		mediaFrame->data(1), mediaFrame->stride(1),
+		mediaFrame->data(2), mediaFrame->stride(2),
+		width, height,
+		dstY_, dstStrideY, 		
+		dstU_, dstStrideU,
+		dstV_, dstStrideV,
+		widthOut, heightOut,
+		libyuv::FilterMode::kFilterBox);
+    
+        libyuv::I420ToUYVY(dstY_, dstStrideY,
+    			dstU_, dstStrideU,
+    			dstV_, dstStrideV,
+			deckLinkBuffer,
+			widthOut*2, widthOut, heightOut-1);
+    }			
+    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
+}
+
+void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR) { 
+//    LOG(ERROR) << "send audio";
+    int index = 0;
+    DOMFloat32Array* aL0 = audioL.Get();
+    DOMFloat32Array* aR0 = audioR.Get();
+    const float* aL1 = (const float*) aL0->buffer()->Data();
+    const float* aR1 = (const float*) aR0->buffer()->Data();
+    uint8_t a1;
+    uint8_t a2;
+    int out;
+    for (int i=0; i<480; i++) {
+	out = aL1[i] * 32768;
+	a1 = (uint8_t) (out >> 8 & 0xff);
+	a2 = (uint8_t) (out & 0xff);
+	audioDataOut_[index++] = a2;
+	audioDataOut_[index++] = a1;
+
+	out = aR1[i] * 32768;
+        a1 = (uint8_t) (out >> 8 & 0xff);
+        a2 = (uint8_t) (out & 0xff);
+	audioDataOut_[index++] = a2;
+	audioDataOut_[index++] = a1;
+    }
+    uint32_t written;    
+    deckLinkOutput_->WriteAudioSamplesSync((void*) audioDataOut_, 480, &written);
+}
+
+void VideoCard::sendBlackFrame() {
+IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
+    uint32_t width = (uint32_t) displayMode->GetWidth();
+    uint32_t height = (uint32_t) displayMode->GetHeight();   
+    int dstStrideY = width*1.5;
+    int dstStrideU = width/4;
+    int dstStrideV = width/4;
+    memset(dstY_, 0, dstStrideY * height);
+    memset(dstU_, 128, dstStrideU * height);
+    memset(dstV_, 128, dstStrideV * height);        
+
+    uint8_t *deckLinkBuffer = nullptr;
+    playbackFrame_->GetBytes((void**) &deckLinkBuffer);        
+    libyuv::I420ToUYVY(dstY_, dstStrideY,
+    			dstU_, dstStrideU,
+    			dstV_, dstStrideV,
+			deckLinkBuffer,
+			width*2, width, height-1);
+    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);    
 }
 
 } // namespace blink

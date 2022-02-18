@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/check_op.h"
-#include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
@@ -22,10 +21,10 @@
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_report.h"
 #include "content/browser/attribution_reporting/attribution_storage_sql_migrations.h"
+#include "content/browser/attribution_reporting/attribution_trigger.h"
 #include "content/browser/attribution_reporting/common_source_info.h"
 #include "content/browser/attribution_reporting/sql_utils.h"
 #include "content/browser/attribution_reporting/storable_source.h"
-#include "content/browser/attribution_reporting/storable_trigger.h"
 #include "content/browser/attribution_reporting/stored_source.h"
 #include "sql/database.h"
 #include "sql/recovery.h"
@@ -116,17 +115,31 @@ const base::FilePath::CharType kDatabasePath[] =
 // Version 15 - 2021/11/13 - https://crrev.com/c/3180180
 //
 // Version 15 adds the conversions.external_report_id column.
-const int kCurrentVersionNumber = 15;
+//
+// Version 16 - 2022/01/31 - https://crrev.com/c/3421414
+//
+// Version 16 replaces the event_source_impression_site_idx with
+// impression_site_reporting_origin_idx, which applies to both source types and
+// includes the reporting origin.
+//
+// Version 17 - 2022/01/31 - https://crrev.com/c/3427311
+//
+// Version 17 removes the rate_limits.bucket and rate_limits.value columns.
+const int kCurrentVersionNumber = 17;
 
 // Earliest version which can use a |kCurrentVersionNumber| database
 // without failing.
-const int kCompatibleVersionNumber = 15;
+const int kCompatibleVersionNumber = 17;
 
 // Latest version of the database that cannot be upgraded to
 // |kCurrentVersionNumber| without razing the database.
 //
 // Versions 1-14 were deprecated by https://crrev.com/c/3421175.
-const int kDeprecatedVersionNumber = 14;
+//
+// Version 15 was deprecated by https://crrev.com/c/3421414.
+//
+// Version 16 was deprecated by https://crrev.com/c/3427311.
+const int kDeprecatedVersionNumber = 16;
 
 void RecordInitializationStatus(
     const AttributionStorageSql::InitStatus status) {
@@ -143,19 +156,19 @@ void RecordReportsDeleted(int count) {
                             count);
 }
 
-int SerializeAttributionLogic(CommonSourceInfo::AttributionLogic val) {
+int SerializeAttributionLogic(StoredSource::AttributionLogic val) {
   return static_cast<int>(val);
 }
 
-absl::optional<CommonSourceInfo::AttributionLogic> DeserializeAttributionLogic(
+absl::optional<StoredSource::AttributionLogic> DeserializeAttributionLogic(
     int val) {
   switch (val) {
-    case static_cast<int>(CommonSourceInfo::AttributionLogic::kNever):
-      return CommonSourceInfo::AttributionLogic::kNever;
-    case static_cast<int>(CommonSourceInfo::AttributionLogic::kTruthfully):
-      return CommonSourceInfo::AttributionLogic::kTruthfully;
-    case static_cast<int>(CommonSourceInfo::AttributionLogic::kFalsely):
-      return CommonSourceInfo::AttributionLogic::kFalsely;
+    case static_cast<int>(StoredSource::AttributionLogic::kNever):
+      return StoredSource::AttributionLogic::kNever;
+    case static_cast<int>(StoredSource::AttributionLogic::kTruthfully):
+      return StoredSource::AttributionLogic::kTruthfully;
+    case static_cast<int>(StoredSource::AttributionLogic::kFalsely):
+      return StoredSource::AttributionLogic::kFalsely;
     default:
       return absl::nullopt;
   }
@@ -208,11 +221,11 @@ absl::optional<SourceToAttribute> ReadSourceToAttribute(
   if (conversion_origin.opaque())
     return absl::nullopt;
 
-  absl::optional<CommonSourceInfo::AttributionLogic> attribution_logic =
+  absl::optional<StoredSource::AttributionLogic> attribution_logic =
       DeserializeAttributionLogic(statement.ColumnInt(4));
   // There should never be an unattributed source with `kFalsely`.
   if (!attribution_logic.has_value() ||
-      attribution_logic == CommonSourceInfo::AttributionLogic::kFalsely) {
+      attribution_logic == StoredSource::AttributionLogic::kFalsely) {
     return absl::nullopt;
   }
 
@@ -232,9 +245,9 @@ absl::optional<SourceToAttribute> ReadSourceToAttribute(
       .source = StoredSource(
           CommonSourceInfo(source_event_id, std::move(impression_origin),
                            std::move(conversion_origin), reporting_origin,
-                           impression_time, expiry_time, *source_type, priority,
-                           *attribution_logic),
-          source_id),
+                           impression_time, expiry_time, *source_type,
+                           priority),
+          *attribution_logic, source_id),
       .num_conversions = num_conversions,
   };
 }
@@ -252,7 +265,7 @@ absl::optional<StoredSource> ReadSourceFromStatement(
   base::Time expiry_time = statement.ColumnTime(6);
   absl::optional<CommonSourceInfo::SourceType> source_type =
       DeserializeSourceType(statement.ColumnInt(7));
-  absl::optional<CommonSourceInfo::AttributionLogic> attribution_logic =
+  absl::optional<StoredSource::AttributionLogic> attribution_logic =
       DeserializeAttributionLogic(statement.ColumnInt(8));
   int64_t priority = statement.ColumnInt64(9);
 
@@ -263,8 +276,8 @@ absl::optional<StoredSource> ReadSourceFromStatement(
       CommonSourceInfo(source_event_id, std::move(impression_origin),
                        std::move(conversion_origin),
                        std::move(reporting_origin), impression_time,
-                       expiry_time, *source_type, priority, *attribution_logic),
-      source_id);
+                       expiry_time, *source_type, priority),
+      *attribution_logic, source_id);
 }
 
 }  // namespace
@@ -364,14 +377,14 @@ AttributionStorageSql::DeactivateSources(
   return deactivated_sources;
 }
 
-std::vector<DeactivatedSource> AttributionStorageSql::StoreSource(
+AttributionStorage::StoreSourceResult AttributionStorageSql::StoreSource(
     const StorableSource& source,
     int deactivated_source_return_limit) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Force the creation of the database if it doesn't exist, as we need to
   // persist the source.
   if (!LazyInit(DbCreationPolicy::kCreateIfAbsent))
-    return {};
+    return StoreSourceResult(StoreSourceResult::Status::kInternalError);
 
   // Only delete expired impressions periodically to avoid excessive DB
   // operations.
@@ -381,7 +394,7 @@ std::vector<DeactivatedSource> AttributionStorageSql::StoreSource(
   const base::Time now = base::Time::Now();
   if (now - last_deleted_expired_sources_ >= delete_frequency) {
     if (!DeleteExpiredSources())
-      return {};
+      return StoreSourceResult(StoreSourceResult::Status::kInternalError);
     last_deleted_expired_sources_ = now;
   }
 
@@ -391,18 +404,22 @@ std::vector<DeactivatedSource> AttributionStorageSql::StoreSource(
   // error.
   const std::string serialized_impression_origin =
       SerializeOrigin(common_info.impression_origin());
-  if (!HasCapacityForStoringSource(serialized_impression_origin))
-    return {};
+  if (!HasCapacityForStoringSource(serialized_impression_origin)) {
+    return StoreSourceResult(
+        StoreSourceResult::Status::kInsufficientSourceCapacity);
+  }
+
+  if (!HasCapacityForUniqueDestinationLimitForPendingSource(source)) {
+    return StoreSourceResult(
+        StoreSourceResult::Status::kInsufficientUniqueDestinationCapacity);
+  }
 
   // Wrap the deactivation and insertion in the same transaction. If the
   // deactivation fails, we do not want to store the new source as we may
   // return the wrong set of sources for a trigger.
   sql::Transaction transaction(db_.get());
   if (!transaction.Begin())
-    return {};
-
-  if (!EnsureCapacityForPendingDestinationLimit(source))
-    return {};
+    return StoreSourceResult(StoreSourceResult::Status::kInternalError);
 
   const std::string serialized_conversion_destination =
       common_info.ConversionDestination().Serialize();
@@ -417,7 +434,21 @@ std::vector<DeactivatedSource> AttributionStorageSql::StoreSource(
                         serialized_reporting_origin,
                         deactivated_source_return_limit);
   if (!deactivated_sources.has_value())
-    return {};
+    return StoreSourceResult(StoreSourceResult::Status::kInternalError);
+
+  AttributionStorage::Delegate::RandomizedResponse randomized_response =
+      delegate_->GetRandomizedResponse(common_info);
+
+  int num_conversions = 0;
+  auto attribution_logic = StoredSource::AttributionLogic::kTruthfully;
+  bool active = true;
+  if (randomized_response.has_value()) {
+    num_conversions = randomized_response->size();
+    attribution_logic = num_conversions == 0
+                            ? StoredSource::AttributionLogic::kNever
+                            : StoredSource::AttributionLogic::kFalsely;
+    active = num_conversions == 0;
+  }
 
   static constexpr char kInsertImpressionSql[] =
       "INSERT INTO impressions"
@@ -437,53 +468,33 @@ std::vector<DeactivatedSource> AttributionStorageSql::StoreSource(
   statement.BindTime(5, common_info.impression_time());
   statement.BindTime(6, common_info.expiry_time());
   statement.BindInt(7, SerializeSourceType(common_info.source_type()));
-  statement.BindInt(8,
-                    SerializeAttributionLogic(common_info.attribution_logic()));
+  statement.BindInt(8, SerializeAttributionLogic(attribution_logic));
   statement.BindInt64(9, common_info.priority());
   statement.BindString(10, common_info.ImpressionSite().Serialize());
-
-  if (common_info.attribution_logic() ==
-      CommonSourceInfo::AttributionLogic::kFalsely) {
-    // Falsely attributed impressions are immediately stored with
-    // `num_conversions == 1` and `active == 0`, as they will be attributed via
-    // the below call to `StoreReport()` in the same transaction.
-    statement.BindInt(11, 1);  // num_conversions
-    statement.BindInt(12, 0);  // active
-  } else {
-    statement.BindInt(11, 0);  // num_conversions
-    statement.BindInt(12, 1);  // active
-  }
+  statement.BindInt(11, num_conversions);
+  statement.BindBool(12, active);
 
   if (!statement.Run())
-    return {};
+    return StoreSourceResult(StoreSourceResult::Status::kInternalError);
 
-  if (common_info.attribution_logic() ==
-      CommonSourceInfo::AttributionLogic::kFalsely) {
-    DCHECK_EQ(CommonSourceInfo::SourceType::kEvent, common_info.source_type());
-    DCHECK(source.fake_trigger_data().has_value());
-
-    StoredSource::Id source_id(db_->GetLastInsertRowId());
-
+  if (attribution_logic == StoredSource::AttributionLogic::kFalsely) {
+    const StoredSource::Id source_id(db_->GetLastInsertRowId());
     const base::Time trigger_time = common_info.impression_time();
-    const base::Time report_time =
-        delegate_->GetReportTime(source.common_info(), trigger_time);
 
-    AttributionReport report(StoredSource(common_info, source_id),
-                             /*trigger_time=*/trigger_time,
-                             /*report_time=*/report_time,
-                             /*external_report_id=*/
-                             delegate_->NewReportID(),
-                             AttributionReport::EventLevelData(
-                                 *source.fake_trigger_data(), /*priority=*/0,
-                                 /*id=*/absl::nullopt));
-
-    if (!StoreReport(report))
-      return {};
+    for (const auto& fake_report : *randomized_response) {
+      if (!StoreReport(source_id, fake_report.trigger_data, trigger_time,
+                       fake_report.report_time,
+                       /*priority=*/0, delegate_->NewReportID())) {
+        return StoreSourceResult(StoreSourceResult::Status::kInternalError);
+      }
+    }
   }
 
   if (!transaction.Commit())
-    return {};
-  return *deactivated_sources;
+    return StoreSourceResult(StoreSourceResult::Status::kInternalError);
+
+  return StoreSourceResult(StoreSourceResult::Status::kSuccess,
+                           std::move(*deactivated_sources));
 }
 
 // Checks whether a new report is allowed to be stored for the given source
@@ -572,7 +583,7 @@ AttributionStorageSql::MaybeReplaceLowerPriorityReport(
 }
 
 CreateReportResult AttributionStorageSql::MaybeCreateAndStoreReport(
-    const StorableTrigger& trigger) {
+    const AttributionTrigger& trigger) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // We don't bother creating the DB here if it doesn't exist, because it's not
   // possible for there to be a matching source if there's no DB.
@@ -720,12 +731,13 @@ CreateReportResult AttributionStorageSql::MaybeCreateAndStoreReport(
   // Reports with `AttributionLogic::kNever` should be included in all
   // attribution operations and matching, but only `kTruthfully` should generate
   // reports that get sent.
-  const bool create_report =
-      report.source().common_info().attribution_logic() ==
-      CommonSourceInfo::AttributionLogic::kTruthfully;
+  const bool create_report = report.source().attribution_logic() ==
+                             StoredSource::AttributionLogic::kTruthfully;
 
   if (create_report) {
-    if (!StoreReport(report)) {
+    if (!StoreReport(report.source().source_id(), trigger_data,
+                     report.trigger_time(), report.report_time(),
+                     trigger.priority(), report.external_report_id())) {
       return CreateReportResult(CreateReportStatus::kInternalError);
     }
   }
@@ -796,23 +808,26 @@ CreateReportResult AttributionStorageSql::MaybeCreateAndStoreReport(
       /*dropped_report_source_deactivation_reason=*/absl::nullopt, report_time);
 }
 
-bool AttributionStorageSql::StoreReport(const AttributionReport& report) {
+bool AttributionStorageSql::StoreReport(StoredSource::Id source_id,
+                                        uint64_t trigger_data,
+                                        base::Time trigger_time,
+                                        base::Time report_time,
+                                        int64_t priority,
+                                        const base::GUID& external_report_id) {
+  DCHECK(external_report_id.is_valid());
+
   static constexpr char kStoreReportSql[] =
       "INSERT INTO conversions"
       "(impression_id,conversion_data,conversion_time,report_time,"
       "priority,failed_send_attempts,external_report_id)VALUES(?,?,?,?,?,0,?)";
-  const auto* data =
-      absl::get_if<AttributionReport::EventLevelData>(&report.data());
-  DCHECK(data);
   sql::Statement store_report_statement(
       db_->GetCachedStatement(SQL_FROM_HERE, kStoreReportSql));
-  store_report_statement.BindInt64(0, *report.source().source_id());
-  store_report_statement.BindInt64(1, SerializeUint64(data->trigger_data));
-  store_report_statement.BindTime(2, report.trigger_time());
-  store_report_statement.BindTime(3, report.report_time());
-  store_report_statement.BindInt64(4, data->priority);
-  store_report_statement.BindString(
-      5, report.external_report_id().AsLowercaseString());
+  store_report_statement.BindInt64(0, *source_id);
+  store_report_statement.BindInt64(1, SerializeUint64(trigger_data));
+  store_report_statement.BindTime(2, trigger_time);
+  store_report_statement.BindTime(3, report_time);
+  store_report_statement.BindInt64(4, priority);
+  store_report_statement.BindString(5, external_report_id.AsLowercaseString());
   return store_report_statement.Run();
 }
 
@@ -840,7 +855,7 @@ absl::optional<AttributionReport> ReadReportFromStatement(
   absl::optional<CommonSourceInfo::SourceType> source_type =
       DeserializeSourceType(statement.ColumnInt(14));
   int64_t attribution_source_priority = statement.ColumnInt64(15);
-  absl::optional<CommonSourceInfo::AttributionLogic> attribution_logic =
+  absl::optional<StoredSource::AttributionLogic> attribution_logic =
       DeserializeAttributionLogic(statement.ColumnInt(16));
 
   // Ensure origins are valid before continuing. This could happen if there is
@@ -862,9 +877,8 @@ absl::optional<AttributionReport> ReadReportFromStatement(
       CommonSourceInfo(source_event_id, std::move(impression_origin),
                        std::move(conversion_origin),
                        std::move(reporting_origin), impression_time,
-                       expiry_time, *source_type, attribution_source_priority,
-                       *attribution_logic),
-      source_id);
+                       expiry_time, *source_type, attribution_source_priority),
+      *attribution_logic, source_id);
 
   AttributionReport report(std::move(source), trigger_time, report_time,
                            std::move(external_report_id),
@@ -911,6 +925,8 @@ std::vector<AttributionReport> AttributionStorageSql::GetAttributionsToReport(
 
   if (!statement.Succeeded())
     return {};
+
+  delegate_->ShuffleReports(reports);
   return reports;
 }
 
@@ -1512,7 +1528,7 @@ bool AttributionStorageSql::CreateSchema() {
   // |source_type| is the type of the source of the source, currently always
   // |kNavigation|.
   // |attributed_truthfully| corresponds to the
-  // |CommonSourceInfo::AttributionLogic| enum.
+  // |StoredSource::AttributionLogic| enum.
   // |impression_site| is used to optimize the lookup of sources;
   // |CommonSourceInfo::ImpressionSite| is always derived from the origin.
   //
@@ -1566,13 +1582,13 @@ bool AttributionStorageSql::CreateSchema() {
   if (!db_->Execute(kImpressionOriginIndexSql))
     return false;
 
-  // Optimizes `EnsureCapacityForPendingDestinationLimit()`, which only needs to
-  // examine active, unconverted, event-source sources.
-  static constexpr char kEventSourceImpressionSiteIndexSql[] =
-      "CREATE INDEX IF NOT EXISTS event_source_impression_site_idx "
-      "ON impressions(impression_site)"
-      "WHERE active = 1 AND num_conversions = 0 AND source_type = 1";
-  if (!db_->Execute(kEventSourceImpressionSiteIndexSql))
+  // Optimizes `HasCapacityForUniqueDestinationLimitForPendingSource()`, which
+  // only needs to examine active, unconverted sources.
+  static constexpr char kImpressionSiteReportingOriginIndexSql[] =
+      "CREATE INDEX IF NOT EXISTS impression_site_reporting_origin_idx "
+      "ON impressions(impression_site,reporting_origin)"
+      "WHERE active=1 AND num_conversions=0";
+  if (!db_->Execute(kImpressionSiteReportingOriginIndexSql))
     return false;
 
   // All columns in this table are const except |report_time| and
@@ -1674,92 +1690,46 @@ void AttributionStorageSql::DatabaseErrorCallback(int extended_error,
   db_init_status_ = DbStatus::kClosed;
 }
 
-bool AttributionStorageSql::EnsureCapacityForPendingDestinationLimit(
-    const StorableSource& source) {
-  // TODO(apaseltiner): Add metrics for how this behaves so we can see how often
-  // sites are hitting the limit.
-
-  if (source.common_info().source_type() !=
-      CommonSourceInfo::SourceType::kEvent)
-    return true;
-
-  static_assert(static_cast<int>(CommonSourceInfo::SourceType::kEvent) == 1,
-                "Update the SQL statement below and this condition");
-
-  const std::string serialized_conversion_destination =
-      source.common_info().ConversionDestination().Serialize();
-
-  // Optimized by `kEventSourceImpressionSiteIndexSql`.
-  static constexpr char kSelectSourcesSql[] =
-      "SELECT impression_id,conversion_destination FROM impressions "
-      DCHECK_SQL_INDEXED_BY("event_source_impression_site_idx")
-      "WHERE impression_site = ? AND source_type = 1 "
-      "AND active = 1 AND num_conversions = 0 "
-      "ORDER BY impression_time ASC";
-  sql::Statement statement(
-      db_->GetCachedStatement(SQL_FROM_HERE, kSelectSourcesSql));
-  statement.BindString(0, source.common_info().ImpressionSite().Serialize());
-
-  base::flat_map<std::string, size_t> conversion_destinations;
-
-  struct SourceData {
-    StoredSource::Id source_id;
-    std::string conversion_destination;
-  };
-  std::vector<SourceData> sources_by_impression_time;
-
-  while (statement.Step()) {
-    SourceData impression_data = {
-        .source_id = StoredSource::Id(statement.ColumnInt64(0)),
-        .conversion_destination = statement.ColumnString(1),
-    };
-
-    // If there's already a source matching the to-be-stored
-    // `impression_site` and `conversion_destination`, then the unique count
-    // won't be changed, so there's nothing else to do.
-    if (impression_data.conversion_destination ==
-        serialized_conversion_destination) {
-      return true;
-    }
-
-    conversion_destinations[impression_data.conversion_destination]++;
-    sources_by_impression_time.push_back(std::move(impression_data));
-  }
-
-  if (!statement.Succeeded())
-    return false;
-
-  const int max = delegate_->GetMaxAttributionDestinationsPerEventSource();
+bool AttributionStorageSql::
+    HasCapacityForUniqueDestinationLimitForPendingSource(
+        const StorableSource& source) {
+  const int max = delegate_->GetMaxDestinationsPerSourceSiteReportingOrigin();
   // TODO(apaseltiner): We could just make
-  // `GetMaxAttributionDestinationsPerEventSource()` return `size_t`, but it
+  // `GetMaxDestinationsPerSourceSiteReportingOrigin()` return `size_t`, but it
   // would be inconsistent with the other `AttributionStorage::Delegate`
   // methods.
   DCHECK_GT(max, 0);
 
-  // Otherwise, if there's capacity for the new `conversion_destination` to be
-  // stored for the `impression_site`, there's nothing else to do.
-  if (conversion_destinations.size() < static_cast<size_t>(max))
-    return true;
+  const std::string serialized_conversion_destination =
+      source.common_info().ConversionDestination().Serialize();
 
-  // Otherwise, delete sources in order by `impression_time` until the
-  // number of distinct `conversion_destination`s is under `max`.
-  std::vector<StoredSource::Id> source_ids_to_delete;
-  for (const auto& source_data : sources_by_impression_time) {
-    auto it = conversion_destinations.find(source_data.conversion_destination);
-    DCHECK(it != conversion_destinations.end());
-    it->second--;
-    if (it->second == 0)
-      conversion_destinations.erase(it);
-    source_ids_to_delete.push_back(source_data.source_id);
-    if (conversion_destinations.size() < static_cast<size_t>(max))
-      break;
+  // Optimized by `kImpressionSiteReportingOriginIndexSql`.
+  static constexpr char kSelectSourcesSql[] =
+      "SELECT conversion_destination FROM impressions "
+      DCHECK_SQL_INDEXED_BY("impression_site_reporting_origin_idx")
+      "WHERE impression_site=? AND reporting_origin=? "
+      "AND active=1 AND num_conversions=0";
+  sql::Statement statement(
+      db_->GetCachedStatement(SQL_FROM_HERE, kSelectSourcesSql));
+  statement.BindString(0, source.common_info().ImpressionSite().Serialize());
+  statement.BindString(
+      1, SerializeOrigin(source.common_info().reporting_origin()));
+
+  base::flat_set<std::string> destinations;
+  while (statement.Step()) {
+    std::string destination = statement.ColumnString(0);
+
+    // The destination isn't new, so it doesn't change the count.
+    if (destination == serialized_conversion_destination)
+      return true;
+
+    destinations.insert(std::move(destination));
+
+    if (destinations.size() == static_cast<size_t>(max))
+      return false;
   }
 
-  return DeleteSources(source_ids_to_delete);
-
-  // Because this is limited to active sources with `num_conversions = 0`,
-  // we should be guaranteed that there is not any corresponding data in the
-  // rate limit table or the report table.
+  return statement.Succeeded();
 }
 
 bool AttributionStorageSql::DeleteSources(

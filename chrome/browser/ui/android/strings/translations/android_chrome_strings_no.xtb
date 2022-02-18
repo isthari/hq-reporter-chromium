@@ -290,7 +290,6 @@ Trykk og hold inne på et ord for å søke. For å finstemme søket, merk flere 
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# lydfil}other{# lydfiler}}</translation>
 <translation id="265156376773362237">Standard forhåndslasting</translation>
 <translation id="2656405586795711023">Nettprogrammer</translation>
-<translation id="2689830683995595741">Ved å bruke Chrome samtykker du i <ph name="BEGIN_LINK1" />Googles vilkår for bruk<ph name="END_LINK1" /> og <ph name="BEGIN_LINK2" />tilleggsvilkårene for bruk av Google Chrome og Chrome OS<ph name="END_LINK2" />. <ph name="BEGIN_LINK3" />Merknaden om personvern for Google-kontoer som administreres via Family Link<ph name="END_LINK3" />, gjelder også.</translation>
 <translation id="2702516483241149200">Ny: del en link som ruller til denne teksten</translation>
 <translation id="2704606927547763573">Kopiert</translation>
 <translation id="2707726405694321444">Last inn siden på nytt</translation>
@@ -404,7 +403,6 @@ Trykk og hold inne på et ord for å søke. For å finstemme søket, merk flere 
 <translation id="3264259168916048410">Datamaskinen din vil bruke denne enheten til å logge på et nettsted</translation>
 <translation id="3265534588625245297">Administrer hvilke nettsteder du følger</translation>
 <translation id="3269093882174072735">Last inn bildet</translation>
-<translation id="3269956123044984603">For å få fanene dine fra de andre enhetene du bruker, slå på «Synkroniser data automatisk» i kontoinnstillingene for Android.</translation>
 <translation id="3280562213547448728">Talesøk</translation>
 <translation id="3282568296779691940">Logg på Chrome</translation>
 <translation id="3284510035090979597">Proaktiv hjelp</translation>
@@ -473,6 +471,7 @@ Trykk og hold inne på et ord for å søke. For å finstemme søket, merk flere 
 <translation id="3716182511346448902">Denne siden bruker for mye minne, så Chrome har satt den på pause.</translation>
 <translation id="3721119614952978349">Deg og Google</translation>
 <translation id="3737319253362202215">Innstillinger for oversettelse</translation>
+<translation id="3737402728074743863">For å bruke denne enheten som en sikkerhetsnøkkel, konfigurer en skjermlås</translation>
 <translation id="3738139272394829648">Trykk for å søke</translation>
 <translation id="3739899004075612870">Satt som bokmerke i <ph name="PRODUCT_NAME" /></translation>
 <translation id="3740525748616366977">Talesøk er ikke tilgjengelig på denne enheten</translation>
@@ -626,7 +625,6 @@ Google-kontoen din kan ha andre former for nettleserlogger, for eksempel søk og
 <translation id="4695891336199304370">{SHIPPING_OPTIONS,plural, =1{<ph name="SHIPPING_OPTION_PREVIEW" /> og <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> til}other{<ph name="SHIPPING_OPTION_PREVIEW" /> og <ph name="NUMBER_OF_ADDITIONAL_SHIPPING_OPTIONS" /> til}}</translation>
 <translation id="4696983787092045100">Send tekst til enhetene dine</translation>
 <translation id="4699172675775169585">Bufrede bilder og filer</translation>
-<translation id="471759387343966120">Ved å fortsette godtar du <ph name="BEGIN_TOS_LINK" />vilkårene for bruk<ph name="END_TOS_LINK" /> og <ph name="BEGIN_PRIVACY_LINK" />personvernreglene<ph name="END_PRIVACY_LINK" />.\nFor å bidra til å gjøre appen bedre sender Chrome bruks- og krasjrelaterte data til Google. <ph name="BEGIN_UMA_LINK" />Administrer<ph name="END_UMA_LINK" /></translation>
 <translation id="4719927025381752090">Tilby å oversette</translation>
 <translation id="4720023427747327413">Åpne i <ph name="PRODUCT_NAME" /></translation>
 <translation id="4720982865791209136">Hjelp til med å forbedre Chrome. <ph name="BEGIN_LINK" />Delta i undersøkelsen<ph name="END_LINK" /></translation>
@@ -909,14 +907,12 @@ Noen nettsteder kan for eksempel svare på denne forespørselen ved å vise deg 
 <translation id="6277522088822131679">Det oppsto et problem med å skrive ut siden. Prøv på nytt.</translation>
 <translation id="6277722725779679269">Kunne ikke oppdatere Spor pris</translation>
 <translation id="6278428485366576908">Tema</translation>
-<translation id="6292420053234093573">Ved å bruke Chrome samtykker du i <ph name="BEGIN_LINK1" />Googles vilkår for bruk<ph name="END_LINK1" /> og <ph name="BEGIN_LINK2" />tilleggsvilkårene for bruk av Google Chrome og Chrome OS<ph name="END_LINK2" />.</translation>
 <translation id="6294610283659775533">Du kan sende faner mellom enheter som er logget på med samme Google-konto</translation>
 <translation id="6297765934698848803">Organisasjonen som administrerer enheten din, har slått av kameraet.</translation>
 <translation id="6301525844455696527">Kom à jour med leselisten din</translation>
 <translation id="6303969859164067831">Logg av og slå av synkronisering</translation>
 <translation id="6312687380483398334">Nettprogrammer (stille)</translation>
 <translation id="6316139424528454185">Android-versjonen støttes ikke</translation>
-<translation id="6324034347079777476">Synkronisering for Android-systemet er slått av</translation>
 <translation id="6324916366299863871">Endre snarvei</translation>
 <translation id="6324977638108296054">Kan ikke opprette noen link til den markerte teksten</translation>
 <translation id="6324997754869598316">(Feil <ph name="ERROR_CODE" />)</translation>
@@ -1044,7 +1040,6 @@ Noen nettsteder kan for eksempel svare på denne forespørselen ved å vise deg 
 <translation id="6900532703269623216">Økt beskyttelse</translation>
 <translation id="6903907808598579934">Slå på synkronisering</translation>
 <translation id="6909589135458168665">Forhåndslasting av sider</translation>
-<translation id="6929699136511445623">Slå på Android-systemsynkronisering</translation>
 <translation id="6942665639005891494">Endre standard nedlastingssted når som helst via menyalternativet Innstillinger</translation>
 <translation id="694267552845942083">Du holder på å tilpasse innstillingene for Synkronisering. For å gjøre deg ferdig med å slå på synkronisering, trykk på Bekreft-knappen nederst på skjermen. Gå opp</translation>
 <translation id="6945221475159498467">Velg</translation>
@@ -1160,7 +1155,6 @@ Noen nettsteder kan for eksempel svare på denne forespørselen ved å vise deg 
 <translation id="7581273696622423628">Besvar undersøkelsen</translation>
 <translation id="7583262514280211622">Her finner du leselisten din</translation>
 <translation id="7588219262685291874">Slå på mørkt tema når batterisparing er på</translation>
-<translation id="7593557518625677601">Start Chrome-synkronisering ved å slå på synkronisering i Android-innstillingene</translation>
 <translation id="7594687499944811403">La <ph name="EMBEDDED_ORIGIN" /> bekrefte at det er deg, for <ph name="TOP_ORIGIN" /></translation>
 <translation id="7596558890252710462">Operativsystem</translation>
 <translation id="7605594153474022051">Synkronisering fungerer ikke</translation>

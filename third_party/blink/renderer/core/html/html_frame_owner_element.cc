@@ -133,30 +133,11 @@ bool ShouldLazilyLoadFrame(const Document& document,
     return false;
   }
 
-  // Disable explicit and automatic lazyload for backgrounded pages.
+  // Disable explicit lazyload for backgrounded pages.
   if (!document.IsPageVisible())
     return false;
 
-  if (is_loading_attr_lazy)
-    return true;
-  if (!RuntimeEnabledFeatures::AutomaticLazyFrameLoadingEnabled())
-    return false;
-
-  // If lazy loading is restricted to only Data Saver users, then avoid
-  // lazy loading unless Data Saver is enabled, taking the Data Saver
-  // holdback into consideration.
-  if (RuntimeEnabledFeatures::
-          RestrictAutomaticLazyFrameLoadingToDataSaverEnabled() &&
-      !GetNetworkStateNotifier().SaveDataEnabled()) {
-    return false;
-  }
-
-  // Skip automatic lazyload when reloading a page.
-  if (!RuntimeEnabledFeatures::AutoLazyLoadOnReloadsEnabled() &&
-      document.Loader() && IsReloadLoadType(document.Loader()->LoadType())) {
-    return false;
-  }
-  return true;
+  return is_loading_attr_lazy;
 }
 
 using AllowedListForLazyLoading =
@@ -591,7 +572,7 @@ bool HTMLFrameOwnerElement::LazyLoadIfPossible(
     lazy_load_frame_observer_->StartTrackingVisibilityMetrics();
 
   if (ShouldLazilyLoadFrame(GetDocument(), loading_lazy_set) ||
-      IsLazyLoadableUrl(url)) {
+      IsLazyLoadableUrl(url) || IsLazyLoadableAd()) {
     lazy_load_frame_observer_->DeferLoadUntilNearViewport(request,
                                                           frame_load_type);
     return true;
@@ -774,6 +755,15 @@ bool HTMLFrameOwnerElement::IsAdRelated() const {
     return false;
 
   return content_frame_->IsAdSubframe();
+}
+
+bool HTMLFrameOwnerElement::IsLazyLoadableAd() const {
+  if (!base::FeatureList::IsEnabled(
+          features::kAutomaticLazyFrameLoadingToAds)) {
+    return false;
+  }
+
+  return IsAdRelated();
 }
 
 mojom::blink::ColorScheme HTMLFrameOwnerElement::GetColorScheme() const {

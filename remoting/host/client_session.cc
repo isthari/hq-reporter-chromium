@@ -51,7 +51,10 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 
 namespace {
+
 constexpr char kRtcLogTransferDataChannelPrefix[] = "rtc-log-transfer-";
+constexpr char kStreamName[] = "screen_stream";
+
 }  // namespace
 
 namespace remoting {
@@ -108,9 +111,8 @@ void ClientSession::NotifyClientResolution(
     const protocol::ClientResolution& resolution) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(resolution.dips_width() >= 0 && resolution.dips_height() >= 0);
-  VLOG(1) << "Received ClientResolution (dips_width="
-          << resolution.dips_width() << ", dips_height="
-          << resolution.dips_height() << ")";
+  VLOG(1) << "Received ClientResolution (dips_width=" << resolution.dips_width()
+          << ", dips_height=" << resolution.dips_height() << ")";
 
   if (!screen_controls_)
     return;
@@ -140,8 +142,8 @@ void ClientSession::ControlVideo(const protocol::VideoControl& video_control) {
   // Note that |video_stream_| may be null, depending upon whether
   // extensions choose to wrap or "steal" the video capturer or encoder.
   if (video_control.has_enable()) {
-    VLOG(1) << "Received VideoControl (enable="
-            << video_control.enable() << ")";
+    VLOG(1) << "Received VideoControl (enable=" << video_control.enable()
+            << ")";
     pause_video_ = !video_control.enable();
     if (video_stream_)
       video_stream_->Pause(pause_video_);
@@ -166,8 +168,8 @@ void ClientSession::ControlAudio(const protocol::AudioControl& audio_control) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (audio_control.has_enable()) {
-    VLOG(1) << "Received AudioControl (enable="
-            << audio_control.enable() << ")";
+    VLOG(1) << "Received AudioControl (enable=" << audio_control.enable()
+            << ")";
     if (audio_stream_)
       audio_stream_->Pause(!audio_control.enable());
   }
@@ -187,10 +189,10 @@ void ClientSession::SetCapabilities(
   client_capabilities_ = std::make_unique<std::string>();
   if (capabilities.has_capabilities())
     *client_capabilities_ = capabilities.capabilities();
-  capabilities_ = IntersectCapabilities(*client_capabilities_,
-                                        host_capabilities_);
-  extension_manager_->OnNegotiatedCapabilities(
-      connection_->client_stub(), capabilities_);
+  capabilities_ =
+      IntersectCapabilities(*client_capabilities_, host_capabilities_);
+  extension_manager_->OnNegotiatedCapabilities(connection_->client_stub(),
+                                               capabilities_);
 
   if (HasCapability(capabilities_, protocol::kFileTransferCapability)) {
     data_channel_manager_.RegisterCreateHandlerCallback(
@@ -458,10 +460,11 @@ void ClientSession::CreateMediaStreams() {
   auto composer = desktop_environment_->CreateComposingVideoCapturer();
   if (composer) {
     desktop_and_cursor_composer_ = composer->GetWeakPtr();
-    video_stream_ = connection_->StartVideoStream(std::move(composer));
+    video_stream_ =
+        connection_->StartVideoStream(kStreamName, std::move(composer));
   } else {
     video_stream_ = connection_->StartVideoStream(
-        desktop_environment_->CreateVideoCapturer());
+        kStreamName, desktop_environment_->CreateVideoCapturer());
   }
 
   // Create a AudioStream to pump audio from the capturer to the client.
@@ -684,8 +687,8 @@ void ClientSession::BindRemoteUrlOpener(
 void ClientSession::RegisterCreateHandlerCallbackForTesting(
     const std::string& prefix,
     protocol::DataChannelManager::CreateHandlerCallback constructor) {
-  data_channel_manager_.RegisterCreateHandlerCallback(
-      prefix, std::move(constructor));
+  data_channel_manager_.RegisterCreateHandlerCallback(prefix,
+                                                      std::move(constructor));
 }
 
 void ClientSession::SetEventTimestampsSourceForTests(
@@ -747,7 +750,9 @@ void ClientSession::OnVideoSizeChanged(protocol::VideoStream* video_stream,
   LOG(INFO) << "ClientSession::OnVideoSizeChanged";
   DisplaySize size =
       DisplaySize::FromPixels(size_px.width(), size_px.height(), dpi.x());
-  LOG(INFO) << "  DisplaySize: " << size;
+  LOG(INFO) << "  DisplaySize: " << size
+            << " (size in pixels: " << size_px.width() << "x"
+            << size_px.height() << ")";
 
   // The first video size message that we receive from WebRtc is the full
   // desktop size (if supported). If full desktop capture is not supported,
@@ -856,6 +861,8 @@ void ClientSession::OnDesktopDisplayChanged(
           << "    This configuration does not support full desktop capture.";
       can_capture_full_desktop_ = false;
     }
+#elif BUILDFLAG(IS_CHROMEOS)
+    can_capture_full_desktop_ = false;
 #else
     // Windows/Linux can capture full desktop if multiple displays.
     can_capture_full_desktop_ = true;

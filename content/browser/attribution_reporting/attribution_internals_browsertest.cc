@@ -45,7 +45,7 @@ using ::testing::ElementsAre;
 using ::testing::IsNull;
 using ::testing::Return;
 
-const char kAttributionInternalsUrl[] = "chrome://conversion-internals/";
+const char kAttributionInternalsUrl[] = "chrome://attribution-internals/";
 
 const std::u16string kCompleteTitle = u"Complete";
 const std::u16string kCompleteTitle2 = u"Complete2";
@@ -228,7 +228,7 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
       .WillByDefault(InvokeCallback<std::vector<StoredSource>>(
           {SourceBuilder(now)
                .SetSourceEventId(std::numeric_limits<uint64_t>::max())
-               .SetAttributionLogic(CommonSourceInfo::AttributionLogic::kNever)
+               .SetAttributionLogic(StoredSource::AttributionLogic::kNever)
                .BuildStored(),
            SourceBuilder(now + base::Hours(1))
                .SetSourceType(CommonSourceInfo::SourceType::kEvent)
@@ -364,7 +364,7 @@ IN_PROC_BROWSER_TEST_F(AttributionInternalsWebUiBrowserTest,
                SourceBuilder(now)
                    .SetSourceType(CommonSourceInfo::SourceType::kEvent)
                    .SetAttributionLogic(
-                       CommonSourceInfo::AttributionLogic::kFalsely)
+                       StoredSource::AttributionLogic::kFalsely)
                    .BuildStored())
                .SetReportTime(now)
                .SetPriority(13)

@@ -107,7 +107,7 @@ class CONTENT_EXPORT AttributionManagerImpl
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
   void HandleSource(StorableSource source) override;
-  void HandleTrigger(StorableTrigger trigger) override;
+  void HandleTrigger(AttributionTrigger trigger) override;
   void GetActiveSourcesForWebUI(
       base::OnceCallback<void(std::vector<StoredSource>)> callback) override;
   void GetPendingReportsForWebUI(
@@ -129,6 +129,7 @@ class CONTENT_EXPORT AttributionManagerImpl
       StoragePartitionImpl* storage_partition,
       const base::FilePath& user_data_directory,
       scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy,
+      std::unique_ptr<AttributionStorage::Delegate> storage_delegate,
       std::unique_ptr<NetworkSender> network_sender);
 
   // network::NetworkConnectionTracker::NetworkConnectionObserver:
@@ -168,7 +169,7 @@ class CONTENT_EXPORT AttributionManagerImpl
       const AttributionStorage::DeactivatedSource& source);
 
   void HandleSourceInternal(StorableSource source);
-  void HandleTriggerInternal(StorableTrigger trigger);
+  void HandleTriggerInternal(AttributionTrigger trigger);
 
   // Friend to expose the AttributionStorage for certain tests.
   friend std::vector<AttributionReport> GetAttributionsToReportForTesting(

@@ -57,7 +57,6 @@ class WebApp;
 class WebAppProvider;
 class WebAppRegistrar;
 class WebAppLaunchManager;
-class LinkCapturingMigrationManager;
 
 struct ShortcutIdTypeMarker {};
 
@@ -274,6 +273,7 @@ class WebAppPublisherHelper : public AppRegistrarObserver,
                                base::StringPiece old_name) override;
   void OnWebAppWillBeUninstalled(const AppId& app_id) override;
   void OnAppRegistrarDestroyed() override;
+  void OnWebAppFileHandlerApprovalStateChanged(const AppId& app_id) override;
   void OnWebAppLocallyInstalledStateChanged(const AppId& app_id,
                                             bool is_locally_installed) override;
   void OnWebAppLastLaunchTimeChanged(
@@ -396,9 +396,6 @@ class WebAppPublisherHelper : public AppRegistrarObserver,
 
   std::map<std::string, WebAppShortcutsMenuItemInfo> shortcut_id_map_;
   ShortcutId::Generator shortcut_id_generator_;
-
-  std::unique_ptr<web_app::LinkCapturingMigrationManager>
-      link_capturing_migration_manager_;
 
   base::WeakPtrFactory<WebAppPublisherHelper> weak_ptr_factory_{this};
 };

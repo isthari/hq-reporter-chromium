@@ -99,6 +99,10 @@ namespace domain_reliability {
 class DomainReliabilityMonitor;
 }  // namespace domain_reliability
 
+namespace url_matcher {
+class URLMatcher;
+}
+
 namespace network {
 class CertVerifierWithTrustAnchors;
 class CookieManager;
@@ -644,6 +648,20 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   void LazyCreateExpectCTReporter(net::URLRequestContext* url_request_context);
 
   void OnSetExpectCTTestReportFailure();
+
+  // Checks the Certificate Transparency policy compliance for a given
+  // certificate and SCTs in `cert_verify_result`, and updates
+  // `cert_verify_result.cert_status` and
+  // `cert_verify_result.policy_compliance`. Returns net::OK or
+  // net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED.
+  // TODO(crbug.com/828447): This code is more-or-less duplicated in
+  // SSLClientSocket and QUIC. Fold this into some CertVerifier-shaped class
+  // in //net.
+  int CheckCTComplianceForSignedExchange(
+      net::CertVerifyResult& cert_verify_result,
+      const net::X509Certificate& certificate,
+      const net::HostPortPair& host_port_pair,
+      const net::NetworkIsolationKey& network_isolation_key);
 #endif  // BUILDFLAG(IS_CT_SUPPORTED)
 
   void InitializeCorsParams();
@@ -654,6 +672,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // asynchronous initialization has finished.
   void FinishConstructingTrustTokenStore(
       std::unique_ptr<SQLiteTrustTokenPersister> persister);
+
+  bool IsAllowedToUseAllHttpAuthSchemes(
+      const url::SchemeHostPort& scheme_host_port);
 
   const raw_ptr<NetworkService> network_service_;
 
@@ -859,6 +880,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   std::set<std::unique_ptr<cors::CorsURLLoaderFactory>,
            base::UniquePtrComparator>
       url_loader_factories_;
+
+  std::unique_ptr<url_matcher::URLMatcher> url_matcher_;
 
   base::WeakPtrFactory<NetworkContext> weak_factory_{this};
 };

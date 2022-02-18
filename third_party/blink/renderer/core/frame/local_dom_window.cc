@@ -43,6 +43,7 @@
 #include "third_party/blink/public/mojom/permissions_policy/policy_disposition.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/public/web/web_picture_in_picture_window_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -1737,7 +1738,7 @@ void LocalDOMWindow::moveBy(int x, int y) const {
   window_rect.Offset(x, y);
   // Security check (the spec talks about UniversalBrowserWrite to disable this
   // check...)
-  page->GetChromeClient().SetWindowRectWithAdjustment(window_rect, *frame);
+  page->GetChromeClient().SetWindowRect(window_rect, *frame);
 }
 
 void LocalDOMWindow::moveTo(int x, int y) const {
@@ -1753,7 +1754,7 @@ void LocalDOMWindow::moveTo(int x, int y) const {
   window_rect.set_origin(gfx::Point(x, y));
   // Security check (the spec talks about UniversalBrowserWrite to disable this
   // check...)
-  page->GetChromeClient().SetWindowRectWithAdjustment(window_rect, *frame);
+  page->GetChromeClient().SetWindowRect(window_rect, *frame);
 }
 
 void LocalDOMWindow::resizeBy(int x, int y) const {
@@ -1768,7 +1769,7 @@ void LocalDOMWindow::resizeBy(int x, int y) const {
   gfx::Rect fr = page->GetChromeClient().RootWindowRect(*frame);
   gfx::Size dest(fr.width() + x, fr.height() + y);
   gfx::Rect update(fr.origin(), dest);
-  page->GetChromeClient().SetWindowRectWithAdjustment(update, *frame);
+  page->GetChromeClient().SetWindowRect(update, *frame);
 }
 
 void LocalDOMWindow::resizeTo(int width, int height) const {
@@ -1783,7 +1784,7 @@ void LocalDOMWindow::resizeTo(int width, int height) const {
   gfx::Rect fr = page->GetChromeClient().RootWindowRect(*frame);
   gfx::Size dest = gfx::Size(width, height);
   gfx::Rect update(fr.origin(), dest);
-  page->GetChromeClient().SetWindowRectWithAdjustment(update, *frame);
+  page->GetChromeClient().SetWindowRect(update, *frame);
 }
 
 int LocalDOMWindow::requestAnimationFrame(V8FrameRequestCallback* callback) {
@@ -2145,6 +2146,48 @@ DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
     return nullptr;
   if (!result.new_window)
     result.frame->SetOpener(GetFrame());
+  return result.frame->DomWindow();
+}
+
+DOMWindow* LocalDOMWindow::openPictureInPictureWindow(
+    v8::Isolate* isolate,
+    const WebPictureInPictureWindowOptions& options,
+    ExceptionState& exception_state) {
+  LocalDOMWindow* incumbent_window = IncumbentDOMWindow(isolate);
+  LocalDOMWindow* entered_window = EnteredDOMWindow(isolate);
+
+  // If the bindings implementation is 100% correct, the current realm and the
+  // entered realm should be same origin-domain. However, to be on the safe
+  // side and add some defense in depth, we'll check against the entry realm
+  // as well here.
+  if (!BindingSecurity::ShouldAllowAccessTo(entered_window, this,
+                                            exception_state)) {
+    UseCounter::Count(GetExecutionContext(),
+                      WebFeature::kWindowOpenRealmMismatch);
+    return nullptr;
+  }
+
+  if (!IsCurrentlyDisplayedInFrame())
+    return nullptr;
+  if (!incumbent_window->GetFrame() || !entered_window->GetFrame())
+    return nullptr;
+
+  FrameLoadRequest frame_request(incumbent_window,
+                                 ResourceRequest(KURL(g_empty_string)));
+  frame_request.SetPictureInPictureWindowOptions(options);
+
+  // We always create a new window here.
+  FrameTree::FindResult result =
+      GetFrame()->Tree().FindOrCreateFrameForNavigation(frame_request,
+                                                        "_blank");
+  if (!result.frame)
+    return nullptr;
+
+  // A new window should always be created.
+  DCHECK(result.new_window);
+
+  result.frame->Navigate(frame_request, WebFrameLoadType::kStandard);
+
   return result.frame->DomWindow();
 }
 
