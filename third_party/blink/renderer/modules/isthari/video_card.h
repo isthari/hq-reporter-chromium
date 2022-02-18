@@ -58,6 +58,7 @@ public:
     void disableVideoOutput();
     void putVideoFrame(VideoFrame* frame);        
     void putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR);
+    void sendBlackFrame();
 
     // IDeckLinkInputCallback
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }

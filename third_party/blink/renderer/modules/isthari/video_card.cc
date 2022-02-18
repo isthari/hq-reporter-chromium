@@ -431,4 +431,25 @@ void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFl
     deckLinkOutput_->WriteAudioSamplesSync((void*) audioDataOut_, 480, &written);
 }
 
+void VideoCard::sendBlackFrame() {
+IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
+    uint32_t width = (uint32_t) displayMode->GetWidth();
+    uint32_t height = (uint32_t) displayMode->GetHeight();   
+    int dstStrideY = width*1.5;
+    int dstStrideU = width/4;
+    int dstStrideV = width/4;
+    memset(dstY_, 0, dstStrideY * height);
+    memset(dstU_, 128, dstStrideU * height);
+    memset(dstV_, 128, dstStrideV * height);        
+
+    uint8_t *deckLinkBuffer = nullptr;
+    playbackFrame_->GetBytes((void**) &deckLinkBuffer);        
+    libyuv::I420ToUYVY(dstY_, dstStrideY,
+    			dstU_, dstStrideU,
+    			dstV_, dstStrideV,
+			deckLinkBuffer,
+			width*2, width, height-1);
+    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);    
+}
+
 } // namespace blink
