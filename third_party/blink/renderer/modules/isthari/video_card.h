@@ -110,6 +110,9 @@ private:
     IDeckLinkMutableVideoFrame *playbackFrame_;
     long framesOutVideo_;   
     uint8_t *audioDataOut_;
+    uint8_t *dstY_;
+    uint8_t *dstU_;
+    uint8_t *dstV_;
 
 private:
     void checkIO();

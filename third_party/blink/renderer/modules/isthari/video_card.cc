@@ -31,7 +31,7 @@ VideoCard::VideoCard(IDeckLink *deckLink)
       inputVideoMode_(-1),
       outputVideoMode_(-1),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get())
-{
+{  
     // TODO GC
     audioDataOut_ = (uint8_t*) malloc (1024*2*2);
 
@@ -155,12 +155,20 @@ void VideoCard::enableVideoOutput(long mode) {
         VLOG(0) << "Disable video input";
         this->disableVideoInput();
     }
-    
+        
     isOutputEnabled_ = true;
     outputVideoMode_ = mode;
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
+    
+    // TODO GC
+    long width = displayMode->GetWidth();
+    long height = displayMode->GetHeight();
+    dstY_ = (uint8_t*) malloc (width*1.5*height);
+    dstU_ = (uint8_t*) malloc (width/4*height);
+    dstV_ = (uint8_t*) malloc (width/4*height);
+    
     displayMode->GetFrameRate(&frameDuration_, &frameTimescale_);
-    BMDDisplayMode bmdMode = displayMode->GetDisplayMode();
+    BMDDisplayMode bmdMode = displayMode->GetDisplayMode();            
     HRESULT video = deckLinkOutput_->EnableVideoOutput(bmdMode, bmdVideoOutputRP188);
     if (video == S_OK) {
         VLOG(0) << "enable video output ok";
@@ -169,8 +177,6 @@ void VideoCard::enableVideoOutput(long mode) {
     }
     
     // TODO GC
-    long width = displayMode->GetWidth();
-    long height = displayMode->GetHeight();
     VLOG(0) << "create video frame " << width << "x" << height;
     deckLinkOutput_->CreateVideoFrame((int32_t) width,
 		    	(int32_t) height,
@@ -350,24 +356,51 @@ void VideoCard::Trace(Visitor* visitor) const {
 }
 
 void VideoCard::putVideoFrame(VideoFrame* frame) {
-    VLOG(0) << "format: " << std::__to_underlying(frame->format()->AsEnum())
+/*
+    LOG(ERROR) << "format: " << std::__to_underlying(frame->format()->AsEnum())
 	<< " width " << frame->codedWidth()
 	<< " height " << frame->codedHeight();
+	*/
 
     auto width = frame->codedWidth();
-    auto height = frame->codedWidth();
+    auto height = frame->codedHeight();
     auto mediaFrame = frame->frame();
 
     uint8_t *deckLinkBuffer = nullptr;
+    
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
+    uint32_t widthOut = (uint32_t) displayMode->GetWidth();
+    uint32_t heightOut = (uint32_t) displayMode->GetHeight();    
+    int dstStrideY = widthOut;
+    int dstStrideU = widthOut/2;
+    int dstStrideV = widthOut/2;
+    
     playbackFrame_->GetBytes((void**) &deckLinkBuffer);
-    libyuv::I420ToUYVY(mediaFrame->data(0),
-			mediaFrame->stride(0),
-			mediaFrame->data(1),
-			mediaFrame->stride(1),
-			mediaFrame->data(2),
-			mediaFrame->stride(2),
+    if (width==widthOut && height==heightOut) {
+        // si coinciden los parametros		
+        libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
+			mediaFrame->data(1), mediaFrame->stride(1),
+			mediaFrame->data(2), mediaFrame->stride(2),
 			deckLinkBuffer,
-			width*2, width, height-1);
+			width*2, width, height-1);			
+    } else {
+        // scale
+        libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
+		mediaFrame->data(1), mediaFrame->stride(1),
+		mediaFrame->data(2), mediaFrame->stride(2),
+		width, height,
+		dstY_, dstStrideY, 		
+		dstU_, dstStrideU,
+		dstV_, dstStrideV,
+		widthOut, heightOut,
+		libyuv::FilterMode::kFilterBox);
+    
+        libyuv::I420ToUYVY(dstY_, dstStrideY,
+    			dstU_, dstStrideU,
+    			dstV_, dstStrideV,
+			deckLinkBuffer,
+			widthOut*2, widthOut, heightOut-1);
+    }			
     deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
 }
 
