@@ -8,7 +8,9 @@
     readonly attribute long subDeviceIndex;
     readonly attribute DOMString identifier;
 
-    [CallWith=ExecutionContext] void enableVideoInput(long mode,
+    [CallWith=ExecutionContext] void enableVideoInput(
+        long mode, long skipFrames,
+        long selectedWidth, long selectedHeight,
     	VideoCardFrameCallback callbackVideo, 
     	VideoCardAudioCallback callbackAudio);
     void disableVideoInput();
