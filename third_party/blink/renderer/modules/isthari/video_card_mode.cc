@@ -2,10 +2,15 @@
 
 namespace blink {
 
-VideoCardMode::VideoCardMode(std::string name, long width, long height, double fps)
+VideoCardMode::VideoCardMode(std::string name, 
+	long width, long height, 
+	long frameRateDuration, long frameRateScale,
+	double fps)
 	: name_(name),
 	  width_(width),
   	  height_(height),
+  	  frameRateDuration_(frameRateDuration),
+  	  frameRateScale_(frameRateScale),
 	  fps_(fps)	  
 {
 }

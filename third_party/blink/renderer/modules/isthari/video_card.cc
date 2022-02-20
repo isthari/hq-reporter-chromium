@@ -59,14 +59,6 @@ VideoCard::VideoCard(IDeckLink *deckLink)
 
     this->checkIO();
     this->getDisplayModes();
-
-    // crear el resampler
-    // TODO GC
-/*    this->resampler_ = swr_alloc_set_opts(NULL,
-		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 48000,
-		    AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLTP, 48000,
-		    0, NULL);
-		    */
 }
 
 String VideoCard::identifier() { 
@@ -123,9 +115,15 @@ void VideoCard::getDisplayModes() {
       	    displayModes_[index] = displayMode;
             index++;
 
+            BMDTimeValue frameRateDuration;
+            BMDTimeScale frameRateScale;
+            displayMode->GetFrameRate(&frameRateDuration, &frameRateScale);
+
             VideoCardMode* mode = MakeGarbageCollected<VideoCardMode>(name, 
 			    displayMode->GetWidth(), 
 			    displayMode->GetHeight(),
+			    frameRateDuration,
+			    frameRateScale,
 			    0.0);
             modes_.push_back(mode);	    
 	}
@@ -211,13 +209,18 @@ void VideoCard::disableVideoOutput() {
     isOutputEnabled_ = false;
 }
 
-void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
+void VideoCard::enableVideoInput(ExecutionContext* executionContext, 
+	long mode, long skipFrames,
+	long selectedWidth,
+	long selectedHeight,
+ 	V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
     if (isInputEnabled_) {
         VLOG(0) << "Input already enabled";
         return;
     }
-    
-    inputVideoMode_ = mode;    
+        
+    inputVideoMode_ = mode;        
+    inSkipFrames_ = (int) skipFrames;
     // TODO desactivar si esta en modo output y no soporta full duplex
     frameCallback_ = frameCallback;
     audioCallback_ = audioCallback;
@@ -226,6 +229,21 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext, long mode, 
     // Bloque de video
     VLOG(0) << "Enabling Video Input ";
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
+    
+    // TODO GC
+    long width = displayMode->GetWidth();
+    long height = displayMode->GetHeight();
+    dstY_ = (uint8_t*) malloc (width*1.5*height);
+    dstU_ = (uint8_t*) malloc (width/2*height);
+    dstV_ = (uint8_t*) malloc (width/2*height);
+    
+    // TODO GC, imagen que se usa para la codificacion
+    inWidth_ = (int) selectedWidth;
+    inHeight_ = (int) selectedHeight;
+    inStY_ = (uint8_t*) malloc (inWidth_*1.5*inHeight_);
+    inStU_ = (uint8_t*) malloc (inWidth_/2*inHeight_);
+    inStV_ = (uint8_t*) malloc (inWidth_/2*inHeight_);
+    
     result = deckLinkInput_->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitYUV, 0);
     if (result != S_OK) {
         VLOG(0) << "  Error enabling Video Input ";
@@ -266,6 +284,18 @@ HRESULT VideoCard::VideoInputFrameArrived(
         now = now + 10000;
     }
     timeIn_ = base::Microseconds(now-inputStart_);    		
+
+    // enviar el audio lo primero     
+    if (audioFrame) {
+	// TODO llevarlo a una funcion solo audio
+	void *frameBytes;
+	int samples = (int) audioFrame->GetSampleFrameCount();
+	int size = (int) (samples * 2 * 2);
+	audioFrame->GetBytes(&frameBytes);
+	memcpy(audioData[0], frameBytes, size);			
+        PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), samples));    
+    }
+    
     if(videoFrame) {
         if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
 	    // no data
@@ -277,25 +307,41 @@ HRESULT VideoCard::VideoInputFrameArrived(
 	    
 	    void *frameBytes;
 	    auto result = videoFrame->GetBytes(&frameBytes);
-	    if (result == S_OK){
-	        libyuv::UYVYToARGB((const uint8_t*) frameBytes, width*2,		   	    
-		   	    frameData,
-			    width*4,
-			    width, height);
+	    if (result==S_OK && frameInCounter_%inSkipFrames_==0){
+	        libyuv::UYVYToI420((const uint8_t*) frameBytes, width*2,   
+		   	    dstY_, width*1.5,
+		   	    dstU_, width/2,
+		   	    dstV_, width/2,
+			    width, height);		               
+               
+               // generar la imagen que se manda al codificador
+               libyuv::I420Scale(dstY_, width*1.5,
+               	dstU_, width/2,
+               	dstV_, width/2,
+               	width, height,
+               	inStY_, inWidth_*1.5,
+               	inStU_, inWidth_/2,
+               	inStV_, inWidth_/2,
+               	inWidth_, inHeight_, 
+               	libyuv::FilterMode::kFilterBilinear);
+	       gfx::Size size(inWidth_, inHeight_);               	
+               videoFrameIn_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
+		    size,
+		    gfx::Rect(size),
+		    size,
+		    inWidth_*1.5,
+		    inWidth_/2,
+		    inWidth_/2,
+		    inStY_,
+		    inStU_,
+		    inStV_,
+		    timeIn_);    				
 		PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnVideoFrameReceived,WrapCrossThreadWeakPersistent(this)));
 	    }            
         }
     }
 
-    if (audioFrame) {
-	// TODO llevarlo a una funcion solo audio
-	void *frameBytes;
-	int samples = (int) audioFrame->GetSampleFrameCount();
-	int size = (int) (samples * 2 * 2);
-	audioFrame->GetBytes(&frameBytes);
-	memcpy(audioData[0], frameBytes, size);			
-        PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), samples));    
-    }
+
     frameInCounter_++;
 
     return S_OK;
@@ -312,19 +358,7 @@ void VideoCard::OnVideoFrameReceived() {
 }
 
 VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {    
-    IDeckLinkDisplayMode *displayMode = displayModes_[(int)inputVideoMode_];
-    int width = (int) displayMode->GetWidth();
-    int height = (int) displayMode->GetHeight();    
-    gfx::Size size(width, height);
-
-    auto frame = media::VideoFrame::WrapExternalData(media::PIXEL_FORMAT_ARGB,
-		    size,
-		    gfx::Rect(size),
-		    size,
-		    frameData,
-		    width*height*4,
-		    timeIn_);    	
-    this->videoFrame = MakeGarbageCollected<VideoFrame>(frame, context);
+    this->videoFrame = MakeGarbageCollected<VideoFrame>(videoFrameIn_, context);
     return this->videoFrame;
 }
 

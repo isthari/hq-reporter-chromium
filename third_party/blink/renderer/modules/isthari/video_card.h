@@ -49,7 +49,10 @@ public:
     VideoCardMode* getMode(long index); 
 
     // Input
-    void enableVideoInput(ExecutionContext*, long mode, V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
+    void enableVideoInput(ExecutionContext*, 
+    	long mode, long skipFrames,
+    	long selectedWidth, long selectedHeight, 
+    	V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     void disableVideoInput();
     VideoFrame* getVideoFrame(ExecutionContext*);
 
@@ -100,12 +103,19 @@ private:
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     
     // Parte de entrada SDI
-    Member<VideoFrame> videoFrame;
     uint8_t *frameData;
     uint8_t** audioData;
     int frameInCounter_;    
     uint64_t inputStart_;
     base::TimeDelta timeIn_;
+    scoped_refptr<media::VideoFrame> videoFrameIn_;
+    Member<VideoFrame> videoFrame;
+    int inWidth_;
+    int inHeight_;
+    uint8_t *inStY_;
+    uint8_t *inStU_;
+    uint8_t *inStV_;
+    int inSkipFrames_;
     
     // Parte de salida SDI
     IDeckLinkMutableVideoFrame *playbackFrame_;

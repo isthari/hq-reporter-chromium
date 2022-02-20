@@ -10,17 +10,24 @@ class VideoCardMode : public ScriptWrappable
 {		  
     DEFINE_WRAPPERTYPEINFO();
 public:
-    VideoCardMode(std::string name, long width, long height, double fps);    
+    VideoCardMode(std::string name, 
+    	long width, long height, 
+    	long frameRateDuration, long frameRateScale,
+    	double fps);    
     void Trace(Visitor*) const override;
     String name() { return String(name_); }
     long width() { return width_; }
     long height() { return height_; }
-    double fps() { return fps_; }
+    long frameRateDuration() { return frameRateDuration_; }
+    long frameRateScale() { return frameRateScale_; }
+    double fps() { return fps_; }    
 
 private:
     std::string name_;
     long width_;
     long height_;
+    long frameRateDuration_;
+    long frameRateScale_;
     double fps_;
 };
 
