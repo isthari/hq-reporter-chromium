@@ -122,8 +122,8 @@ void VideoCard::getDisplayModes() {
             VideoCardMode* mode = MakeGarbageCollected<VideoCardMode>(name, 
 			    displayMode->GetWidth(), 
 			    displayMode->GetHeight(),
-			    frameRateDuration,
-			    frameRateScale,
+			    (long) frameRateDuration,
+			    (long) frameRateScale,
 			    0.0);
             modes_.push_back(mode);	    
 	}
@@ -395,12 +395,24 @@ void VideoCard::putVideoFrame(VideoFrame* frame) {
 	<< " width " << frame->codedWidth()
 	<< " height " << frame->codedHeight();
 	*/
-
     auto width = frame->codedWidth();
     auto height = frame->codedHeight();
+    gfx::Size size(height, width);
     auto mediaFrame = frame->frame();
-
     uint8_t *deckLinkBuffer = nullptr;
+    
+    /*
+    if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_NV12) {
+        int strideY = mediaFrame->stride(0);
+        int strideUV = mediaFrame->stride(1);
+        LOG(ERROR) << "strideY "<< strideY << " strideUV " << strideUV;
+    }    
+    
+    LOG(ERROR) << "width " << width << " height " << height;
+    std::vector<int> strides = media::VideoFrame::ComputeStrides(media::VideoPixelFormat::PIXEL_FORMAT_NV12, size);
+    for(int n : strides) {
+        LOG(ERROR) << "stride "<<n;
+    }*/
     
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
     uint32_t widthOut = (uint32_t) displayMode->GetWidth();

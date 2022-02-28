@@ -124,6 +124,8 @@ private:
     uint8_t *dstY_;
     uint8_t *dstU_;
     uint8_t *dstV_;
+/*    uint8_t *nv12Y_;
+    uint8_t *nv12UV_;*/
 
 private:
     void checkIO();
