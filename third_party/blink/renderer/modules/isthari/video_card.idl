@@ -9,7 +9,7 @@
     readonly attribute DOMString identifier;
 
     [CallWith=ExecutionContext] void enableVideoInput(
-        long mode, long skipFrames,
+        long mode,
         long selectedWidth, long selectedHeight,
     	VideoCardFrameCallback callbackVideo, 
     	VideoCardAudioCallback callbackAudio);
