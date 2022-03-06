@@ -8,6 +8,7 @@
 
 //#include "third_party/ffmpeg/libswresample/swresample.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "media/base/audio_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
@@ -18,6 +19,11 @@
 #include "third_party/decklink/linux/DeckLinkAPI.h"
 #elif BUILDFLAG(IS_WIN)
 #include "third_party/decklink/win/DeckLinkAPI.h"
+#endif
+
+//#define DEBUG_AUDIO0
+#ifdef DEBUG_AUDIO0
+#include <stdio.h>
 #endif
 
 namespace base {
@@ -50,7 +56,7 @@ public:
 
     // Input
     void enableVideoInput(ExecutionContext*, 
-    	long mode, long skipFrames,
+    	long mode,
     	long selectedWidth, long selectedHeight, 
     	V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     void disableVideoInput();
@@ -70,6 +76,11 @@ public:
     HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode*, BMDDetectedVideoInputFormatFlags) override;
     HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*) override;
 
+private:
+    // ENTRADA
+    // Audio de entrada
+    void processInputAudio(IDeckLinkAudioInputPacket* audioFrame);
+    void inputAudioCycle();
 
 private:
     // acceso a la tarjeta
@@ -103,20 +114,39 @@ private:
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     
     // Parte de entrada SDI
-    uint8_t *frameData;
-    uint8_t** audioData;
-    int frameInCounter_;    
-    uint64_t inputStart_;
-    base::TimeDelta timeIn_;
-    scoped_refptr<media::VideoFrame> videoFrameIn_;
-    Member<VideoFrame> videoFrame;
+    // AUDIO
+    uint8_t** audioDataCurrent_;
+    uint8_t** audioDataNext_;    
+    int audioSamplesCurrent_;
+    int audioSamplesNext_;
+    base::TimeDelta timeInCurrent_;
+    base::TimeDelta timeInNext_;
+    // Para indicar porque punto va
+    int audioDataIndex_;
+    // Este es el paquete de audio que se construye para el envio
+    uint8_t** audioDataTemp_;
+    
+    // VIDEO    
+    // A que tamaño hay que convertir el tamaño antes de entregarlo al
+    // codificador de video. Para no enviar por webrtc en 1080
     int inWidth_;
-    int inHeight_;
+    int inHeight_; 
+    // Buffer para el reescalado de video
     uint8_t *inStY_;
     uint8_t *inStU_;
-    uint8_t *inStV_;
-    int inSkipFrames_;
+    uint8_t *inStV_;   
+    scoped_refptr<media::VideoFrame> videoFrameIn_;
+    Member<VideoFrame> videoFrame;
+        
+    // COMUN    
+    // Numero de frames recibidos
+    int frameInCounter_;        
+    // Timestamp del inicio de la captura
+    uint64_t inputStart_;
+    // Delta de tiempo del frame actual
+    base::TimeDelta timeIn_;        
     
+    // DECKLINK        
     // Parte de salida SDI
     IDeckLinkMutableVideoFrame *playbackFrame_;
     long framesOutVideo_;   
@@ -126,6 +156,11 @@ private:
     uint8_t *dstV_;
 /*    uint8_t *nv12Y_;
     uint8_t *nv12UV_;*/
+    
+#ifdef DEBUG_AUDIO0
+  FILE *fptrOriginal;
+  FILE *fptr10ms;
+#endif    
 
 private:
     void checkIO();
@@ -133,7 +168,7 @@ private:
 
     // callbacks para ejecutar en el main thread
     void OnVideoFrameReceived();
-    void OnAudioFrameReceived(int samples);
+    void OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer);
 };
 
 } // namespace blink
