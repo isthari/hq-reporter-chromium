@@ -46,7 +46,8 @@ VideoCard::VideoCard(IDeckLink *deckLink)
     audioDataTemp_[0] = (uint8_t*) malloc(48000 * 2 * 2);
 
     // TODO GC
-    audioDataOut_ = (uint8_t*) malloc (1024*2*2);
+    // 1024 muetras 2 bytes 16 canales
+    audioDataOut_ = (uint8_t*) malloc (1024*2*16);
 
     framesOutVideo_ = 0;
 
@@ -149,7 +150,7 @@ VideoCardMode* VideoCard::getMode(long index)
 	return *l_front;
 }
 
-void VideoCard::enableVideoOutput(long mode) {
+void VideoCard::enableVideoOutput(long mode, long audioChannels) {
     if (!isOutput_) {
         VLOG(0) << "Device does not support video output";
         return;
@@ -168,6 +169,7 @@ void VideoCard::enableVideoOutput(long mode) {
         
     isOutputEnabled_ = true;
     outputVideoMode_ = mode;
+    audioChannelsOut_ = audioChannels;
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
     
     // TODO GC
@@ -196,7 +198,7 @@ void VideoCard::enableVideoOutput(long mode) {
 		    	&playbackFrame_);
 		    	
     // TODO añadir soporte para los 16 canales restantes		    	
-    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, 2, bmdAudioOutputStreamContinuous);
+    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, audioChannels, bmdAudioOutputStreamContinuous);
     if (audio == S_OK) {
         VLOG(0) << "enable audio output ok";        
     } else {
@@ -458,7 +460,7 @@ void VideoCard::inputAudioCycle() {
 }
 
 void VideoCard::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {
-  LOG(INFO) << "timestamp " << audioBuffer->timestamp();
+  //LOG(INFO) << "timestamp " << audioBuffer->timestamp();
   auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
   auto qtf = audioCallback_->handleFrame(nullptr, frame2);
   qtf.IsJust(); 
@@ -548,28 +550,85 @@ void VideoCard::putVideoFrame(VideoFrame* frame) {
     deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
 }
 
-void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR) { 
-//    LOG(ERROR) << "send audio";
-    int index = 0;
-    DOMFloat32Array* aL0 = audioL.Get();
-    DOMFloat32Array* aR0 = audioR.Get();
-    const float* aL1 = (const float*) aL0->buffer()->Data();
-    const float* aR1 = (const float*) aR0->buffer()->Data();
-    uint8_t a1;
-    uint8_t a2;
-    int out;
-    for (int i=0; i<480; i++) {
-	out = aL1[i] * 32768;
-	a1 = (uint8_t) (out >> 8 & 0xff);
-	a2 = (uint8_t) (out & 0xff);
-	audioDataOut_[index++] = a2;
-	audioDataOut_[index++] = a1;
+int float2int(float f, int index, uint8_t *audioDataOut_) {
+  uint8_t a1;
+  uint8_t a2;
+  int out = f * 32768;
+  a1 = (uint8_t) (out >> 8 & 0xff);
+  a2 = (uint8_t) (out & 0xff);
+  audioDataOut_[index++] = a2;
+  audioDataOut_[index++] = a1;
+  return index;
+}
 
-	out = aR1[i] * 32768;
-        a1 = (uint8_t) (out >> 8 & 0xff);
-        a2 = (uint8_t) (out & 0xff);
-	audioDataOut_[index++] = a2;
-	audioDataOut_[index++] = a1;
+void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFloat32Array> audio1,
+    	NotShared<DOMFloat32Array> audio2, NotShared<DOMFloat32Array> audio3,
+    	NotShared<DOMFloat32Array> audio4, NotShared<DOMFloat32Array> audio5,
+    	NotShared<DOMFloat32Array> audio6, NotShared<DOMFloat32Array> audio7,
+    	NotShared<DOMFloat32Array> audio8, NotShared<DOMFloat32Array> audio9,
+    	NotShared<DOMFloat32Array> audio10, NotShared<DOMFloat32Array> audio11,
+    	NotShared<DOMFloat32Array> audio12, NotShared<DOMFloat32Array> audio13,
+    	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15) { 
+//    LOG(ERROR) << "send audio";
+
+    int index = 0;
+    DOMFloat32Array* a0 = audio0.Get();
+    DOMFloat32Array* a1 = audio1.Get();
+    DOMFloat32Array* a2 = audio2.Get();
+    DOMFloat32Array* a3 = audio3.Get();    
+    DOMFloat32Array* a4 = audio4.Get();    
+    DOMFloat32Array* a5 = audio5.Get();    
+    DOMFloat32Array* a6 = audio6.Get();    
+    DOMFloat32Array* a7 = audio7.Get();    
+    DOMFloat32Array* a8 = audio8.Get();    
+    DOMFloat32Array* a9 = audio9.Get();    
+    DOMFloat32Array* a10 = audio10.Get();    
+    DOMFloat32Array* a11 = audio11.Get();    
+    DOMFloat32Array* a12 = audio12.Get();    
+    DOMFloat32Array* a13 = audio13.Get();        
+    DOMFloat32Array* a14 = audio14.Get();
+    DOMFloat32Array* a15 = audio15.Get();    
+    
+    const float* aa0 = (const float*) a0->buffer()->Data();
+    const float* aa1 = (const float*) a1->buffer()->Data();
+    const float* aa2 = (const float*) a2->buffer()->Data();
+    const float* aa3 = (const float*) a3->buffer()->Data();
+    const float* aa4 = (const float*) a4->buffer()->Data();
+    const float* aa5 = (const float*) a5->buffer()->Data();
+    const float* aa6 = (const float*) a6->buffer()->Data();
+    const float* aa7 = (const float*) a7->buffer()->Data();
+    const float* aa8 = (const float*) a8->buffer()->Data();
+    const float* aa9 = (const float*) a9->buffer()->Data();
+    const float* aa10 = (const float*) a10->buffer()->Data();
+    const float* aa11 = (const float*) a11->buffer()->Data();
+    const float* aa12 = (const float*) a12->buffer()->Data();    
+    const float* aa13 = (const float*) a13->buffer()->Data();    
+    const float* aa14 = (const float*) a14->buffer()->Data();    
+    const float* aa15 = (const float*) a15->buffer()->Data();            
+    
+    for (int i=0; i<480; i++) {
+      index = float2int(aa0[i], index, audioDataOut_);
+      index = float2int(aa1[i], index, audioDataOut_);
+        
+      if (audioChannelsOut_ >= 8) {
+        index = float2int(aa2[i], index, audioDataOut_);
+        index = float2int(aa3[i], index, audioDataOut_);
+        index = float2int(aa4[i], index, audioDataOut_);
+        index = float2int(aa5[i], index, audioDataOut_);
+        index = float2int(aa6[i], index, audioDataOut_);
+        index = float2int(aa7[i], index, audioDataOut_);
+      }
+      
+      if (audioChannelsOut_==16) {
+        index = float2int(aa8[i], index, audioDataOut_);
+        index = float2int(aa9[i], index, audioDataOut_);
+        index = float2int(aa10[i], index, audioDataOut_);
+        index = float2int(aa11[i], index, audioDataOut_);
+        index = float2int(aa12[i], index, audioDataOut_);
+        index = float2int(aa13[i], index, audioDataOut_);
+        index = float2int(aa14[i], index, audioDataOut_);
+        index = float2int(aa15[i], index, audioDataOut_);
+      }
     }
     uint32_t written;    
     deckLinkOutput_->WriteAudioSamplesSync((void*) audioDataOut_, 480, &written);

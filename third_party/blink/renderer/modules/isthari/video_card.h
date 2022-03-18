@@ -63,10 +63,17 @@ public:
     VideoFrame* getVideoFrame(ExecutionContext*);
 
     // output    
-    void enableVideoOutput(long mode);
+    void enableVideoOutput(long mode, long audioChannels);
     void disableVideoOutput();
     void putVideoFrame(VideoFrame* frame);        
-    void putAudioFrame(NotShared<DOMFloat32Array> audioL, NotShared<DOMFloat32Array> audioR);
+    void putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFloat32Array> audio1,
+    	NotShared<DOMFloat32Array> audio2, NotShared<DOMFloat32Array> audio3,
+    	NotShared<DOMFloat32Array> audio4, NotShared<DOMFloat32Array> audio5,
+    	NotShared<DOMFloat32Array> audio6, NotShared<DOMFloat32Array> audio7,
+    	NotShared<DOMFloat32Array> audio8, NotShared<DOMFloat32Array> audio9,
+    	NotShared<DOMFloat32Array> audio10, NotShared<DOMFloat32Array> audio11,
+    	NotShared<DOMFloat32Array> audio12, NotShared<DOMFloat32Array> audio13,
+    	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15);
     void sendBlackFrame();
 
     // IDeckLinkInputCallback
@@ -149,7 +156,8 @@ private:
     // DECKLINK        
     // Parte de salida SDI
     IDeckLinkMutableVideoFrame *playbackFrame_;
-    long framesOutVideo_;   
+    long framesOutVideo_; 
+    long audioChannelsOut_;  
     uint8_t *audioDataOut_;
     uint8_t *dstY_;
     uint8_t *dstU_;

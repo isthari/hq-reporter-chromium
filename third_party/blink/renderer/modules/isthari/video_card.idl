@@ -19,9 +19,16 @@
     long getModeCount();
     VideoCardMode getMode(long index);
     
-    void enableVideoOutput(long mode);
+    void enableVideoOutput(long mode, long audoChannels);
     void disableVideoOutput();        
     void putVideoFrame(VideoFrame frame);
-    void putAudioFrame(Float32Array audioL, Float32Array audioR);
+    void putAudioFrame(Float32Array audio0, Float32Array audio1,
+    	Float32Array audiO2, Float32Array audio3,
+    	Float32Array audio4, Float32Array audio5,
+    	Float32Array audio6, Float32Array audio7,
+    	Float32Array audio8, Float32Array audio9,
+    	Float32Array audio10, Float32Array audio11,
+    	Float32Array audio12, Float32Array audio13,
+    	Float32Array audio14, Float32Array audio15);
     void sendBlackFrame();     
 };
