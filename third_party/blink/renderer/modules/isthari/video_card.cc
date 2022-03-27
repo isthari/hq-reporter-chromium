@@ -198,7 +198,7 @@ void VideoCard::enableVideoOutput(long mode, long audioChannels) {
 		    	&playbackFrame_);
 		    	
     // TODO añadir soporte para los 16 canales restantes		    	
-    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, audioChannels, bmdAudioOutputStreamContinuous);
+    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, (uint32_t) audioChannels, bmdAudioOutputStreamContinuous);
     if (audio == S_OK) {
         VLOG(0) << "enable audio output ok";        
     } else {
