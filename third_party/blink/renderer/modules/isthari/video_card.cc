@@ -490,6 +490,9 @@ void VideoCard::Trace(Visitor* visitor) const {
 }
 
 void VideoCard::putVideoFrame(VideoFrame* frame) {
+    if (!isOutputEnabled_) {
+      return;
+    }
 /*
     LOG(ERROR) << "format: " << std::__to_underlying(frame->format()->AsEnum())
 	<< " width " << frame->codedWidth()
@@ -569,6 +572,9 @@ void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFl
     	NotShared<DOMFloat32Array> audio10, NotShared<DOMFloat32Array> audio11,
     	NotShared<DOMFloat32Array> audio12, NotShared<DOMFloat32Array> audio13,
     	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15) { 
+  if (!isOutputEnabled_) {
+    return;
+  }
 //    LOG(ERROR) << "send audio";
 
     int index = 0;

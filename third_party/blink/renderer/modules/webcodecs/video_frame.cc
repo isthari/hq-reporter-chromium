@@ -367,11 +367,13 @@ VideoFrame::VideoFrame(scoped_refptr<media::VideoFrame> frame,
   DCHECK(frame);
   handle_ = base::MakeRefCounted<VideoFrameHandle>(
       frame, context, std::move(monitoring_source_id));
-
+  external_allocated_memory_ = 0;
+/*
   external_allocated_memory_ =
       media::VideoFrame::AllocationSize(frame->format(), frame->coded_size());
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
       external_allocated_memory_);
+*/
 }
 
 VideoFrame::VideoFrame(scoped_refptr<VideoFrameHandle> handle)
@@ -383,16 +385,19 @@ VideoFrame::VideoFrame(scoped_refptr<VideoFrameHandle> handle)
   auto local_frame = handle_->frame();
   if (!local_frame)
     return;
-
+/*
   external_allocated_memory_ = media::VideoFrame::AllocationSize(
       local_frame->format(), local_frame->coded_size());
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
       external_allocated_memory_);
+*/
 }
 
 VideoFrame::~VideoFrame() {
+/*
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-      -external_allocated_memory_);
+     -external_allocated_memory_);
+*/
 }
 
 // static
