@@ -1,0 +1,7 @@
+[
+    ImplementedAs=DOMWindowAudio,
+    RuntimeEnabled=Database
+] partial interface Window {
+    // TODO(crbug.com/841185): |creationCallback| is not nullable in the spec.
+    [RaisesException] AudioManager startAudioNative(VideoCardAudioCallback callback);
+};

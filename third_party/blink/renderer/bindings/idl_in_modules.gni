@@ -858,6 +858,8 @@ static_idl_files_in_modules = get_path_info(
           "//third_party/blink/renderer/modules/isthari/video_card_get_callback.idl",
           "//third_party/blink/renderer/modules/isthari/video_card_mode.idl",
           "//third_party/blink/renderer/modules/isthari/window_decklink.idl",          
+          "//third_party/blink/renderer/modules/isthari/audio/audio_manager.idl",
+          "//third_party/blink/renderer/modules/isthari/audio/window_audio.idl",
           "//third_party/blink/renderer/modules/webdatabase/database.idl",
           "//third_party/blink/renderer/modules/webdatabase/sql_error.idl",
           "//third_party/blink/renderer/modules/webdatabase/sql_result_set.idl",

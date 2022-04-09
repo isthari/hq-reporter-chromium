@@ -228,6 +228,7 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext,
 	long selectedWidth,
 	long selectedHeight,
  	V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
+    this->executionContext_ = executionContext;
     if (isInputEnabled_) {
         VLOG(0) << "Input already enabled";
         return;
@@ -460,13 +461,21 @@ void VideoCard::inputAudioCycle() {
 }
 
 void VideoCard::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {
+    if(executionContext_->IsContextDestroyed()) {
+        LOG(INFO) << "null";
+        return;
+    }
   //LOG(INFO) << "timestamp " << audioBuffer->timestamp();
   auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
   auto qtf = audioCallback_->handleFrame(nullptr, frame2);
   qtf.IsJust(); 
 }
 
-void VideoCard::OnVideoFrameReceived() {
+void VideoCard::OnVideoFrameReceived() {    
+    if(executionContext_->IsContextDestroyed()) {
+        LOG(INFO) << "null";
+        return;
+    }
     if(!frameCallback_->IsCallbackObjectCallable()) {
 //        VLOG(0) << "No video callback available";     
         return;

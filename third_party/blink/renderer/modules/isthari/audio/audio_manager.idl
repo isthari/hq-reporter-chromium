@@ -1,0 +1,5 @@
+[
+    LegacyNoInterfaceObject
+] interface AudioManager {
+    long getModeCount();
+};
