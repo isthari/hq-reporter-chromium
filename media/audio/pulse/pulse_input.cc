@@ -370,8 +370,9 @@ void PulseAudioInputStream::ReadData() {
     // back to back OnData() method.
     // TODO(dalecurtis): Delete all this. It shouldn't be necessary now that we
     // have a ring buffer and FIFO on the actual shared memory.,
-    if (fifo_.available_blocks())
+/*    if (fifo_.available_blocks())
       base::PlatformThread::Sleep(base::Milliseconds(5));
+      */
   }
 
   pa_threaded_mainloop_signal(pa_mainloop_, 0);
