@@ -1,0 +1,6 @@
+[
+    LegacyNoInterfaceObject
+] interface NdiOutputStream {
+    void putVideoFrame(VideoFrame videoFrame);
+    void putAudioFrame(Float32Array audioL, Float32Array audioR);
+};

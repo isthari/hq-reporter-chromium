@@ -9,9 +9,20 @@
 #include "third_party/decklink/win/platform.h"
 #endif
 
+#include "ndi/ndi_manager.h"
+#include "ndi/Processing.NDI.Lib.h"
+
 namespace blink {
 
+NdiManager* DOMWindowDecklink::ndiManager(LocalDOMWindow& window) {
+    VLOG(0) << "TEST INITIALIZE NDI";
+    int status = NDIlib_initialize();
+    VLOG(0) << "test initialize ndi " << status;
+    return NdiManager::getInstance();
+}
+
 long DOMWindowDecklink::videoCardList(LocalDOMWindow& window, V8VideoCardGetCallback* callback, ExceptionState &exception_state) {
+
 	#if BUILDFLAG(IS_WIN)
 	// Initialize COM on this thread
 	HRESULT  result1 = CoInitializeEx(NULL, COINIT_MULTITHREADED);

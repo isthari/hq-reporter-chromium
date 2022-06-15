@@ -8,20 +8,23 @@ import("//third_party/libaom/options.gni")
 import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
 import("//third_party/protobuf/proto_library.gni")
 
-blink_modules_sources("isthari") {
+blink_modules_sources("ndi") {
   sources = [
-    "dom_window_decklink.cc",
-    "dom_window_decklink.h",
-    "video_card.cc",
-    "video_card.h",
-    "video_card_mode.cc",
-    "video_card_mode.h",
-    "ndi/ndi_input_stream.cc",
-    "ndi/ndi_input_stream.h",
-    "ndi/ndi_manager.cc",
-    "ndi/ndi_manager.h",
-    "ndi/ndi_output_stream.cc",
-    "ndi/ndi_output_stream.h",
+    "NdiManager.cc",
+    "NdiManager.h",
+    "Processing.NDI.compat.h",
+    "Processing.NDI.deprecated.h",
+    "Processing.NDI.DynamicLoad.h",
+    "Processing.NDI.Find.h",
+    "Processing.NDI.FrameSync.h",
+    "Processing.NDI.Lib.cplusplus.h",
+    "Processing.NDI.Lib.h",
+    "Processing.NDI.Recv.ex.h",
+    "Processing.NDI.Recv.h",
+    "Processing.NDI.Routing.h",
+    "Processing.NDI.Send.h",
+    "Processing.NDI.structs.h",
+    "Processing.NDI.utilities.h",
   ]
   deps = [
     "//media",
@@ -38,3 +41,4 @@ blink_modules_sources("isthari") {
   ]
   public_deps = [ "//third_party/blink/renderer/modules/webaudio:webaudio" ]
 }
+

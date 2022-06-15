@@ -300,7 +300,7 @@ HRESULT VideoCard::VideoInputFrameArrived(
 
     // enviar el audio lo primero     
     if (audioFrame) {
-        processInputAudio(audioFrame);
+        //processInputAudio(audioFrame);
     }
     
     if(videoFrame) {
@@ -331,18 +331,6 @@ HRESULT VideoCard::VideoInputFrameArrived(
                	inStV_, inWidth_/2,
                	inWidth_, inHeight_, 
                	libyuv::FilterMode::kFilterBilinear);
-	       gfx::Size size(inWidth_, inHeight_);               	
-               videoFrameIn_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
-		    size,
-		    gfx::Rect(size),
-		    size,
-		    inWidth_*1.5,
-		    inWidth_/2,
-		    inWidth_/2,
-		    inStY_,
-		    inStU_,
-		    inStV_,
-		    timeIn_);    				
 		PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&VideoCard::OnVideoFrameReceived,WrapCrossThreadWeakPersistent(this)));
 	    }            
         }
@@ -477,6 +465,19 @@ void VideoCard::OnVideoFrameReceived() {
 }
 
 VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {    
+	gfx::Size size(inWidth_, inHeight_);               	
+	videoFrameIn_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
+	    size,
+	    gfx::Rect(size),
+	    size,
+	    inWidth_*1.5,
+	    inWidth_/2,
+	    inWidth_/2,
+	    inStY_,
+	    inStU_,
+	    inStV_,
+	    timeIn_);    				
+
     this->videoFrame = MakeGarbageCollected<VideoFrame>(videoFrameIn_, context);
     return this->videoFrame;
 }
