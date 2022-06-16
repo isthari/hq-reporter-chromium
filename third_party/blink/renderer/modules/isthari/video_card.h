@@ -1,6 +1,7 @@
 #pragma once
 
 #include "video_card_mode.h"
+#include "sdi/decklink/decklink_input_stream.h"
 
 #include <list>
 #include <map>
@@ -32,8 +33,7 @@ class SingleThreadTaskRunner;
 
 namespace blink {
 
-class VideoCard : public ScriptWrappable,
-       public IDeckLinkInputCallback
+class VideoCard : public ScriptWrappable
 {		  
     DEFINE_WRAPPERTYPEINFO();
 public:
@@ -60,7 +60,8 @@ public:
     	long selectedWidth, long selectedHeight, 
     	V8VideoCardFrameCallback *, V8VideoCardAudioCallback *);
     void disableVideoInput();
-    VideoFrame* getVideoFrame(ExecutionContext*);
+    VideoFrame* getVideoFrame(ExecutionContext* context);
+
 
     // output    
     void enableVideoOutput(long mode, long audioChannels);
@@ -76,28 +77,16 @@ public:
     	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15);
     void sendBlackFrame();
 
-    // IDeckLinkInputCallback
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
-    ULONG STDMETHODCALLTYPE AddRef(void) override { return 0; }
-    ULONG STDMETHODCALLTYPE  Release(void) override { return 0; }
-    HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode*, BMDDetectedVideoInputFormatFlags) override;
-    HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*) override;
-
-private:
-    // ENTRADA
-    // Audio de entrada
-    void processInputAudio(IDeckLinkAudioInputPacket* audioFrame);
-    void inputAudioCycle();
-
 private:
     // acceso a la tarjeta
     IDeckLink* deckLink_;
     
+    // nuevo modulo de entrada
+    Member<DecklinkInputStream> decklinkInputStream_;
+
     IDeckLinkOutput *deckLinkOutput_;
-    IDeckLinkInput *deckLinkInput_;
-    bool isInputEnabled_;
-    bool isOutputEnabled_;
-    long inputVideoMode_;
+    IDeckLinkInput *deckLinkInput_;    
+    bool isOutputEnabled_;    
     long outputVideoMode_;
 
     std::map<int, IDeckLinkDisplayMode*> displayModes_;
@@ -116,43 +105,8 @@ private:
 
     // entrada
     Member<ExecutionContext> executionContext_;
-    Member<V8VideoCardFrameCallback> frameCallback_;
-    Member<V8VideoCardAudioCallback> audioCallback_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
-    
-    // Parte de entrada SDI
-    // AUDIO
-    uint8_t** audioDataCurrent_;
-    uint8_t** audioDataNext_;    
-    int audioSamplesCurrent_;
-    int audioSamplesNext_;
-    base::TimeDelta timeInCurrent_;
-    base::TimeDelta timeInNext_;
-    // Para indicar porque punto va
-    int audioDataIndex_;
-    // Este es el paquete de audio que se construye para el envio
-    uint8_t** audioDataTemp_;
-    
-    // VIDEO    
-    // A que tamaño hay que convertir el tamaño antes de entregarlo al
-    // codificador de video. Para no enviar por webrtc en 1080
-    int inWidth_;
-    int inHeight_; 
-    // Buffer para el reescalado de video
-    uint8_t *inStY_;
-    uint8_t *inStU_;
-    uint8_t *inStV_;   
-    scoped_refptr<media::VideoFrame> videoFrameIn_;
-    Member<VideoFrame> videoFrame;
-        
-    // COMUN    
-    // Numero de frames recibidos
-    int frameInCounter_;        
-    // Timestamp del inicio de la captura
-    uint64_t inputStart_;
-    // Delta de tiempo del frame actual
-    base::TimeDelta timeIn_;        
-    
+
     // DECKLINK        
     // Parte de salida SDI
     IDeckLinkMutableVideoFrame *playbackFrame_;

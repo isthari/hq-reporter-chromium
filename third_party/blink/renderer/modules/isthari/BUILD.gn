@@ -16,6 +16,8 @@ blink_modules_sources("isthari") {
     "video_card.h",
     "video_card_mode.cc",
     "video_card_mode.h",
+    "sdi/decklink/decklink_input_stream.cc",
+    "sdi/decklink/decklink_input_stream.h",
     "ndi/ndi_input_stream.cc",
     "ndi/ndi_input_stream.h",
     "ndi/ndi_manager.cc",
