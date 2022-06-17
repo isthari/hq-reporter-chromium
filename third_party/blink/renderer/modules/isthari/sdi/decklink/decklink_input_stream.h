@@ -29,6 +29,7 @@ namespace blink {
                 V8VideoCardAudioCallback* audioCallback,
                 scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
             void Trace(Visitor*) const override;
+            void disable();
 
             // IDeckLinkInputCallback
             HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
@@ -74,7 +75,7 @@ namespace blink {
             scoped_refptr<media::AudioBuffer> audioBufferMedia_;
             Member<AudioData> audioData_;
 
-#define DEBUG_AUDIO audio
+//#define DEBUG_AUDIO audio
 #ifdef DEBUG_AUDIO
             FILE *fptrOriginal;            
 #endif                

@@ -25,18 +25,15 @@
 namespace blink {
 
 VideoCard::VideoCard(IDeckLink *deckLink)
-    : deckLink_(deckLink),      
-      isOutputEnabled_(false),      
-      outputVideoMode_(-1),
+    : deckLink_(deckLink),            
       main_task_runner_(base::ThreadTaskRunnerHandle::Get())
 {  
     decklinkInputStream_ = nullptr;
+    decklinkOutputStream_ = nullptr;
 
     // TODO GC
     // 1024 muetras 2 bytes 16 canales
     audioDataOut_ = (uint8_t*) malloc (1024*2*16);
-
-    framesOutVideo_ = 0;
 
     dlstring_t deviceNameString;
     deckLink_->GetModelName(&deviceNameString);
@@ -132,53 +129,11 @@ VideoCardMode* VideoCard::getMode(long index)
 }
 
 void VideoCard::enableVideoOutput(long mode, long audioChannels) {
-    if (!isOutput_) {
-        VLOG(0) << "Device does not support video output";
-        return;
-    }
-    
-    if (isOutputEnabled_) {
-        VLOG(0) << "Output already enabled";
-        return;
-    }
-            
-    isOutputEnabled_ = true;
-    outputVideoMode_ = mode;
-    audioChannelsOut_ = audioChannels;
+    // TODO check si se puede habilitar 
+    // TODO si ya lo estaba
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
-    
-    // TODO GC
-    long width = displayMode->GetWidth();
-    long height = displayMode->GetHeight();
-    dstY_ = (uint8_t*) malloc (width*1.5*height);
-    dstU_ = (uint8_t*) malloc (width/4*height);
-    dstV_ = (uint8_t*) malloc (width/4*height);
-    
-    displayMode->GetFrameRate(&frameDuration_, &frameTimescale_);
-    BMDDisplayMode bmdMode = displayMode->GetDisplayMode();            
-    HRESULT video = deckLinkOutput_->EnableVideoOutput(bmdMode, bmdVideoOutputRP188);
-    if (video == S_OK) {
-        VLOG(0) << "enable video output ok";
-    } else {
-        VLOG(0) << "enable video output error";
-    }
-    
-    // TODO GC
-    VLOG(0) << "create video frame " << width << "x" << height;
-    deckLinkOutput_->CreateVideoFrame((int32_t) width,
-		    	(int32_t) height,
-		    	(int32_t) width*2, // asume siempre 8 bit YUV
-		    	bmdFormat8BitYUV,
-		    	bmdFrameFlagDefault,
-		    	&playbackFrame_);
-		    	
-    // TODO añadir soporte para los 16 canales restantes		    	
-    HRESULT audio = deckLinkOutput_->EnableAudioOutput(bmdAudioSampleRate48kHz, bmdAudioSampleType16bitInteger, (uint32_t) audioChannels, bmdAudioOutputStreamContinuous);
-    if (audio == S_OK) {
-        VLOG(0) << "enable audio output ok";        
-    } else {
-        VLOG(0) << "enable audio output error";
-    }
+    this->decklinkOutputStream_ = MakeGarbageCollected<DecklinkOutputStream>(deckLinkOutput_,
+        displayMode);    
 }
 
 void VideoCard::disableVideoInput() 
@@ -189,9 +144,9 @@ void VideoCard::disableVideoInput()
 }
 
 void VideoCard::disableVideoOutput() {    
-    // TODO
-    deckLinkOutput_->DisableVideoOutput();
-    deckLinkOutput_->DisableAudioOutput();
+    // TODO check;
+    //deckLinkOutput_->DisableVideoOutput();
+    //deckLinkOutput_->DisableAudioOutput();
 }
 
 void VideoCard::enableVideoInput(ExecutionContext* executionContext, 
@@ -200,15 +155,16 @@ void VideoCard::enableVideoInput(ExecutionContext* executionContext,
 	long selectedHeight,
  	V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) {    
 
-    if (this->decklinkInputStream_ == nullptr){        
-        IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
-        decklinkInputStream_ = MakeGarbageCollected<DecklinkInputStream>(
-                deckLinkInput_,
-                displayMode, 
-                frameCallback,
-                audioCallback,
-                main_task_runner_);        
-    }     
+    if (decklinkInputStream_ != nullptr){        
+        decklinkInputStream_->disable();
+    } 
+    IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
+    decklinkInputStream_ = MakeGarbageCollected<DecklinkInputStream>(
+            deckLinkInput_,
+            displayMode, 
+            frameCallback,
+            audioCallback,
+            main_task_runner_);            
 }
 
 VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {
@@ -218,71 +174,12 @@ VideoFrame* VideoCard::getVideoFrame(ExecutionContext* context) {
 void VideoCard::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
     visitor->Trace(decklinkInputStream_);
+    visitor->Trace(decklinkOutputStream_);
     visitor->Trace(executionContext_);
 }
 
-void VideoCard::putVideoFrame(VideoFrame* frame) {
-    if (!isOutputEnabled_) {
-      return;
-    }
-/*
-    LOG(ERROR) << "format: " << std::__to_underlying(frame->format()->AsEnum())
-	<< " width " << frame->codedWidth()
-	<< " height " << frame->codedHeight();
-	*/
-    auto width = frame->codedWidth();
-    auto height = frame->codedHeight();
-    gfx::Size size(height, width);
-    auto mediaFrame = frame->frame();
-    uint8_t *deckLinkBuffer = nullptr;
-    
-    /*
-    if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_NV12) {
-        int strideY = mediaFrame->stride(0);
-        int strideUV = mediaFrame->stride(1);
-        LOG(ERROR) << "strideY "<< strideY << " strideUV " << strideUV;
-    }    
-    
-    LOG(ERROR) << "width " << width << " height " << height;
-    std::vector<int> strides = media::VideoFrame::ComputeStrides(media::VideoPixelFormat::PIXEL_FORMAT_NV12, size);
-    for(int n : strides) {
-        LOG(ERROR) << "stride "<<n;
-    }*/
-    
-    IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
-    uint32_t widthOut = (uint32_t) displayMode->GetWidth();
-    uint32_t heightOut = (uint32_t) displayMode->GetHeight();    
-    int dstStrideY = widthOut;
-    int dstStrideU = widthOut/2;
-    int dstStrideV = widthOut/2;
-    
-    playbackFrame_->GetBytes((void**) &deckLinkBuffer);
-    if (width==widthOut && height==heightOut) {
-        // si coinciden los parametros		
-        libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
-			mediaFrame->data(1), mediaFrame->stride(1),
-			mediaFrame->data(2), mediaFrame->stride(2),
-			deckLinkBuffer,
-			width*2, width, height-1);			
-    } else {
-        // scale
-        libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
-		mediaFrame->data(1), mediaFrame->stride(1),
-		mediaFrame->data(2), mediaFrame->stride(2),
-		width, height,
-		dstY_, dstStrideY, 		
-		dstU_, dstStrideU,
-		dstV_, dstStrideV,
-		widthOut, heightOut,
-		libyuv::FilterMode::kFilterBox);
-    
-        libyuv::I420ToUYVY(dstY_, dstStrideY,
-    			dstU_, dstStrideU,
-    			dstV_, dstStrideV,
-			deckLinkBuffer,
-			widthOut*2, widthOut, heightOut-1);
-    }			
-    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);
+void VideoCard::putVideoFrame(VideoFrame* frame) {    
+    decklinkOutputStream_->putVideoFrame(frame);
 }
 
 int float2int(float f, int index, uint8_t *audioDataOut_) {
@@ -304,9 +201,6 @@ void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFl
     	NotShared<DOMFloat32Array> audio10, NotShared<DOMFloat32Array> audio11,
     	NotShared<DOMFloat32Array> audio12, NotShared<DOMFloat32Array> audio13,
     	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15) { 
-  if (!isOutputEnabled_) {
-    return;
-  }
 //    LOG(ERROR) << "send audio";
 
     int index = 0;
@@ -373,24 +267,7 @@ void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFl
 }
 
 void VideoCard::sendBlackFrame() {
-IDeckLinkDisplayMode *displayMode = displayModes_[(int)outputVideoMode_];
-    uint32_t width = (uint32_t) displayMode->GetWidth();
-    uint32_t height = (uint32_t) displayMode->GetHeight();   
-    int dstStrideY = width*1.5;
-    int dstStrideU = width/4;
-    int dstStrideV = width/4;
-    memset(dstY_, 0, dstStrideY * height);
-    memset(dstU_, 128, dstStrideU * height);
-    memset(dstV_, 128, dstStrideV * height);        
-
-    uint8_t *deckLinkBuffer = nullptr;
-    playbackFrame_->GetBytes((void**) &deckLinkBuffer);        
-    libyuv::I420ToUYVY(dstY_, dstStrideY,
-    			dstU_, dstStrideU,
-    			dstV_, dstStrideV,
-			deckLinkBuffer,
-			width*2, width, height-1);
-    deckLinkOutput_->DisplayVideoFrameSync(playbackFrame_);    
+    decklinkOutputStream_->sendBlackFrame();
 }
 
 } // namespace blink

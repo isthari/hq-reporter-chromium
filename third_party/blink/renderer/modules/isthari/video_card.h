@@ -2,6 +2,7 @@
 
 #include "video_card_mode.h"
 #include "sdi/decklink/decklink_input_stream.h"
+#include "sdi/decklink/decklink_output_stream.h"
 
 #include <list>
 #include <map>
@@ -83,11 +84,10 @@ private:
     
     // nuevo modulo de entrada
     Member<DecklinkInputStream> decklinkInputStream_;
+    Member<DecklinkOutputStream> decklinkOutputStream_;
 
     IDeckLinkOutput *deckLinkOutput_;
-    IDeckLinkInput *deckLinkInput_;    
-    bool isOutputEnabled_;    
-    long outputVideoMode_;
+    IDeckLinkInput *deckLinkInput_;        
 
     std::map<int, IDeckLinkDisplayMode*> displayModes_;
     std::list<VideoCardMode *> modes_;
@@ -109,21 +109,9 @@ private:
 
     // DECKLINK        
     // Parte de salida SDI
-    IDeckLinkMutableVideoFrame *playbackFrame_;
-    long framesOutVideo_; 
     long audioChannelsOut_;  
-    uint8_t *audioDataOut_;
-    uint8_t *dstY_;
-    uint8_t *dstU_;
-    uint8_t *dstV_;
-/*    uint8_t *nv12Y_;
-    uint8_t *nv12UV_;*/
+    uint8_t *audioDataOut_;    
     
-#ifdef DEBUG_AUDIO0
-  FILE *fptrOriginal;
-  FILE *fptr10ms;
-#endif    
-
 private:
     void checkIO();
     void getDisplayModes();

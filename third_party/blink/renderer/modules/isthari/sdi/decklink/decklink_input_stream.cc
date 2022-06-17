@@ -1,4 +1,5 @@
 #include "decklink_input_stream.h"
+#include "../../base/callback_helper.h"
 
 #include <chrono>
 #include <stdlib.h>
@@ -7,6 +8,9 @@
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/libyuv/include/libyuv.h"
+
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+
 
 namespace blink {
     
@@ -23,7 +27,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         startTimestamp_(0),
         frameCounter_(0)
 {
-    VLOG(0) << "Enabling video input";    
+    VLOG(0) << "KK Enabling video input";    
     width_ = (int) displayMode_->GetWidth();
     height_ = (int) displayMode_->GetHeight();
 
@@ -76,14 +80,19 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
 #endif    
 }
 
-
-
 void DecklinkInputStream::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
     visitor->Trace(audioCallback_);
     visitor->Trace(audioData_);
     visitor->Trace(frameCallback_);        
     visitor->Trace(videoFrameBlink_);
+}
+
+void DecklinkInputStream::disable() {
+    VLOG(0) << "KK Disable SDI device";
+    deckLinkInput_->StopStreams();
+    deckLinkInput_->DisableVideoInput();
+    deckLinkInput_->DisableAudioInput();     
 }
 
 HRESULT DecklinkInputStream::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode*, BMDDetectedVideoInputFormatFlags) {
@@ -121,7 +130,7 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
         }
     }
     if (audioData) {
-        processAudioData(audioData);
+        this->processAudioData(audioData);
     }
 
     frameCounter_++;
@@ -164,8 +173,13 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
 }
 
 void DecklinkInputStream::onVideoFrameReceived() {    
-    auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
-    qtf.IsJust();
+    if (!isAvailableVideoFrameCallback(frameCallback_)) {
+        VLOG(0) << "Callback is no longer available";
+        this->disable();
+    } else {                
+        auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
+        qtf.IsJust();
+    }
 }
 
 VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {    
@@ -186,20 +200,18 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
     return this->videoFrameBlink_;
 }
 
-void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioData){
-    //VLOG(0) << "processAudioData";
+void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioData){    
     int samples = (int) audioData->GetSampleFrameCount();
     int size = (int) (samples * 2 * 2);
     void *frameBytes;
-    VLOG(0) << "received audio samples " << samples;
     audioData->GetBytes(&frameBytes);
     memcpy(audioBuffer_[0], frameBytes, size);
+    
     PostCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
         CrossThreadBindOnce(&DecklinkInputStream::onAudioDataReceived,
         WrapCrossThreadWeakPersistent(this),
         samples));
-
 }
 
 void DecklinkInputStream::onAudioDataReceived(int samples) {
@@ -207,18 +219,29 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
 #ifdef DEBUG_AUDIO    
     fwrite(audioBuffer_[0], 1, samples*2*2, fptrOriginal);
 #endif    
+    ScriptState* callback_relevant_script_state = audioCallback_->
+    CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
 
-    audioBufferMedia_ = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
-        media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
-	    2, // channel count
-        48000, // sample rate
-	    samples, 
-	    audioBuffer_,
-	    currentFrameTime_);
-    
-    audioData_ = MakeGarbageCollected<AudioData>(audioBufferMedia_);    
-    auto qtf = audioCallback_->handleFrame(nullptr, audioData_);
-    qtf.IsJust(); 
+    if (!IsCallbackFunctionRunnable(callback_relevant_script_state,
+                                  audioCallback_->IncumbentScriptState())) {
+        VLOG(0) << "Que pasa tron como te columpias";
+    /*    
+    if (!isAvailableAudioDataCallback(audioCallback_)) {
+        VLOG(0) << "callback is no longer available";    
+        */
+    } else { 
+        audioBufferMedia_ = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
+            media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
+            2, // channel count
+            48000, // sample rate
+            samples, 
+            audioBuffer_,
+            currentFrameTime_);
+        
+        audioData_ = MakeGarbageCollected<AudioData>(audioBufferMedia_);    
+        auto qtf = audioCallback_->handleFrame(nullptr, audioData_);
+        qtf.IsJust(); 
+    }
 }
 
 }
