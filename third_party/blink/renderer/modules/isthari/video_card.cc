@@ -70,6 +70,10 @@ void VideoCard::checkIO() {
         VLOG(0) << "Card " << modelName_ << " does not support playback ";
 	    isOutput_ = false;
     } else {
+        // hacer un disable por si ha recargado la pagina
+        VLOG(0) << "Disable video output";
+        deckLinkOutput_->DisableVideoOutput();
+        deckLinkOutput_->DisableAudioOutput();
         isOutput_ = true;
     }
 
@@ -79,6 +83,10 @@ void VideoCard::checkIO() {
         VLOG(0) << "Card " << modelName_ << " does not support capture";
 	isInput_ = false;
     } else {
+        // hacer un disable por si ha recargado la pagina
+        deckLinkInput_->StopStreams();
+        deckLinkInput_->DisableVideoInput();
+        deckLinkInput_->DisableAudioInput();
         isInput_ = true;	   	
     }
 }

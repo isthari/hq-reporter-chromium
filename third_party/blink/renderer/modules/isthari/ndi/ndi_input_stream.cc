@@ -1,3 +1,5 @@
+#include "../base/callback_helper.h"
+
 #include "base/logging.h"
 #include "base/task/thread_pool.h"
 #include "media/base/audio_buffer.h"
@@ -11,6 +13,8 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from_argb.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+
 #include <chrono>
 
 namespace blink {
@@ -20,7 +24,8 @@ NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameC
     frameCallback_(frameCallback),
     startTimestamp_(0),
     frameCounter_(0),
-    url_(url)
+    url_(url),
+    enabled_(true)
 {
     main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
       
@@ -50,7 +55,8 @@ void NdiInputStream::Trace(Visitor* visitor) const {
     visitor->Trace(videoFrame);
 }	
 
-void NdiInputStream::stop() {
+void NdiInputStream::disable() {
+    this->enabled_ = false;
 }
 
 void NdiInputStream::startInternal() {
@@ -67,50 +73,49 @@ void NdiInputStream::startInternal() {
     NDIlib_recv_instance_t receiver = NDIlib_recv_create_v3(&NDI_recv_create_desc);
     VLOG(0) << "NDI created receiver " << url_;
     
-    // TODO ponerle el stop
-    while(1) {
+    while(enabled_) {
         NDIlib_video_frame_v2_t videoFrame;
-	NDIlib_audio_frame_v2_t audioFrame;
-	NDIlib_metadata_frame_t metadata_frame;
+	    NDIlib_audio_frame_v2_t audioFrame;
+	    NDIlib_metadata_frame_t metadata_frame;
 	
-	/// calculo de tiempos
-	auto status = NDIlib_recv_capture_v2(receiver, &videoFrame, &audioFrame, &metadata_frame, 1000);
-	if (startTimestamp_ ==0 && (status==NDIlib_frame_type_video || status==NDIlib_frame_type_audio)) {
-	    startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-	}
-	uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        if (now == startTimestamp_) {
-            now = now + 10000;
+        /// calculo de tiempos
+        auto status = NDIlib_recv_capture_v2(receiver, &videoFrame, &audioFrame, &metadata_frame, 1000);
+        if (startTimestamp_ ==0 && (status==NDIlib_frame_type_video || status==NDIlib_frame_type_audio)) {
+            startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         }
-        base::TimeDelta timestamp = base::Microseconds(now-startTimestamp_); 
-	
-	switch (status) {
-	case NDIlib_frame_type_none:
-            VLOG(0) << "NDI no frame " << url_;
-	    break;
-	case NDIlib_frame_type_video:
-	    //VLOG(0) << "NDI received video " << url_;
-    	    this->processVideoFrame(videoFrame, timestamp);
-	    NDIlib_recv_free_video_v2(receiver, &videoFrame);
-	    break;
-	case NDIlib_frame_type_audio:    
-	    //VLOG(0) << "NDI received audio " << url_;	    
-	    this->processAudio(audioFrame, timestamp);
-	    NDIlib_recv_free_audio_v2(receiver, &audioFrame);
-	    break;
-	case NDIlib_frame_type_status_change:
-	    VLOG(0) << "NDI status change " << url_;
-	    break;
-	case NDIlib_frame_type_metadata:
-	    VLOG(0) << "NDIlib_frame_type_metadata " << url_;
-	    break;
-	case NDIlib_frame_type_max:
-	    VLOG(0) << "NDIlib_frame_type_max " << url_;
-	    break;		
-	case NDIlib_frame_type_error:
-	    VLOG(0) << "NDIlib_frame_type_error " << url_;
-	    break;		        	
-	}        
+        uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            if (now == startTimestamp_) {
+                now = now + 10000;
+            }
+            base::TimeDelta timestamp = base::Microseconds(now-startTimestamp_); 
+        
+        switch (status) {
+        case NDIlib_frame_type_none:
+                VLOG(0) << "NDI no frame " << url_;
+            break;
+        case NDIlib_frame_type_video:
+            //VLOG(0) << "NDI received video " << url_;
+                this->processVideoFrame(videoFrame, timestamp);
+            NDIlib_recv_free_video_v2(receiver, &videoFrame);
+            break;
+        case NDIlib_frame_type_audio:    
+            //VLOG(0) << "NDI received audio " << url_;	    
+            this->processAudio(audioFrame, timestamp);
+            NDIlib_recv_free_audio_v2(receiver, &audioFrame);
+            break;
+        case NDIlib_frame_type_status_change:
+            VLOG(0) << "NDI status change " << url_;
+            break;
+        case NDIlib_frame_type_metadata:
+            VLOG(0) << "NDIlib_frame_type_metadata " << url_;
+            break;
+        case NDIlib_frame_type_max:
+            VLOG(0) << "NDIlib_frame_type_max " << url_;
+            break;		
+        case NDIlib_frame_type_error:
+            VLOG(0) << "NDIlib_frame_type_error " << url_;
+            break;		        	
+        }        
     }
 }
 
@@ -120,6 +125,7 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
     frameCounter_++;
     
     bool known = false;
+    // TODO separar la conversion de imagenes a clase a parte
     if(videoFrame.FourCC == NDIlib_FourCC_video_type_e::NDIlib_FourCC_video_type_BGRA) {
         known = true;
         //VLOG(0) << "NDI convert BGRA " << url_;
@@ -162,8 +168,13 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
 }
 
 void NdiInputStream::OnVideoFrameReceived() {
-    auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
-    qtf.IsJust();
+    if (!isAvailableVideoFrameCallback(frameCallback_)) {
+        VLOG(0) << "Callback is no longer available NDI";
+        this->disable();
+    } else {
+        auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
+        qtf.IsJust();    
+    }
 }
 
 
@@ -200,10 +211,23 @@ void NdiInputStream::processAudio(NDIlib_audio_frame_v2_t audioFrame, base::Time
     delete[] audio_frame_16bpp_interleaved.p_data;
 }
 
-void NdiInputStream::OnAudioDataReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {
-    auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
-    auto qtf = audioCallback_->handleFrame(nullptr, frame2);
-    qtf.IsJust(); 
+void NdiInputStream::OnAudioDataReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {    
+    ScriptState* callback_relevant_script_state = audioCallback_->
+    CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
+
+    if (!IsCallbackFunctionRunnable(callback_relevant_script_state,
+                                  audioCallback_->IncumbentScriptState())) {
+        VLOG(0) << "callback is no longer available audio NDI";
+    /*
+    if (!isAvailableAudioDataCallback(audioCallback_)) {
+        VLOG(0) << "audio callback is no longer available NDI";
+        this->disable();
+        */
+    } else {
+        auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
+        auto qtf = audioCallback_->handleFrame(nullptr, frame2);
+        qtf.IsJust(); 
+    }
 }
 
 void NdiInputStream::debugFourCC(NDIlib_video_frame_v2_t video_frame) {

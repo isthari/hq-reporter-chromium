@@ -174,7 +174,7 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
 
 void DecklinkInputStream::onVideoFrameReceived() {    
     if (!isAvailableVideoFrameCallback(frameCallback_)) {
-        VLOG(0) << "Callback is no longer available";
+        VLOG(0) << "Callback is no longer available video SDI";
         this->disable();
     } else {                
         auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
@@ -224,7 +224,8 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
 
     if (!IsCallbackFunctionRunnable(callback_relevant_script_state,
                                   audioCallback_->IncumbentScriptState())) {
-        VLOG(0) << "Que pasa tron como te columpias";
+        VLOG(0) << "callback is no longer available audio sdi";
+        this->disable();
     /*    
     if (!isAvailableAudioDataCallback(audioCallback_)) {
         VLOG(0) << "callback is no longer available";    

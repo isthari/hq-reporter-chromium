@@ -21,7 +21,7 @@ public:
     NdiInputStream(std::string url, V8VideoCardFrameCallback*, V8VideoCardAudioCallback* );
     void Trace(Visitor*) const override; 
     VideoFrame* getVideoFrame(ExecutionContext*);    
-    void stop();
+    void disable();
             
 private:
     void startInternal();
@@ -51,6 +51,7 @@ private:
     std::string url_;
     scoped_refptr<base::TaskRunner> taskRunner_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
+    bool enabled_;
 };
 
 }
