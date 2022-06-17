@@ -19,6 +19,10 @@
 
 namespace blink {
 
+/**
+* Nunca se utilizan url, porque son susceptibles de cambio al reiniciar los streams
+* se usa siempre el nombre de stream, que es fijo y no cambia
+*/
 NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) :
     audioCallback_(audioCallback),
     frameCallback_(frameCallback),
@@ -59,12 +63,12 @@ void NdiInputStream::disable() {
     this->enabled_ = false;
 }
 
-void NdiInputStream::startInternal() {
+void NdiInputStream::startInternal() {    
     VLOG(0) << "NdiInputStream startInternal " << url_;
     
     NDIlib_source_t source;
     source.p_ndi_name = url_.c_str();
-    source.p_url_address = url_.c_str();
+    //source.p_url_address = url_.c_str();
 	
     NDIlib_recv_create_v3_t NDI_recv_create_desc;
     NDI_recv_create_desc.source_to_connect_to = source;
@@ -79,7 +83,7 @@ void NdiInputStream::startInternal() {
 	    NDIlib_metadata_frame_t metadata_frame;
 	
         /// calculo de tiempos
-        auto status = NDIlib_recv_capture_v2(receiver, &videoFrame, &audioFrame, &metadata_frame, 1000);
+        auto status = NDIlib_recv_capture_v2(receiver, &videoFrame, &audioFrame, &metadata_frame, 2000);
         if (startTimestamp_ ==0 && (status==NDIlib_frame_type_video || status==NDIlib_frame_type_audio)) {
             startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         }
@@ -91,7 +95,11 @@ void NdiInputStream::startInternal() {
         
         switch (status) {
         case NDIlib_frame_type_none:
-                VLOG(0) << "NDI no frame " << url_;
+                //  creo que es una estructura y simplemente se recicla.
+                // Tenerlo en ejecucion 24h para verificar
+                VLOG(0) << "NDI no frame recreating " << url_;
+                //receiver = NDIlib_recv_create_v3(&NDI_recv_create_desc);                
+                NDIlib_recv_connect(receiver, &source);
             break;
         case NDIlib_frame_type_video:
             //VLOG(0) << "NDI received video " << url_;
