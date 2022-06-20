@@ -1,0 +1,84 @@
+#pragma once
+
+#include "../../video_card_mode.h"
+#include <list>
+#include <map>
+#include <string>
+
+#include "base/threading/thread_task_runner_handle.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
+#include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
+#include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "third_party/decklink/linux/DeckLinkAPI.h"
+#elif BUILDFLAG(IS_WIN)
+#include "third_party/decklink/win/DeckLinkAPI.h"
+#endif
+
+namespace blink {
+    class DecklinkInputStream : public ScriptWrappable,
+        IDeckLinkInputCallback
+    {
+        DEFINE_WRAPPERTYPEINFO();
+        public: 
+            DecklinkInputStream(IDeckLinkInput *deckLinkInput,
+                IDeckLinkDisplayMode* displayMode, 
+                V8VideoCardFrameCallback* frameCallback,
+                V8VideoCardAudioCallback* audioCallback,
+                scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
+            void Trace(Visitor*) const override;
+            void disable();
+
+            // IDeckLinkInputCallback
+            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override { return E_NOINTERFACE; }
+            ULONG STDMETHODCALLTYPE AddRef(void) override { return 0; }
+            ULONG STDMETHODCALLTYPE  Release(void) override { return 0; }
+            HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode*, BMDDetectedVideoInputFormatFlags) override;
+            HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*) override;
+
+            VideoFrame* getVideoFrame(ExecutionContext* context);
+
+        private: 
+            // seccion de video
+            void processVideoFrame(IDeckLinkVideoInputFrame* );            
+            void onVideoFrameReceived();            
+
+            // seccion de audio
+            void processAudioData(IDeckLinkAudioInputPacket* );            
+            void onAudioDataReceived(int samples);
+
+        private:
+            IDeckLinkInput *deckLinkInput_;
+            IDeckLinkDisplayMode* displayMode_;
+            Member<V8VideoCardFrameCallback> frameCallback_;
+            Member<V8VideoCardAudioCallback> audioCallback_;
+            scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;            
+
+            // video data
+            scoped_refptr<media::VideoFrame> videoFrame_;
+            Member<VideoFrame> videoFrameBlink_;
+            int width_;
+            int height_;
+            uint8_t* sourceY_;
+            uint8_t* sourceU_;
+            uint8_t* sourceV_;
+        
+            // counters and timers
+            uint64_t startTimestamp_;
+            int32_t frameCounter_;
+            base::TimeDelta currentFrameTime_;
+
+            // audio data
+            uint8_t** audioBuffer_;
+            scoped_refptr<media::AudioBuffer> audioBufferMedia_;
+            Member<AudioData> audioData_;
+
+//#define DEBUG_AUDIO audio
+#ifdef DEBUG_AUDIO
+            FILE *fptrOriginal;            
+#endif                
+
+    };
+}

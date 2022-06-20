@@ -31,7 +31,7 @@ void NdiManager::scanCallback(void) {
     
     if (NDIlib_find_wait_for_sources(this->find_, 1) ) {
         const NDIlib_source_t* sources = nullptr;
-	sources = NDIlib_find_get_current_sources(this->find_, &numSources);
+	    sources = NDIlib_find_get_current_sources(this->find_, &numSources);
         VLOG(0) << "new NDI detected num sources " << numSources;
         
         std::shared_ptr<std::map<std::string, std::string>> tempMap = std::make_shared<std::map<std::string, std::string>>();
@@ -40,7 +40,7 @@ void NdiManager::scanCallback(void) {
             std::string name = temp.p_ndi_name;
             std::string url = temp.p_url_address;
             VLOG(0) << "NDI detected " << name << " url " << url;
-            tempMap->insert(std::pair<std::string, std::string>(url, name));
+            tempMap->insert(std::pair<std::string, std::string>(name, name));
         }
         this->scanedStreams_ = tempMap;
     }

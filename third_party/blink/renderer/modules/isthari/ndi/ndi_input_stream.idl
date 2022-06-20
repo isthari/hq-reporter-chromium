@@ -2,5 +2,5 @@
     LegacyNoInterfaceObject
 ] interface NdiInputStream {
     [CallWith=ExecutionContext] VideoFrame getVideoFrame();
-    void stop();
+    void disable();
 };
