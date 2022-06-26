@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/libyuv/include/libyuv.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from_argb.h"
 
@@ -26,6 +27,8 @@ namespace blink {
 NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameCallback, V8VideoCardAudioCallback* audioCallback) :
     audioCallback_(audioCallback),
     frameCallback_(frameCallback),
+    scaledWidth_(1280),
+    scaledHeight_(720),
     startTimestamp_(0),
     frameCounter_(0),
     url_(url),
@@ -45,6 +48,11 @@ NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameC
     i420originalSizeY_ = (uint8_t*) malloc (width*1.5*height);
     i420originalSizeU_ = (uint8_t*) malloc (width/2*height);
     i420originalSizeV_ = (uint8_t*) malloc (width/2*height);
+
+    // TODO GC, imagen que se usa escalada para la codificacion
+    scaledY_ = (uint8_t*) malloc (scaledWidth_*1.5*scaledHeight_);
+    scaledU_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
+    scaledV_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
     
     // TODO GC
     // coger 1 segundo de 16 canales 48khz
@@ -95,15 +103,15 @@ void NdiInputStream::startInternal() {
         
         switch (status) {
         case NDIlib_frame_type_none:
-                //  creo que es una estructura y simplemente se recicla.
-                // Tenerlo en ejecucion 24h para verificar
-                VLOG(0) << "NDI no frame recreating " << url_;
-                //receiver = NDIlib_recv_create_v3(&NDI_recv_create_desc);                
-                NDIlib_recv_connect(receiver, &source);
+            //  creo que es una estructura y simplemente se recicla.
+            // Tenerlo en ejecucion 24h para verificar
+            VLOG(0) << "NDI no frame recreating " << url_;
+            //receiver = NDIlib_recv_create_v3(&NDI_recv_create_desc);                
+            NDIlib_recv_connect(receiver, &source);
             break;
         case NDIlib_frame_type_video:
             //VLOG(0) << "NDI received video " << url_;
-                this->processVideoFrame(videoFrame, timestamp);
+            this->processVideoFrame(videoFrame, timestamp);
             NDIlib_recv_free_video_v2(receiver, &videoFrame);
             break;
         case NDIlib_frame_type_audio:    
@@ -131,6 +139,7 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
     int width = videoFrame.xres;
     int height = videoFrame.yres;
     frameCounter_++;
+    currentFrameTime_ = timestamp;
     
     bool known = false;
     // TODO separar la conversion de imagenes a clase a parte
@@ -155,6 +164,17 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
     }
     
     if (known) {
+        libyuv::I420Scale(i420originalSizeY_, width*1.5,
+            i420originalSizeU_, width/2,
+            i420originalSizeV_, width/2,
+            width, height,
+            scaledY_, scaledWidth_*1.5,
+            scaledU_, scaledWidth_/2,
+            scaledV_, scaledWidth_/2,
+            scaledWidth_, scaledHeight_, 
+            libyuv::FilterMode::kFilterBilinear);
+
+        /*
         gfx::Size size(width, height);
         videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
 	    size,
@@ -167,6 +187,7 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
 	    i420originalSizeU_,
 	    i420originalSizeV_,
 	    timestamp);    	
+        */
 	    
         PostCrossThreadTask(*main_task_runner_, 
             FROM_HERE, 
@@ -180,6 +201,19 @@ void NdiInputStream::OnVideoFrameReceived() {
         VLOG(0) << "Callback is no longer available NDI";
         this->disable();
     } else {
+        gfx::Size size(scaledWidth_, scaledHeight_);        
+        videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
+            size,
+            gfx::Rect(size),
+            size,
+            scaledWidth_*1.5,
+            scaledWidth_/2,
+            scaledWidth_/2,
+            scaledY_,
+            scaledU_,
+            scaledV_,
+            currentFrameTime_);   
+
         auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
         qtf.IsJust();    
     }

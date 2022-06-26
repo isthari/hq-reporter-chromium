@@ -24,6 +24,8 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         frameCallback_(frameCallback),
         audioCallback_(audioCallback),
         main_task_runner_(main_task_runner),
+        scaledWidth_(1280),
+        scaledHeight_(720),
         startTimestamp_(0),
         frameCounter_(0)
 {
@@ -36,7 +38,10 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
     sourceU_ = (uint8_t*) malloc (width_/2*height_);
     sourceV_ = (uint8_t*) malloc (width_/2*height_);
 
-    // TODO GC, imagen que se usa para la codificacion
+    // TODO GC, imagen que se usa escalada para la codificacion
+    scaledY_ = (uint8_t*) malloc (scaledWidth_*1.5*scaledHeight_);
+    scaledU_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
+    scaledV_ = (uint8_t*) malloc (scaledWidth_/2*scaledHeight_);
     /*
     inWidth_ = (int) selectedWidth;
     inHeight_ = (int) selectedHeight;
@@ -146,12 +151,25 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
         return;
     }
 	
+    // convertir UYVY a I420
     libyuv::UYVYToI420((const uint8_t*) frameBytes, 
             width_*2,   
 	  	    sourceY_, width_*1.5,
 	   	    sourceU_, width_/2,
 	   	    sourceV_, width_/2,
 		    width_, height_);		               
+
+    // escalar
+    libyuv::I420Scale(sourceY_, width_*1.5,
+        sourceU_, width_/2,
+        sourceV_, width_/2,
+        width_, height_,
+        scaledY_, scaledWidth_*1.5,
+        scaledU_, scaledWidth_/2,
+        scaledV_, scaledWidth_/2,
+        scaledWidth_, scaledHeight_, 
+        libyuv::FilterMode::kFilterBilinear);
+
     PostCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
         CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
@@ -182,8 +200,9 @@ void DecklinkInputStream::onVideoFrameReceived() {
     }
 }
 
-VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {    
-	gfx::Size size(width_, height_);               	
+VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {    	
+    /*       	
+    gfx::Size size(width_, height_);        
 	videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
 	    size,
 	    gfx::Rect(size),
@@ -195,6 +214,21 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
 	    sourceU_,
 	    sourceV_,
 	    currentFrameTime_);    				
+        */
+
+    // enviar la escalada
+    gfx::Size size(scaledWidth_, scaledHeight_);        
+    videoFrame_ = media::VideoFrame::WrapExternalYuvData(media::PIXEL_FORMAT_I420,
+	    size,
+	    gfx::Rect(size),
+	    size,
+	    scaledWidth_*1.5,
+	    scaledWidth_/2,
+	    scaledWidth_/2,
+	    scaledY_,
+	    scaledU_,
+	    scaledV_,
+	    currentFrameTime_); 
 
     this->videoFrameBlink_ = MakeGarbageCollected<VideoFrame>(videoFrame_, context);
     return this->videoFrameBlink_;

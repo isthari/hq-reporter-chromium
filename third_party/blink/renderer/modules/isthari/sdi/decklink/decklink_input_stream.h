@@ -64,6 +64,13 @@ namespace blink {
             uint8_t* sourceY_;
             uint8_t* sourceU_;
             uint8_t* sourceV_;
+
+            // imagen scalada para reducir uso de cpu
+            uint8_t* scaledY_;
+            uint8_t* scaledU_;
+            uint8_t* scaledV_;
+            int scaledWidth_;
+            int scaledHeight_;
         
             // counters and timers
             uint64_t startTimestamp_;

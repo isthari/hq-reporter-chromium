@@ -140,8 +140,8 @@ void VideoCard::enableVideoOutput(long mode, long audioChannels) {
     // TODO check si se puede habilitar 
     // TODO si ya lo estaba
     IDeckLinkDisplayMode *displayMode = displayModes_[(int)mode];
-    this->decklinkOutputStream_ = MakeGarbageCollected<DecklinkOutputStream>(deckLinkOutput_,
-        displayMode);    
+    this->audioChannelsOut_=audioChannels;
+    this->decklinkOutputStream_ = MakeGarbageCollected<DecklinkOutputStream>(deckLinkOutput_, displayMode);    
 }
 
 void VideoCard::disableVideoInput() 
@@ -210,7 +210,7 @@ void VideoCard::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFl
     	NotShared<DOMFloat32Array> audio12, NotShared<DOMFloat32Array> audio13,
     	NotShared<DOMFloat32Array> audio14, NotShared<DOMFloat32Array> audio15) { 
 //    LOG(ERROR) << "send audio";
-
+   // VLOG(0) << "Put audio frame "<< audioChannelsOut_;
     int index = 0;
     DOMFloat32Array* a0 = audio0.Get();
     DOMFloat32Array* a1 = audio1.Get();
