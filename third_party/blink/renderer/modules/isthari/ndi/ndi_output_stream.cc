@@ -69,7 +69,7 @@ int float2intNdi(float f, int index, uint8_t *audioDataOut_) {
 }
 
 void NdiOutputStream::putAudioFrame(NotShared<DOMFloat32Array> audio0, NotShared<DOMFloat32Array> audio1) {
-    VLOG(0) << "put audio frame";
+    //VLOG(0) << "put audio frame";
     DOMFloat32Array* a0 = audio0.Get();
     DOMFloat32Array* a1 = audio1.Get();
     const float* aa0 = (const float*) a0->buffer()->Data();

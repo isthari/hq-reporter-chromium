@@ -17,8 +17,10 @@ NdiManager::NdiManager(){
 NdiManager* NdiManager::getInstance() {
     VLOG(0) << "ndi factory initialize";
     if(instance_ == nullptr) {
+        VLOG(0) << "NDI factory first instance";
         NdiManager::instance_ = MakeGarbageCollected<NdiManager>();
-    }	    
+    }	
+    VLOG(0) << "NDI factory ends";
     return instance_;
 }
 
@@ -56,9 +58,9 @@ void NdiManager::getScanedStreams(V8NdiScanCallback* callback) {
         it++;
         VLOG(0) << "get url " << url << " name " << name;
         auto qtf = callback->onStream(nullptr, String(url), String(name));
-	if (qtf.IsJust()) {
+        if (qtf.IsJust()) {
             VLOG(0) << "isjust";
-	}
+        }
     }
 }
 

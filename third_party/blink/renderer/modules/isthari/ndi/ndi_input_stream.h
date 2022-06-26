@@ -40,6 +40,13 @@ private:
     uint8_t *i420originalSizeY_;
     uint8_t *i420originalSizeU_;
     uint8_t *i420originalSizeV_;
+
+    // imagen scalada para reducir uso de cpu
+    uint8_t* scaledY_;
+    uint8_t* scaledU_;
+    uint8_t* scaledV_;
+    int scaledWidth_;
+    int scaledHeight_;
     
     // TODO GC
     uint8_t** audioDataTemp_;
@@ -47,6 +54,7 @@ private:
     // timestamp del principio de la captura
     uint64_t startTimestamp_;
     int32_t frameCounter_;
+    base::TimeDelta currentFrameTime_;
 
     std::string url_;
     scoped_refptr<base::TaskRunner> taskRunner_;

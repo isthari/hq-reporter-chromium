@@ -34,8 +34,8 @@ DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
     */
 
     // hacer un disable seguido de un enable
-    decklinkOutput_->DisableVideoOutput();
-    decklinkOutput_->DisableAudioOutput();
+    //decklinkOutput_->DisableVideoOutput();
+    //decklinkOutput_->DisableAudioOutput();
 
     // TODO sacarlo a una función a parte de inicializacion
     BMDDisplayMode bmdMode = displayMode->GetDisplayMode();   
