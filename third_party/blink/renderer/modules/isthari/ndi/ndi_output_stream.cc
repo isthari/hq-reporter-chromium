@@ -19,8 +19,8 @@ NdiOutputStream::NdiOutputStream(std::string label) {
     
     NDIlib_send_create_t NDI_send_create_desc;
     NDI_send_create_desc.p_ndi_name = label.c_str();
-    NDI_send_create_desc.clock_video = true;    
-//    NDI_send_create_desc.clock_audio = true;
+    NDI_send_create_desc.clock_video = false;    
+    NDI_send_create_desc.clock_audio = false;
     sender_ = NDIlib_send_create(&NDI_send_create_desc);
     
     videoIndex_ = 0;
@@ -38,20 +38,21 @@ void NdiOutputStream::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
 }
 
-void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){
+void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){    
     int width = videoFrame->codedWidth();
     int height = videoFrame->codedHeight();
+    //VLOG(0) << "NDI put video frame size: " << width << "," << height;
     ndiVideoFrame_.xres = width;
     ndiVideoFrame_.yres = height;
     
-    uint8_t* image = videoIndex_%2==0? imagePar_.get() : imageImpar_.get();
-    videoIndex_++;
+    uint8_t* image = videoIndex_%2==0? imagePar_.get() : imageImpar_.get();    
     auto mediaFrame = videoFrame->frame();
-    libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
-		mediaFrame->data(1), mediaFrame->stride(1),
-		mediaFrame->data(2), mediaFrame->stride(2),
-		image, // TODO par / impar
-		width*2, width, height-1);   
+      libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
+		  mediaFrame->data(1), mediaFrame->stride(1),
+		  mediaFrame->data(2), mediaFrame->stride(2),
+		  image,
+		  width*2, width, height-1);   
+    videoIndex_++;
 		   		 
     ndiVideoFrame_.p_data = image;
     NDIlib_send_send_video_async_v2(sender_, &ndiVideoFrame_);		
