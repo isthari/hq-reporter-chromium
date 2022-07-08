@@ -1,5 +1,8 @@
 #include "decklink_output_stream.h"
 
+#include "components/viz/common/gpu/raster_context_provider.h"
+#include "media/base/video_util.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
 #include "third_party/libyuv/include/libyuv.h"
 
 namespace blink {
@@ -10,6 +13,11 @@ DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
 {
     width_ = (int) displayMode->GetWidth();
     height_ = (int) displayMode->GetHeight();
+
+    // TODO GC    
+    i420originalY_ = (uint8_t*) malloc(1920*1080);
+    i420originalU_ = (uint8_t*) malloc(1920*1080/2);
+    i420originalV_ = (uint8_t*) malloc(1920*1080/2);    
 
     // TODO GC
     scaledStrideY_ = width_;
@@ -76,17 +84,45 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
         LOG(ERROR) << "strideY "<< strideY << " strideUV " << strideUV;
     } 
     */
-
-    // TODO comprobar cuando hay que escalar o no
-    libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
-		mediaFrame->data(1), mediaFrame->stride(1),
-		mediaFrame->data(2), mediaFrame->stride(2),
-		frame->codedWidth(), frame->codedHeight(),
-		scaledY_, scaledStrideY_, 		
-		scaledU_, scaledStrideU_,
-		scaledV_, scaledStrideV_,
-		width_, height_,
-		libyuv::FilterMode::kFilterBox);
+    
+    if (mediaFrame->HasGpuMemoryBuffer()) {
+        VLOG(0) << "GPU Frame";        
+    } else if (mediaFrame->HasTextures()){
+        //VLOG(0) << "Has textures";
+        auto wrapper = SharedGpuContext::ContextProviderWrapper();
+        scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
+        auto* ri = raster_provider->RasterInterface();
+        auto* gr_context = raster_provider->GrContext();
+        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
+        libyuv::NV12ToI420(mediaFrame->data(0), mediaFrame->stride(0),
+               mediaFrame->data(1), mediaFrame->stride(1),
+               i420originalY_, frame->codedWidth(),
+               i420originalU_, frame->codedWidth()/2,
+               i420originalV_, frame->codedWidth()/2, 
+               frame->codedWidth(), frame->codedHeight());      
+               
+        libyuv::I420Scale(i420originalY_, frame->codedWidth(),
+		    i420originalU_, frame->codedWidth()/2,
+		    i420originalV_, frame->codedWidth()/2,
+		    frame->codedWidth(), frame->codedHeight(),
+		    scaledY_, scaledStrideY_, 		
+		    scaledU_, scaledStrideU_,
+		    scaledV_, scaledStrideV_,
+		    width_, height_,
+		    libyuv::FilterMode::kFilterBox);
+    } else {
+        //VLOG(0) << "No GPU Frame";
+        // TODO comprobar cuando hay que escalar o no
+        libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
+		    mediaFrame->data(1), mediaFrame->stride(1),
+		    mediaFrame->data(2), mediaFrame->stride(2),
+		    frame->codedWidth(), frame->codedHeight(),
+		    scaledY_, scaledStrideY_, 		
+		    scaledU_, scaledStrideU_,
+		    scaledV_, scaledStrideV_,
+		    width_, height_,
+		    libyuv::FilterMode::kFilterBox);
+    }
     
     libyuv::I420ToUYVY(scaledY_, scaledStrideY_,
             scaledU_, scaledStrideU_,

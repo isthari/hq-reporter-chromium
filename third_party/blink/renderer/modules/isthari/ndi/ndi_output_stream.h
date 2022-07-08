@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base/task/single_thread_task_runner.h"
+#include "media/base/video_frame_pool.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -34,6 +35,7 @@ private:
     
     // Necesario para que no se bloque el thread principal en el envio de audio
     scoped_refptr<base::TaskRunner> taskRunner_;
+    media::VideoFramePool videoFramePool_;
     
     int videoIndex_;
 };
