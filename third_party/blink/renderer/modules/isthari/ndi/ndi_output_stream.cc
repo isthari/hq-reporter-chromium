@@ -2,10 +2,15 @@
 
 #include "base/logging.h"
 #include "base/task/thread_pool.h"
+#include "components/viz/common/gpu/raster_context_provider.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
+#include "media/base/video_util.h"
 #include "ndi_output_stream.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
+#include "third_party/libyuv/include/libyuv/convert_argb.h"
+
 
 namespace blink {
 
@@ -14,6 +19,7 @@ NdiOutputStream::NdiOutputStream(std::string label) {
     this->taskRunner_ = base::ThreadPool::CreateTaskRunner(default_traits);
     
     ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_UYVY;
+    //ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_BGRA;
     ndiVideoFrame_.xres = -1;
     ndiVideoFrame_.yres = -1;
     
@@ -39,19 +45,44 @@ void NdiOutputStream::Trace(Visitor* visitor) const {
 }
 
 void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){    
+    auto mediaFrame = videoFrame->frame();
+    if (mediaFrame->HasGpuMemoryBuffer()) {
+        //VLOG(0) << "GPU Frame";
+        auto frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
+    } else if (mediaFrame->HasTextures()){
+        //VLOG(0) << "Has textures";
+        auto wrapper = SharedGpuContext::ContextProviderWrapper();
+        scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
+        auto* ri = raster_provider->RasterInterface();
+        auto* gr_context = raster_provider->GrContext();
+        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
+    } else {
+        //VLOG(0) << "No GPU Frame";
+    }
+
     int width = videoFrame->codedWidth();
     int height = videoFrame->codedHeight();
     //VLOG(0) << "NDI put video frame size: " << width << "," << height;
     ndiVideoFrame_.xres = width;
     ndiVideoFrame_.yres = height;
-    
-    uint8_t* image = videoIndex_%2==0? imagePar_.get() : imageImpar_.get();    
-    auto mediaFrame = videoFrame->frame();
-      libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
-		  mediaFrame->data(1), mediaFrame->stride(1),
-		  mediaFrame->data(2), mediaFrame->stride(2),
-		  image,
-		  width*2, width, height-1);   
+    uint8_t* image = videoIndex_%2==0? imagePar_.get() : imageImpar_.get();        
+    if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_NV12) {
+        //VLOG(0) << "NV12 frame";        
+        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_BGRA;
+        libyuv::NV12ToARGB(mediaFrame->data(0), mediaFrame->stride(0),
+            mediaFrame->data(1), mediaFrame->stride(1),
+            image, width*4, width, height);
+    } else if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_I420) {
+        //VLOG(0) << "I420 Frame";
+        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_UYVY;
+        libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
+		    mediaFrame->data(1), mediaFrame->stride(1),
+		    mediaFrame->data(2), mediaFrame->stride(2),
+		    image,
+		    width*2, width, height-1);   
+    } else {
+        VLOG(0) << "Format " << media::VideoPixelFormatToString(mediaFrame->format());
+    }
     videoIndex_++;
 		   		 
     ndiVideoFrame_.p_data = image;

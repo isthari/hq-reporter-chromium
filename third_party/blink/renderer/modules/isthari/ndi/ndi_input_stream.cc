@@ -2,10 +2,13 @@
 
 #include "base/logging.h"
 #include "base/task/thread_pool.h"
+#include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
+#include "media/video/gpu_video_accelerator_factories.h"
 #include "ndi_input_stream.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
+#include "third_party/blink/renderer/modules/webcodecs/gpu_factories_retriever.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
@@ -13,7 +16,6 @@
 #include "third_party/libyuv/include/libyuv.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from_argb.h"
-
 #include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
 
 #include <chrono>
@@ -32,7 +34,9 @@ NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameC
     startTimestamp_(0),
     frameCounter_(0),
     url_(url),
-    enabled_(true)
+    enabled_(true),
+    gpuPoolInitialized_(false)
+    //gpuPool_(nullptr)
 {
     main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
       
@@ -58,6 +62,25 @@ NdiInputStream::NdiInputStream(std::string url, V8VideoCardFrameCallback* frameC
     // coger 1 segundo de 16 canales 48khz
     audioDataTemp_ = (uint8_t **) malloc(sizeof (uint8_t *) );
     audioDataTemp_[0] = (uint8_t*) malloc(48000 * 16 * 2);
+
+    // los task runners deben pertener al current thread
+    //media_task_runner_ = base::ThreadPool::CreateSingleThreadTaskRunner(default_traits);
+    //copy_task_runner_ = base::ThreadPool::CreateTaskRunner(default_traits);
+    RetrieveGpuFactoriesWithKnownEncoderSupport(CrossThreadBindOnce(&NdiInputStream::retrievedGpuVideoAcceleratorFactories, WrapCrossThreadWeakPersistent(this)));
+}
+
+void NdiInputStream::retrievedGpuVideoAcceleratorFactories(media::GpuVideoAcceleratorFactories* factories) {
+    
+    VLOG(0) << "retrieved GPU video accelerator factories";    
+    //gpuPool_ = std::make_unique<media::GpuMemoryBufferVideoFramePool>(media_task_runner_, copy_task_runner_, factories);
+    gfx::Size size(1920, 1080);        
+    gpu::GpuMemoryBufferManager* gpuMemoryBufferManager = factories->GpuMemoryBufferManager();
+    gpuMemoryBuffer_ = gpuMemoryBufferManager->CreateGpuMemoryBuffer(size, 
+        gfx::BufferFormat::YUV_420_BIPLANAR,
+        gfx::BufferUsage::GPU_READ,
+        gpu::kNullSurfaceHandle, 
+        nullptr);    
+    gpuPoolInitialized_ = true;    
 }
 
 void NdiInputStream::Trace(Visitor* visitor) const {
@@ -196,6 +219,10 @@ void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base:
     }
 }
 
+void frameReadyCaB(scoped_refptr<media::VideoFrame> frame) {   
+    VLOG(0) << "other frame ready CB";
+}
+
 void NdiInputStream::OnVideoFrameReceived() {
     if (!isAvailableVideoFrameCallback(frameCallback_)) {
         VLOG(0) << "Callback is no longer available NDI";
@@ -215,12 +242,28 @@ void NdiInputStream::OnVideoFrameReceived() {
             currentFrameTime_);   
 
         auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
-        qtf.IsJust();    
+        qtf.IsJust();
     }
 }
 
+void NdiInputStream::frameReadyCB(scoped_refptr<media::VideoFrame> frame) {    
+    if (gpuPoolInitialized_) {
+        VLOG(0) << "frame ready CB";
+    }
+    /*
+    videoFrame_ = frame;
+    auto qtf = frameCallback_->handleFrame(nullptr, frameCounter_);
+    qtf.IsJust();
+    */
+}
 
 VideoFrame* NdiInputStream::getVideoFrame(ExecutionContext* context) {    
+    
+    //if (gpuPoolInitialized_) {
+        //VLOG(0) << "pre post";
+    //    gpuPool_->MaybeCreateHardwareFrame(videoFrame_, base::BindOnce(frameReadyCaB));
+        //VLOG(0) << "post post";
+    //}
     this->videoFrame = MakeGarbageCollected<VideoFrame>(videoFrame_, context);
     return this->videoFrame;
 }

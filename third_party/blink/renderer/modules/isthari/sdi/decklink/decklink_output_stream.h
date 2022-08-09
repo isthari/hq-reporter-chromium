@@ -5,6 +5,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
+#include "media/base/video_frame_pool.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 
 #if BUILDFLAG(IS_LINUX)
@@ -31,6 +32,12 @@ private:
     // video data
     int width_;
     int height_;
+
+    // NV12ToI420    
+    uint8_t* i420originalY_;
+    uint8_t* i420originalU_;
+    uint8_t* i420originalV_;
+
     // I420 escalado
     int scaledStrideY_;
     int scaledStrideU_;
@@ -38,8 +45,13 @@ private:
     uint8_t* scaledY_;
     uint8_t* scaledU_;
     uint8_t* scaledV_;
+
+
+
     // frame que se envia directamente a la tarjeta decklink
     IDeckLinkMutableVideoFrame *playbackFrame_;
+
+    media::VideoFramePool videoFramePool_;
 };
 
 }

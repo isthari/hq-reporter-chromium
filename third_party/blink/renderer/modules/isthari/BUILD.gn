@@ -39,8 +39,16 @@ blink_modules_sources("isthari") {
     "//third_party/opus",
     "//third_party/decklink",
   ]
+
+if (is_win) {
+  libs = [
+    "Processing.NDI.Lib.x64.lib"
+  ]
+}
+if (is_linux){
   libs = [
     "ndi"
   ]
+}
   public_deps = [ "//third_party/blink/renderer/modules/webaudio:webaudio" ]
 }
