@@ -139,7 +139,7 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
     		
     uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     if (now==startTimestamp_) {
-        now = now + 10000;
+        //now = now + 10000;
     }
     currentFrameTime_ = base::Microseconds(now-startTimestamp_);    		
 
@@ -194,10 +194,15 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
         scaledWidth_, scaledHeight_, 
         libyuv::FilterMode::kFilterBilinear);
 
+    PostDelayedCrossThreadTask(*main_task_runner_, 
+        FROM_HERE, 
+        CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
+        WrapCrossThreadWeakPersistent(this)), base::Microseconds(15000));
+    /*
     PostCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
         CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
-        WrapCrossThreadWeakPersistent(this)));
+        WrapCrossThreadWeakPersistent(this)));*/
 
     /*          
             // generar la imagen que se manda al codificador
