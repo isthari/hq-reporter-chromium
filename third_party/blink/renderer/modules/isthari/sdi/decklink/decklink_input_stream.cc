@@ -29,9 +29,10 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         startTimestamp_(0),
         frameCounter_(0)
 {
-    VLOG(0) << "KK Enabling video input";    
+    VLOG(0) << "Enabling video input";    
     width_ = (int) displayMode_->GetWidth();
     height_ = (int) displayMode_->GetHeight();
+    VLOG(0) << "video input width " << width_ << " height " << height_;
 
     // TODO GC    
     sourceY_ = (uint8_t*) malloc (width_*1.5*height_);
@@ -60,7 +61,30 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
     HRESULT result;
     result = deckLinkInput_->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitYUV, 0);
     if (result != S_OK) {
-        VLOG(0) << "  Error enabling Video Input ";
+        VLOG(0) << "  Error enabling Video Input " << result;
+        if (result == S_FALSE) {
+          VLOG(0) << "Error S_FALSE";
+        } else if (result == E_UNEXPECTED) {
+          VLOG(0) << "Error E_UNEXPECTED";
+        } else if (result == E_NOTIMPL) {
+          VLOG(0) << "Error E_NOTIMPL";
+        } else if (result == E_OUTOFMEMORY) {
+          VLOG(0) << "Error E_OUTOFMEMORY";
+        } else if (result == E_INVALIDARG) {
+          VLOG(0) << "Error E_INVALIDARG";
+        } else if (result == E_NOINTERFACE) {
+          VLOG(0) << "Error E_NOINTERFACE";
+        } else if (result == E_POINTER) {
+          VLOG(0) << "Error E_POINTER";
+        } else if (result == E_HANDLE) {
+          VLOG(0) << "Error E_HANDLE";
+        } else if (result == E_ABORT) {
+          VLOG(0) << "Error E_ABORT";
+        } else if (result == E_FAIL) {
+          VLOG(0) << "Error E_FAIL";
+        } else if (result == E_ACCESSDENIED) {
+          VLOG(0) << "Error E_ACCESSDENIED";
+        }
     }
 
     // TODO añadir soporte para los 16 canales restantes		    	
