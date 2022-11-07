@@ -33,6 +33,8 @@ private:
     int width_;
     int height_;
 
+    int frameCounter_;
+
     // NV12ToI420    
     uint8_t* i420originalY_;
     uint8_t* i420originalU_;
