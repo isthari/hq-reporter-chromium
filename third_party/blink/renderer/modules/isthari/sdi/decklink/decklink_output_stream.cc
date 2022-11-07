@@ -9,7 +9,8 @@ namespace blink {
 
 DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
             IDeckLinkDisplayMode* displayMode)
-    : decklinkOutput_(decklinkOutput)
+    : decklinkOutput_(decklinkOutput),
+    frameCounter_(0)
 {
     width_ = (int) displayMode->GetWidth();
     height_ = (int) displayMode->GetHeight();
@@ -70,20 +71,49 @@ void DecklinkOutputStream::Trace(Visitor* visitor) const {
 
 void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     //VLOG(0) << "put video frame (" << frame->codedWidth() << "," << frame->codedHeight() << ")";
+
+    bool log = false;
+    if (frameCounter_++ % 30 == 0){
+        log = true;
+        VLOG(0) << "put video frame (" << frame->codedWidth() << "," << frame->codedHeight() << ")";
+    }
+
+    double factorOriginal = ((double)(frame->codedWidth())) / ((double)frame->codedHeight());
+    double factorOutput = ((double)width_) / ((double)height_);
+
+    int scaledWidth = -1;
+    int scaledHeight = -1;
+    int offsetX = 0;
+    int offsetY = 0;
+    std::string limitedBy;
+    if (factorOriginal > factorOutput) {        
+        limitedBy = "width";
+        scaledWidth = width_;
+        scaledHeight = ((double) frame->codedHeight()) / (((double)frame->codedWidth()) / ((double) width_));
+        offsetY = ((double)(height_ - scaledHeight)) / 2.0;
+    } else {
+        limitedBy = "height";        
+        scaledHeight = height_;
+        scaledWidth = ((double) frame->codedWidth()) / (((double)frame->codedHeight()) / ((double) height_));        
+        offsetX = ((double)(width_ - scaledWidth)) / 2.0;
+    }
+
+    if (log){
+        VLOG(0) << "Factor original " << factorOriginal << " factor output " << factorOutput << " limited by "+limitedBy;
+        VLOG(0) << "Scaled width " << scaledWidth << " scaled height " << scaledHeight;
+        VLOG(0) << "offset X " << offsetX << " offset Y " << offsetY;
+    }
+
     gfx::Size size(height_, width_);
     auto mediaFrame = frame->frame();
 
     uint8_t *deckLinkBuffer = nullptr;
     playbackFrame_->GetBytes((void**) &deckLinkBuffer);
 
-    // Este bloque permite saber cuando viene de decodificacion por HW
-    /*
-    if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_NV12) {
-        int strideY = mediaFrame->stride(0);
-        int strideUV = mediaFrame->stride(1);
-        LOG(ERROR) << "strideY "<< strideY << " strideUV " << strideUV;
-    } 
-    */
+    // set black image to fix offset
+    memset(scaledY_, 0, scaledStrideY_ * height_);   
+    memset(scaledU_, 128, scaledStrideU_ * height_);
+    memset(scaledV_, 128, scaledStrideV_ * height_);
     
     if (mediaFrame->HasGpuMemoryBuffer()) {
         VLOG(0) << "GPU Frame";        
@@ -105,25 +135,26 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
 		    i420originalU_, frame->codedWidth()/2,
 		    i420originalV_, frame->codedWidth()/2,
 		    frame->codedWidth(), frame->codedHeight(),
-		    scaledY_, scaledStrideY_, 		
-		    scaledU_, scaledStrideU_,
-		    scaledV_, scaledStrideV_,
-		    width_, height_,
+		    scaledY_ + offsetX + (offsetY*scaledStrideY_), scaledStrideY_, 		
+		    scaledU_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideU_,
+		    scaledV_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideV_,
+		    scaledWidth, scaledHeight,
 		    libyuv::FilterMode::kFilterBox);
     } else {
         //VLOG(0) << "No GPU Frame";
         // TODO comprobar cuando hay que escalar o no
-        libyuv::I420Scale(mediaFrame->data(0), mediaFrame->stride(0),
+        libyuv::I420Scale(
+            mediaFrame->data(0), mediaFrame->stride(0),
 		    mediaFrame->data(1), mediaFrame->stride(1),
 		    mediaFrame->data(2), mediaFrame->stride(2),
 		    frame->codedWidth(), frame->codedHeight(),
-		    scaledY_, scaledStrideY_, 		
-		    scaledU_, scaledStrideU_,
-		    scaledV_, scaledStrideV_,
-		    width_, height_,
+		    scaledY_ + offsetX + (offsetY*scaledStrideY_), scaledStrideY_, 		
+		    scaledU_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideU_,
+		    scaledV_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideV_,
+		    scaledWidth, scaledHeight,
 		    libyuv::FilterMode::kFilterBox);
     }
-    
+
     libyuv::I420ToUYVY(scaledY_, scaledStrideY_,
             scaledU_, scaledStrideU_,
             scaledV_, scaledStrideV_,
