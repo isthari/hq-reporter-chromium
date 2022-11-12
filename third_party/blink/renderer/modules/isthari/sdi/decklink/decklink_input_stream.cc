@@ -51,9 +51,18 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
     inStV_ = (uint8_t*) malloc (inWidth_/2*inHeight_);
     */
 
-    // TODO GC
+    // TODO GC borrar esto?
     audioBuffer_ = (uint8_t **) malloc(sizeof (uint8_t *));
     audioBuffer_[0] = (uint8_t *) malloc (48000 * 2 * 16); // equivalente a 1 segundo 16 canales
+
+    // Audio de entrada
+    inputStart_ = 0;
+    audioDataIndex_ = 0;
+    audioDataCurrent_ = NULL;
+    audioDataNext_ = NULL;
+    // TODO GC
+    audioDataTemp_ = (uint8_t **) malloc(sizeof (uint8_t *) );
+    audioDataTemp_[0] = (uint8_t*) malloc(48000 * 2 * 2);
 
     deckLinkInput_->SetCallback(this);
 
@@ -85,7 +94,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
         } else if (result == E_ACCESSDENIED) {
           VLOG(0) << "Error E_ACCESSDENIED";
         }
-    }
+    }    
 
     // TODO añadir soporte para los 16 canales restantes		    	
     int channels = 2;
@@ -107,6 +116,7 @@ DecklinkInputStream::DecklinkInputStream(IDeckLinkInput *decklinkInput,
 #ifdef DEBUG_AUDIO
     fptrOriginal = fopen("/home/jhernan/Desktop/borrable/audio_original.pcm", "w");
 #endif    
+    
 }
 
 void DecklinkInputStream::Trace(Visitor* visitor) const {
@@ -139,9 +149,18 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
     		
     uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     if (now==startTimestamp_) {
-        //now = now + 10000;
+        now = now + 10000;
     }
-    currentFrameTime_ = base::Microseconds(now-startTimestamp_);    		
+    currentFrameTime_ = base::Microseconds(now-startTimestamp_+40000);    		
+
+    // fusionar con el otro
+    if (inputStart_ == 0){
+        inputStart_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    }     
+    /*if (now==inputStart_) {
+        now = now + 10000;
+    }*/
+    timeIn_ = base::Microseconds(now-inputStart_); 
 
     // enviar el audio lo primero     
     /*
@@ -166,8 +185,7 @@ HRESULT DecklinkInputStream::VideoInputFrameArrived(
     return S_OK;
 }
 
-void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame) {    	    
-	    
+void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame) {    	            		   
     void *frameBytes;
     auto result = videoFrame->GetBytes(&frameBytes);
     if (result!=S_OK){
@@ -263,18 +281,128 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
     return this->videoFrameBlink_;
 }
 
-void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioData){    
-    int samples = (int) audioData->GetSampleFrameCount();
-    int size = (int) (samples * 2 * 2);
+void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame){        
+    uint8_t** copyBuffer;
+    copyBuffer = (uint8_t **) malloc(sizeof (uint8_t *) );
+    copyBuffer[0] = (uint8_t*) malloc(48000 * 2 * 2);  // equivalente a 1 segundo de audio       
+      
     void *frameBytes;
-    audioData->GetBytes(&frameBytes);
-    memcpy(audioBuffer_[0], frameBytes, size);
+    // Por redondeo pueden no tener todos los paquetes el mismo numero de samples
+    int samples = (int) audioFrame->GetSampleFrameCount();
+    int size = (int) (samples * 2 * 2);
+    audioFrame->GetBytes(&frameBytes);
+    memcpy(copyBuffer[0], frameBytes, size);
+#ifdef DEBUG_AUDIO0
+    fwrite(copyBuffer[0], 1, size, fptrOriginal);
+#endif   			
+      
+    if (audioDataCurrent_ == NULL) {        
+        audioDataCurrent_ = copyBuffer;
+        audioDataCurrent_[0] = copyBuffer[0];
+        audioSamplesCurrent_ = samples;
+        timeInCurrent_ = timeIn_;        
+        return;
+    } else if (audioDataNext_ == NULL){        
+        audioDataNext_ = copyBuffer;
+        audioDataNext_[0] = copyBuffer[0];
+        audioSamplesNext_ = samples;
+        timeInNext_ = timeIn_;
+        return;
+    } 
+  
+    VLOG(0) << "TimeIn " << timeIn_ << " samples " << samples;
+  /*
+    VLOG(0) << "6";
+    free(audioDataCurrent_[0]);
+    free(audioDataCurrent_);
+    VLOG(0) << "7";
+
+    audioDataCurrent_ = NULL;
+    audioDataNext_ = NULL;
+    */
+
+    this->inputAudioCycle();        
+  
+    // coger samples-audioDataIndex_
+    // este no lleva delay porque esta ya pasado    
+    int sent = audioSamplesCurrent_-audioDataIndex_;
+    uint8_t* audioPointer;
+    audioPointer = audioDataCurrent_[0];
+    audioPointer += (audioDataIndex_*2*2);
+    memcpy(audioDataTemp_[0], audioPointer, sent*2*2);
+    audioDataIndex_ = 0;  
+
+    int pending = 480 - sent;
+    audioPointer = audioDataTemp_[0];
+    audioPointer += (sent*2*2);
+    memcpy(audioPointer, audioDataNext_[0], pending*2*2);
+    audioDataIndex_ += pending;   
+#ifdef DEBUG_AUDIO0
+    fwrite(audioDataTemp_[0], 1, 480*2*2, fptr10ms);
+#endif
+  
+    // generar el audioData y enviarlo  
+    //base::TimeDelta delay = base::Microseconds(audioDataIndex_*1000/48);
+    base::TimeDelta delay = base::Microseconds(40000);
+    VLOG(0) << "GENERAL Time in current " << timeInCurrent_ << " delay " << delay << " timestamp " << (timeInCurrent_+delay);
+//  LOG(INFO) << "DELAY "<<delay;
+    auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
+        media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
+	    2, // channel count
+        48000, // sample rate
+	    480, 
+	    audioDataTemp_,
+	    timeInCurrent_ + delay);
+    PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
     
-    PostCrossThreadTask(*main_task_runner_, 
-        FROM_HERE, 
-        CrossThreadBindOnce(&DecklinkInputStream::onAudioDataReceived,
-        WrapCrossThreadWeakPersistent(this),
-        samples));
+    // rotar el audio
+    free(audioDataCurrent_[0]);
+    free(audioDataCurrent_);  
+    audioDataCurrent_ = audioDataNext_;
+    audioDataCurrent_[0] = audioDataNext_[0];
+    audioSamplesCurrent_ = audioSamplesNext_;
+    audioSamplesNext_ = samples;
+    audioDataNext_ = NULL;
+    timeInCurrent_ = timeInNext_;
+  
+    audioDataNext_ = copyBuffer;
+    audioDataNext_[0] = copyBuffer[0];
+    timeInNext_ = timeIn_;    
+}
+
+void DecklinkInputStream::OnAudioFrameReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {
+    if (frameCounter_ < 10){
+        return;
+    }
+    LOG(INFO) << "timestamp " << audioBuffer->timestamp();
+    auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
+    auto qtf = audioCallback_->handleFrame(nullptr, frame2);
+    qtf.IsJust(); 
+}
+
+void DecklinkInputStream::inputAudioCycle() {
+    // Coger al audio del buffer hasta que no queden suficientes
+    while ( (audioSamplesCurrent_-audioDataIndex_) >= 480 ){
+        // TODO controlar el numero de canales que llegan
+        memcpy(audioDataTemp_[0], audioDataCurrent_[0]+(audioDataIndex_*2*2), 480*2*2);    
+#ifdef DEBUG_AUDIO0
+        fwrite(audioDataTemp_[0], 1, 480*2*2, fptr10ms);
+#endif
+
+        // generar el audioData y enviarlo
+        base::TimeDelta delay = base::Microseconds(audioDataIndex_*1000/48);
+        audioDataIndex_ += 480;
+//    LOG(INFO) << "delay " << delay " index " << audioDataIndex;
+        VLOG(0) << "AUDIO-CYCLE Time in current " << timeInCurrent_ << " delay " << delay << " timestamp " << (timeInCurrent_+delay);
+        auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
+            media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
+	        2, // channel count
+            48000, // sample rate
+	        480, 
+	        audioDataTemp_,
+	        timeInCurrent_ + delay);			
+        PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
+    }
 }
 
 void DecklinkInputStream::onAudioDataReceived(int samples) {
@@ -282,6 +410,7 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
 #ifdef DEBUG_AUDIO    
     fwrite(audioBuffer_[0], 1, samples*2*2, fptrOriginal);
 #endif    
+    /*
     ScriptState* callback_relevant_script_state = audioCallback_->
     CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
 
@@ -289,11 +418,13 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
                                   audioCallback_->IncumbentScriptState())) {
         VLOG(0) << "callback is no longer available audio sdi";
         this->disable();
+    */
     /*    
     if (!isAvailableAudioDataCallback(audioCallback_)) {
-        VLOG(0) << "callback is no longer available";    
-        */
+        VLOG(0) << "callback is no longer available";          
     } else { 
+        */
+        /*
         audioBufferMedia_ = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
             media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
             2, // channel count
@@ -305,7 +436,8 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
         audioData_ = MakeGarbageCollected<AudioData>(audioBufferMedia_);    
         auto qtf = audioCallback_->handleFrame(nullptr, audioData_);
         qtf.IsJust(); 
-    }
+        */
+    //}
 }
 
 }

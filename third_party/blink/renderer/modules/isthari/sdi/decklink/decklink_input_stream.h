@@ -47,7 +47,9 @@ namespace blink {
 
             // seccion de audio
             void processAudioData(IDeckLinkAudioInputPacket* );            
-            void onAudioDataReceived(int samples);
+            void OnAudioFrameReceived(scoped_refptr<media::AudioBuffer>);
+            void onAudioDataReceived(int samples);            
+            void inputAudioCycle();
 
         private:
             IDeckLinkInput *deckLinkInput_;
@@ -77,10 +79,26 @@ namespace blink {
             int32_t frameCounter_;
             base::TimeDelta currentFrameTime_;
 
+            // COMUN                   
+            // Delta de tiempo del frame actual
+            base::TimeDelta timeIn_;
+            uint64_t inputStart_;
+
             // audio data
             uint8_t** audioBuffer_;
             scoped_refptr<media::AudioBuffer> audioBufferMedia_;
             Member<AudioData> audioData_;
+
+            uint8_t** audioDataCurrent_;
+            uint8_t** audioDataNext_;    
+            int audioSamplesCurrent_;
+            int audioSamplesNext_;
+            base::TimeDelta timeInCurrent_;
+            base::TimeDelta timeInNext_;
+            // Para indicar porque punto va
+            int audioDataIndex_;
+            // Este es el paquete de audio que se construye para el envio
+            uint8_t** audioDataTemp_;
 
 //#define DEBUG_AUDIO audio
 #ifdef DEBUG_AUDIO
