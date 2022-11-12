@@ -26,6 +26,8 @@ public:
     void sendBlackFrame();
 
 private:    
+    void NV12ToI420Rotated(VideoFrame* frame);
+
     IDeckLinkOutput* decklinkOutput_;
     //IDeckLinkDisplayMode* displayMode_;
 
@@ -35,7 +37,7 @@ private:
 
     int frameCounter_;
 
-    // NV12ToI420    
+    // NV12ToI420 and I420Rotate
     uint8_t* i420originalY_;
     uint8_t* i420originalU_;
     uint8_t* i420originalV_;

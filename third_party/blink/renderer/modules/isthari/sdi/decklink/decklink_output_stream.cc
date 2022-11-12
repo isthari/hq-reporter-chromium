@@ -16,9 +16,10 @@ DecklinkOutputStream::DecklinkOutputStream(IDeckLinkOutput *decklinkOutput,
     height_ = (int) displayMode->GetHeight();
 
     // TODO GC    
-    i420originalY_ = (uint8_t*) malloc(1920*1080);
-    i420originalU_ = (uint8_t*) malloc(1920*1080/2);
-    i420originalV_ = (uint8_t*) malloc(1920*1080/2);    
+    // TODO control size
+    i420originalY_ = (uint8_t*) malloc(1920*1920);
+    i420originalU_ = (uint8_t*) malloc(1920*1920/2);
+    i420originalV_ = (uint8_t*) malloc(1920*1920/2);    
 
     // TODO GC
     scaledStrideY_ = width_;
@@ -71,14 +72,131 @@ void DecklinkOutputStream::Trace(Visitor* visitor) const {
 
 void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     //VLOG(0) << "put video frame (" << frame->codedWidth() << "," << frame->codedHeight() << ")";
+    auto mediaFrame = frame->frame();
+    auto metadata = mediaFrame->metadata();
+    auto transformation = metadata.transformation;
+
+    libyuv::RotationMode rotationMode = libyuv::kRotate0;
+    int rotatedWidth = frame->codedWidth();
+    int rotatedHeight = frame->codedHeight();
+    if (transformation == media::VideoRotation::VIDEO_ROTATION_0){
+        VLOG(0) << "Rotation " << 0;
+        rotationMode = libyuv::kRotate0;
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_90){
+        VLOG(0) << "Rotation " << 90;
+        rotationMode = libyuv::kRotate90;
+        rotatedWidth = frame->codedHeight();
+        rotatedHeight = frame->codedWidth();
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_180){
+        VLOG(0) << "Rotation " << 180;
+        rotationMode = libyuv::kRotate180;        
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_270){
+        VLOG(0) << "Rotation " << 270;
+        rotationMode = libyuv::kRotate270;
+        rotatedWidth = frame->codedHeight();
+        rotatedHeight = frame->codedWidth();
+    } 
 
     bool log = false;
     if (frameCounter_++ % 30 == 0){
         log = true;
         VLOG(0) << "put video frame (" << frame->codedWidth() << "," << frame->codedHeight() << ")";
     }
+    
+    gfx::Size size(height_, width_);    
 
-    double factorOriginal = ((double)(frame->codedWidth())) / ((double)frame->codedHeight());
+    uint8_t *deckLinkBuffer = nullptr;
+    playbackFrame_->GetBytes((void**) &deckLinkBuffer);
+
+    // set black image to fix offset
+    memset(scaledY_, 0, scaledStrideY_ * height_);   
+    memset(scaledU_, 128, scaledStrideU_ * height_);
+    memset(scaledV_, 128, scaledStrideV_ * height_);
+    
+    uint8_t* nextY;
+    uint8_t* nextU;
+    uint8_t* nextV;
+    int nextStrideY;
+    int nextStrideU;
+    int nextStrideV;
+    int currentWidth = frame->codedWidth();
+    int currentHeight = frame->codedHeight();    
+
+    //if (mediaFrame->HasGpuMemoryBuffer()) {
+        //VLOG(0) << "GPU Frame";        
+    //} else 
+    if (mediaFrame->HasTextures()){
+        //VLOG(0) << "Has textures";
+        auto mediaFrame = frame->frame();
+        // TODO llevar el primer bloque a una funcion helper para reutilizar con NDO
+        auto wrapper = SharedGpuContext::ContextProviderWrapper();
+        scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
+        auto* ri = raster_provider->RasterInterface();
+        auto* gr_context = raster_provider->GrContext();
+        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
+
+        nextY = i420originalY_;
+        nextU = i420originalU_;
+        nextV = i420originalV_;
+        if (rotationMode == libyuv::kRotate0) {            
+            nextStrideY = frame->codedWidth();
+            nextStrideU = frame->codedWidth()/2;
+            nextStrideV = frame->codedWidth()/2;
+
+            libyuv::NV12ToI420(mediaFrame->data(0), mediaFrame->stride(0),
+                    mediaFrame->data(1), mediaFrame->stride(1),
+                    i420originalY_, frame->codedWidth(),
+                    i420originalU_, frame->codedWidth()/2,
+                    i420originalV_, frame->codedWidth()/2, 
+                    frame->codedWidth(), frame->codedHeight());
+        } else {
+            nextStrideY = rotatedWidth;
+            nextStrideU = rotatedWidth/2;
+            nextStrideV = rotatedWidth/2;
+            currentWidth = rotatedWidth;
+            currentHeight = rotatedHeight;
+
+            libyuv::NV12ToI420Rotate(
+                    mediaFrame->data(0), mediaFrame->stride(0),
+                    mediaFrame->data(1), mediaFrame->stride(1),
+                    i420originalY_, nextStrideY,
+                    i420originalU_, nextStrideU,
+                    i420originalV_, nextStrideV,
+                    frame->codedWidth(), frame->codedHeight(),
+                    rotationMode);
+        }      
+    } else {
+        //VLOG(0) << "No GPU Frame";
+        // TODO comprobar cuando hay que escalar o no
+        if (rotationMode == libyuv::kRotate0) {
+            nextY = mediaFrame->data(0);
+            nextU = mediaFrame->data(1);
+            nextV = mediaFrame->data(2);
+            nextStrideY = mediaFrame->stride(0);
+            nextStrideU = mediaFrame->stride(1);
+            nextStrideV = mediaFrame->stride(2);            
+        } else {
+            nextY = i420originalY_;
+            nextU = i420originalU_;
+            nextV = i420originalV_;
+            nextStrideY = rotatedWidth;
+            nextStrideU = rotatedWidth/2;
+            nextStrideV = rotatedWidth/2;
+            currentWidth = rotatedWidth;
+            currentHeight = rotatedHeight;
+
+            libyuv::I420Rotate(mediaFrame->data(0), mediaFrame->stride(0),
+                mediaFrame->data(1), mediaFrame->stride(1),
+		        mediaFrame->data(2), mediaFrame->stride(2),
+                i420originalY_, nextStrideY,
+                i420originalU_, nextStrideU,
+                i420originalV_, nextStrideV,
+                frame->codedWidth(), frame->codedHeight(),
+                rotationMode);                        
+        }        
+    }
+
+    double factorOriginal = ((double)currentWidth) / ((double)currentHeight);
     double factorOutput = ((double)width_) / ((double)height_);
 
     int scaledWidth = -1;
@@ -89,12 +207,12 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     if (factorOriginal > factorOutput) {        
         limitedBy = "width";
         scaledWidth = width_;
-        scaledHeight = ((double) frame->codedHeight()) / (((double)frame->codedWidth()) / ((double) width_));
+        scaledHeight = ((double) currentHeight) / (((double)currentWidth) / ((double) width_));
         offsetY = ((double)(height_ - scaledHeight)) / 2.0;
     } else {
         limitedBy = "height";        
         scaledHeight = height_;
-        scaledWidth = ((double) frame->codedWidth()) / (((double)frame->codedHeight()) / ((double) height_));        
+        scaledWidth = ((double) currentWidth) / (((double)currentHeight) / ((double) height_));        
         offsetX = ((double)(width_ - scaledWidth)) / 2.0;
     }
 
@@ -104,56 +222,16 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
         VLOG(0) << "offset X " << offsetX << " offset Y " << offsetY;
     }
 
-    gfx::Size size(height_, width_);
-    auto mediaFrame = frame->frame();
-
-    uint8_t *deckLinkBuffer = nullptr;
-    playbackFrame_->GetBytes((void**) &deckLinkBuffer);
-
-    // set black image to fix offset
-    memset(scaledY_, 0, scaledStrideY_ * height_);   
-    memset(scaledU_, 128, scaledStrideU_ * height_);
-    memset(scaledV_, 128, scaledStrideV_ * height_);
-    
-    if (mediaFrame->HasGpuMemoryBuffer()) {
-        VLOG(0) << "GPU Frame";        
-    } else if (mediaFrame->HasTextures()){
-        //VLOG(0) << "Has textures";
-        auto wrapper = SharedGpuContext::ContextProviderWrapper();
-        scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
-        auto* ri = raster_provider->RasterInterface();
-        auto* gr_context = raster_provider->GrContext();
-        mediaFrame = media::ReadbackTextureBackedFrameToMemorySync(*mediaFrame, ri, gr_context, &videoFramePool_);
-        libyuv::NV12ToI420(mediaFrame->data(0), mediaFrame->stride(0),
-               mediaFrame->data(1), mediaFrame->stride(1),
-               i420originalY_, frame->codedWidth(),
-               i420originalU_, frame->codedWidth()/2,
-               i420originalV_, frame->codedWidth()/2, 
-               frame->codedWidth(), frame->codedHeight());      
-               
-        libyuv::I420Scale(i420originalY_, frame->codedWidth(),
-		    i420originalU_, frame->codedWidth()/2,
-		    i420originalV_, frame->codedWidth()/2,
-		    frame->codedWidth(), frame->codedHeight(),
+    libyuv::I420Scale(
+            nextY, nextStrideY,
+		    nextU, nextStrideU,
+		    nextV, nextStrideV,
+		    currentWidth, currentHeight,
 		    scaledY_ + offsetX + (offsetY*scaledStrideY_), scaledStrideY_, 		
 		    scaledU_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideU_,
 		    scaledV_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideV_,
 		    scaledWidth, scaledHeight,
 		    libyuv::FilterMode::kFilterBox);
-    } else {
-        //VLOG(0) << "No GPU Frame";
-        // TODO comprobar cuando hay que escalar o no
-        libyuv::I420Scale(
-            mediaFrame->data(0), mediaFrame->stride(0),
-		    mediaFrame->data(1), mediaFrame->stride(1),
-		    mediaFrame->data(2), mediaFrame->stride(2),
-		    frame->codedWidth(), frame->codedHeight(),
-		    scaledY_ + offsetX + (offsetY*scaledStrideY_), scaledStrideY_, 		
-		    scaledU_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideU_,
-		    scaledV_ + offsetX/2 + (offsetY*scaledStrideU_/2), scaledStrideV_,
-		    scaledWidth, scaledHeight,
-		    libyuv::FilterMode::kFilterBox);
-    }
 
     libyuv::I420ToUYVY(scaledY_, scaledStrideY_,
             scaledU_, scaledStrideU_,
@@ -161,6 +239,10 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
             deckLinkBuffer, width_*2,             
             width_, height_-1);    
     decklinkOutput_->DisplayVideoFrameSync(playbackFrame_);
+}
+
+void DecklinkOutputStream::NV12ToI420Rotated(VideoFrame* frame) {
+    
 }
 
 void DecklinkOutputStream::sendBlackFrame(){    
