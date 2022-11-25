@@ -241,10 +241,6 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     decklinkOutput_->DisplayVideoFrameSync(playbackFrame_);
 }
 
-void DecklinkOutputStream::NV12ToI420Rotated(VideoFrame* frame) {
-    
-}
-
 void DecklinkOutputStream::sendBlackFrame(){    
     memset(scaledY_, 0, scaledStrideY_ * height_);
     memset(scaledU_, 128, scaledStrideU_ * height_);

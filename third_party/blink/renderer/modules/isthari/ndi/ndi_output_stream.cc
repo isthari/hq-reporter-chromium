@@ -80,6 +80,16 @@ void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){
 		    mediaFrame->data(2), mediaFrame->stride(2),
 		    image,
 		    width*2, width, height-1);   
+    } else if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_I420A) {
+        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_BGRA;
+        libyuv::I420AlphaToARGB(
+            mediaFrame->data(0), mediaFrame->stride(0),
+            mediaFrame->data(1), mediaFrame->stride(1),
+            mediaFrame->data(2), mediaFrame->stride(2),
+            mediaFrame->data(3), mediaFrame->stride(3),
+            image, width*4,
+            width, height, 0
+        );
     } else {
         VLOG(0) << "Format " << media::VideoPixelFormatToString(mediaFrame->format());
     }

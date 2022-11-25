@@ -241,6 +241,7 @@ VideoFrame* DecklinkInputStream::getVideoFrame(ExecutionContext* context) {
 
 void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioData){    
     int samples = (int) audioData->GetSampleFrameCount();
+    VLOG(0) << "audio in samples: "<<samples;
     int size = (int) (samples * 2 * 2);
     void *frameBytes;
     audioData->GetBytes(&frameBytes);
@@ -258,8 +259,7 @@ void DecklinkInputStream::onAudioDataReceived(int samples) {
 #ifdef DEBUG_AUDIO    
     fwrite(audioBuffer_[0], 1, samples*2*2, fptrOriginal);
 #endif    
-    ScriptState* callback_relevant_script_state = audioCallback_->
-    CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
+    ScriptState* callback_relevant_script_state = audioCallback_->CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
 
     if (!IsCallbackFunctionRunnable(callback_relevant_script_state,
                                   audioCallback_->IncumbentScriptState())) {
