@@ -48,6 +48,12 @@ private:
     uint8_t* scaledV_;
     int scaledWidth_;
     int scaledHeight_;
+
+    // imagen en formato NV12
+    uint8_t* nv12Y_;
+    uint8_t* nv12UV_;
+    int nv12Width_;
+    int nv12Height_;
     
     // TODO GC
     uint8_t** audioDataTemp_;
@@ -64,16 +70,15 @@ private:
 
     // Acceso gpu
     bool gpuPoolInitialized_;
-    /*
     std::unique_ptr<media::GpuMemoryBufferVideoFramePool> gpuPool_;
-    */
+    
     void retrievedGpuVideoAcceleratorFactories(media::GpuVideoAcceleratorFactories*);
     void frameReadyCB(scoped_refptr<media::VideoFrame>);
     std::unique_ptr<gfx::GpuMemoryBuffer> gpuMemoryBuffer_;
-    /*
+    
     scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
     scoped_refptr<base::TaskRunner> copy_task_runner_;
-    */
+    
 };
 
 }

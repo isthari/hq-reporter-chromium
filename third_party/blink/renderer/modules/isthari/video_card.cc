@@ -71,9 +71,9 @@ void VideoCard::checkIO() {
 	    isOutput_ = false;
     } else {
         // hacer un disable por si ha recargado la pagina
-        VLOG(0) << "Disable video output";
-        deckLinkOutput_->DisableVideoOutput();
-        deckLinkOutput_->DisableAudioOutput();
+        VLOG(0) << "Disable video output IGNORE";
+/*        deckLinkOutput_->DisableVideoOutput();
+        deckLinkOutput_->DisableAudioOutput();*/
         isOutput_ = true;
     }
 
@@ -84,9 +84,10 @@ void VideoCard::checkIO() {
 	isInput_ = false;
     } else {
         // hacer un disable por si ha recargado la pagina
-        deckLinkInput_->StopStreams();
+        VLOG(0) << "Disable video input IGNORE";
+/*        deckLinkInput_->StopStreams();
         deckLinkInput_->DisableVideoInput();
-        deckLinkInput_->DisableAudioInput();
+        deckLinkInput_->DisableAudioInput();*/
         isInput_ = true;	   	
     }
 }
