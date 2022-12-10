@@ -47,6 +47,8 @@ namespace blink {
 
             // seccion de audio
             void processAudioData(IDeckLinkAudioInputPacket* );            
+            void directAudioData(IDeckLinkAudioInputPacket* ); 
+            void directAudioCallback();           
             void OnAudioFrameReceived(scoped_refptr<media::AudioBuffer>);
             void onAudioDataReceived(int samples);            
             void inputAudioCycle();

@@ -3,12 +3,11 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "media/base/audio_buffer.h"
-#include "media/video/gpu_memory_buffer_video_frame_pool.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_audio_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_card_frame_callback.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
-#include "ui/gfx/gpu_memory_buffer.h"
+
 #include <string>
 
 #include "Processing.NDI.Lib.h"
@@ -48,12 +47,6 @@ private:
     uint8_t* scaledV_;
     int scaledWidth_;
     int scaledHeight_;
-
-    // imagen en formato NV12
-    uint8_t* nv12Y_;
-    uint8_t* nv12UV_;
-    int nv12Width_;
-    int nv12Height_;
     
     // TODO GC
     uint8_t** audioDataTemp_;
@@ -67,19 +60,6 @@ private:
     scoped_refptr<base::TaskRunner> taskRunner_;
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     bool enabled_;
-
-    // Acceso gpu
-    bool gpuPoolInitialized_;
-    std::unique_ptr<media::GpuMemoryBufferVideoFramePool> gpuPool_;
-    
-    void retrievedGpuVideoAcceleratorFactories(media::GpuVideoAcceleratorFactories*);
-    void frameReadyCB(scoped_refptr<media::VideoFrame>);
-    std::unique_ptr<gfx::GpuMemoryBuffer> gpuMemoryBuffer_;
-    
-    scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
-    scoped_refptr<base::TaskRunner> copy_task_runner_;
-    
 };
 
 }
-
