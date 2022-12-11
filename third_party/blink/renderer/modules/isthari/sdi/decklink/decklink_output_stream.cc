@@ -79,19 +79,15 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
     libyuv::RotationMode rotationMode = libyuv::kRotate0;
     int rotatedWidth = frame->codedWidth();
     int rotatedHeight = frame->codedHeight();
-    if (transformation == media::VideoRotation::VIDEO_ROTATION_0){
-        VLOG(0) << "Rotation " << 0;
+    if (transformation == media::VideoRotation::VIDEO_ROTATION_0){        
         rotationMode = libyuv::kRotate0;
-    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_90){
-        VLOG(0) << "Rotation " << 90;
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_90){        
         rotationMode = libyuv::kRotate90;
         rotatedWidth = frame->codedHeight();
         rotatedHeight = frame->codedWidth();
-    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_180){
-        VLOG(0) << "Rotation " << 180;
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_180){        
         rotationMode = libyuv::kRotate180;        
-    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_270){
-        VLOG(0) << "Rotation " << 270;
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_270){        
         rotationMode = libyuv::kRotate270;
         rotatedWidth = frame->codedHeight();
         rotatedHeight = frame->codedWidth();
@@ -239,10 +235,6 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
             deckLinkBuffer, width_*2,             
             width_, height_-1);    
     decklinkOutput_->DisplayVideoFrameSync(playbackFrame_);
-}
-
-void DecklinkOutputStream::NV12ToI420Rotated(VideoFrame* frame) {
-    
 }
 
 void DecklinkOutputStream::sendBlackFrame(){    

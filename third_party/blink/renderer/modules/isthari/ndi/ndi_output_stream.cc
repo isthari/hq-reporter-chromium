@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_argb.h"
+#include "third_party/libyuv/include/libyuv/rotate_argb.h"
 
 
 namespace blink {
@@ -34,6 +35,8 @@ NdiOutputStream::NdiOutputStream(std::string label) {
     // TODO GC
     imagePar_.reset(new uint8_t[1920*1080*4]);
     imageImpar_.reset(new uint8_t[1920*1080*4]);
+    imageRotatePar_.reset(new uint8_t[1920*1920*4]);
+    imageRotateImpar_.reset(new uint8_t[1920*1920*4]);
 
     // TODO GC
     // 1024 muetras 2 bytes 16 canales
@@ -44,8 +47,28 @@ void NdiOutputStream::Trace(Visitor* visitor) const {
     ScriptWrappable::Trace(visitor);
 }
 
-void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){    
-    auto mediaFrame = videoFrame->frame();
+void NdiOutputStream::putVideoFrame(VideoFrame* frame){    
+    auto mediaFrame = frame->frame();
+    auto metadata = mediaFrame->metadata();
+    auto transformation = metadata.transformation;
+
+    libyuv::RotationMode rotationMode = libyuv::kRotate0;
+    int rotatedWidth = frame->codedWidth();
+    int rotatedHeight = frame->codedHeight();
+    if (transformation == media::VideoRotation::VIDEO_ROTATION_0){        
+        rotationMode = libyuv::kRotate0;
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_90){        
+        rotationMode = libyuv::kRotate90;
+        rotatedWidth = frame->codedHeight();
+        rotatedHeight = frame->codedWidth();
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_180){        
+        rotationMode = libyuv::kRotate180;        
+    } else if (transformation == media::VideoRotation::VIDEO_ROTATION_270){        
+        rotationMode = libyuv::kRotate270;
+        rotatedWidth = frame->codedHeight();
+        rotatedHeight = frame->codedWidth();
+    } 
+        
     if (mediaFrame->HasGpuMemoryBuffer()) {
         //VLOG(0) << "GPU Frame";
         auto frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
@@ -60,11 +83,9 @@ void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){
         //VLOG(0) << "No GPU Frame";
     }
 
-    int width = videoFrame->codedWidth();
-    int height = videoFrame->codedHeight();
-    //VLOG(0) << "NDI put video frame size: " << width << "," << height;
-    ndiVideoFrame_.xres = width;
-    ndiVideoFrame_.yres = height;
+    int width = frame->codedWidth();
+    int height = frame->codedHeight();
+    //VLOG(0) << "NDI put video frame size: " << width << "," << height;    
     uint8_t* image = videoIndex_%2==0? imagePar_.get() : imageImpar_.get();        
     if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_NV12) {
         //VLOG(0) << "NV12 frame";        
@@ -74,17 +95,38 @@ void NdiOutputStream::putVideoFrame(VideoFrame* videoFrame){
             image, width*4, width, height);
     } else if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_I420) {
         //VLOG(0) << "I420 Frame";
-        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_UYVY;
-        libyuv::I420ToUYVY(mediaFrame->data(0), mediaFrame->stride(0),
+        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_BGRA;
+        libyuv::I420ToARGB(mediaFrame->data(0), mediaFrame->stride(0),
 		    mediaFrame->data(1), mediaFrame->stride(1),
 		    mediaFrame->data(2), mediaFrame->stride(2),
 		    image,
-		    width*2, width, height-1);   
+		    width*4, width, height-1);   
+    } else if (mediaFrame->format()==media::VideoPixelFormat::PIXEL_FORMAT_I420A) {
+        ndiVideoFrame_.FourCC = NDIlib_FourCC_video_type_BGRA;
+        libyuv::I420AlphaToARGB(
+            mediaFrame->data(0), mediaFrame->stride(0),
+            mediaFrame->data(1), mediaFrame->stride(1),
+            mediaFrame->data(2), mediaFrame->stride(2),
+            mediaFrame->data(3), mediaFrame->stride(3),
+            image, width*4,
+            width, height, 0
+        );
     } else {
         VLOG(0) << "Format " << media::VideoPixelFormatToString(mediaFrame->format());
     }
     videoIndex_++;
 		   		 
+    if (rotationMode != libyuv::kRotate0) { 
+        uint8_t* imageRotate = videoIndex_%2==0? imageRotatePar_.get() : imageRotateImpar_.get();        
+        libyuv::ARGBRotate(image, width*4,
+            imageRotate, rotatedWidth*4,
+            width, height,
+            rotationMode);
+        image = imageRotate;
+    }
+
+    ndiVideoFrame_.xres = rotatedWidth;
+    ndiVideoFrame_.yres = rotatedHeight;    
     ndiVideoFrame_.p_data = image;
     NDIlib_send_send_video_async_v2(sender_, &ndiVideoFrame_);		
 }

@@ -30,6 +30,9 @@ private:
     
     std::unique_ptr<uint8_t[]> imagePar_;
     std::unique_ptr<uint8_t[]> imageImpar_;
+
+    std::unique_ptr<uint8_t[]> imageRotatePar_;
+    std::unique_ptr<uint8_t[]> imageRotateImpar_;
     
     uint8_t *audioData_;
     
